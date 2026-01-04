@@ -1,0 +1,76 @@
+# =============================================================================
+# Visagen .gitattributes - Line Endings and Git LFS
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Default Behavior
+# -----------------------------------------------------------------------------
+* text=auto
+
+# -----------------------------------------------------------------------------
+# Source Code - Force LF
+# -----------------------------------------------------------------------------
+*.py text eol=lf
+*.pyx text eol=lf
+*.pxd text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.rst text eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+
+# -----------------------------------------------------------------------------
+# Config Files
+# -----------------------------------------------------------------------------
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+
+# -----------------------------------------------------------------------------
+# Windows Scripts (CRLF for Windows compatibility)
+# -----------------------------------------------------------------------------
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# -----------------------------------------------------------------------------
+# Binary Files - Do Not Modify
+# -----------------------------------------------------------------------------
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.bmp binary
+
+# -----------------------------------------------------------------------------
+# Git LFS - Large Files
+# -----------------------------------------------------------------------------
+# Model weights
+*.pt filter=lfs diff=lfs merge=lfs -text
+*.pth filter=lfs diff=lfs merge=lfs -text
+*.onnx filter=lfs diff=lfs merge=lfs -text
+*.pb filter=lfs diff=lfs merge=lfs -text
+*.h5 filter=lfs diff=lfs merge=lfs -text
+*.hdf5 filter=lfs diff=lfs merge=lfs -text
+*.safetensors filter=lfs diff=lfs merge=lfs -text
+
+# Dataset archives
+*.tar filter=lfs diff=lfs merge=lfs -text
+*.tar.gz filter=lfs diff=lfs merge=lfs -text
+*.zip filter=lfs diff=lfs merge=lfs -text
+
+# Video files
+*.mp4 filter=lfs diff=lfs merge=lfs -text
+*.avi filter=lfs diff=lfs merge=lfs -text
+*.mkv filter=lfs diff=lfs merge=lfs -text
+*.mov filter=lfs diff=lfs merge=lfs -text
