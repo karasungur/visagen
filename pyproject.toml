@@ -36,6 +36,9 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
 ]
+training = [
+    "lpips>=0.1.4",
+]
 vision = [
     "insightface>=0.7.3",
     "onnxruntime-gpu>=1.16.0",
@@ -52,6 +55,7 @@ full = [
     "kornia>=0.7.0",
     "transformers>=4.35.0",
     "tqdm>=4.65.0",
+    "lpips>=0.1.4",
 ]
 
 [project.urls]
