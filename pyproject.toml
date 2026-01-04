@@ -46,6 +46,10 @@ vision = [
     "opencv-python>=4.8.0",
     "tqdm>=4.65.0",
 ]
+postprocess = [
+    "scipy>=1.10.0",
+    "opencv-python>=4.8.0",
+]
 full = [
     "onnx>=1.14.0",
     "onnxruntime>=1.15.0",
@@ -56,6 +60,7 @@ full = [
     "transformers>=4.35.0",
     "tqdm>=4.65.0",
     "lpips>=0.1.4",
+    "scipy>=1.10.0",
 ]
 
 [project.urls]
