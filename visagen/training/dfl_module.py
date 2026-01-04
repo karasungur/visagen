@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional, Tuple, List
 
 from visagen.models.encoders.convnext import ConvNeXtEncoder
 from visagen.models.decoders.decoder import Decoder
+from visagen.training.losses import DSSIMLoss, MultiScaleDSSIMLoss, CombinedLoss
 
 
 class DFLModule(pl.LightningModule):
@@ -20,7 +21,7 @@ class DFLModule(pl.LightningModule):
     DeepFaceLab Lightning Module.
 
     Combines ConvNeXt encoder and decoder for face swapping training.
-    Uses reconstruction loss for initial skeleton testing.
+    Supports multiple loss functions including DSSIM, LPIPS, and ID loss.
 
     Args:
         image_size: Input/output image size. Default: 256.
@@ -32,6 +33,11 @@ class DFLModule(pl.LightningModule):
         learning_rate: Learning rate for optimizer. Default: 1e-4.
         weight_decay: Weight decay for AdamW. Default: 0.01.
         drop_path_rate: Stochastic depth rate. Default: 0.1.
+        dssim_weight: Weight for DSSIM loss. Default: 10.0.
+        l1_weight: Weight for L1 loss. Default: 10.0.
+        lpips_weight: Weight for LPIPS loss. Default: 0.0.
+        id_weight: Weight for identity loss. Default: 0.0.
+        use_multiscale_dssim: Use multi-scale DSSIM. Default: True.
 
     Example:
         >>> module = DFLModule()
@@ -52,6 +58,12 @@ class DFLModule(pl.LightningModule):
         learning_rate: float = 1e-4,
         weight_decay: float = 0.01,
         drop_path_rate: float = 0.1,
+        # Loss weights
+        dssim_weight: float = 10.0,
+        l1_weight: float = 10.0,
+        lpips_weight: float = 0.0,
+        id_weight: float = 0.0,
+        use_multiscale_dssim: bool = True,
     ) -> None:
         super().__init__()
 
@@ -91,6 +103,57 @@ class DFLModule(pl.LightningModule):
             use_attention=True,
         )
 
+        # Build loss functions
+        self._init_losses(
+            dssim_weight=dssim_weight,
+            l1_weight=l1_weight,
+            lpips_weight=lpips_weight,
+            id_weight=id_weight,
+            use_multiscale_dssim=use_multiscale_dssim,
+        )
+
+    def _init_losses(
+        self,
+        dssim_weight: float,
+        l1_weight: float,
+        lpips_weight: float,
+        id_weight: float,
+        use_multiscale_dssim: bool,
+    ) -> None:
+        """Initialize loss functions."""
+        self.dssim_weight = dssim_weight
+        self.l1_weight = l1_weight
+        self.lpips_weight = lpips_weight
+        self.id_weight = id_weight
+
+        # DSSIM loss
+        if use_multiscale_dssim:
+            self.dssim_loss = MultiScaleDSSIMLoss()
+        else:
+            self.dssim_loss = DSSIMLoss()
+
+        # LPIPS loss (lazy loaded)
+        self._lpips_loss = None
+
+        # ID loss (lazy loaded)
+        self._id_loss = None
+
+    @property
+    def lpips_loss(self):
+        """Lazy load LPIPS loss."""
+        if self._lpips_loss is None and self.lpips_weight > 0:
+            from visagen.training.losses import LPIPSLoss
+            self._lpips_loss = LPIPSLoss()
+        return self._lpips_loss
+
+    @property
+    def id_loss(self):
+        """Lazy load ID loss."""
+        if self._id_loss is None and self.id_weight > 0:
+            from visagen.training.losses import IDLoss
+            self._id_loss = IDLoss()
+        return self._id_loss
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass: encode and decode.
@@ -114,6 +177,51 @@ class DFLModule(pl.LightningModule):
 
         return output
 
+    def compute_loss(
+        self,
+        pred: torch.Tensor,
+        target: torch.Tensor,
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """
+        Compute combined loss.
+
+        Args:
+            pred: Predicted image (B, C, H, W).
+            target: Target image (B, C, H, W).
+
+        Returns:
+            Tuple of (total_loss, loss_dict).
+        """
+        losses = {}
+        total = torch.tensor(0.0, device=pred.device, dtype=pred.dtype)
+
+        # DSSIM loss
+        if self.dssim_weight > 0:
+            loss_dssim = self.dssim_loss(pred, target)
+            losses["dssim"] = loss_dssim
+            total = total + self.dssim_weight * loss_dssim
+
+        # L1 loss
+        if self.l1_weight > 0:
+            loss_l1 = F.l1_loss(pred, target)
+            losses["l1"] = loss_l1
+            total = total + self.l1_weight * loss_l1
+
+        # LPIPS loss
+        if self.lpips_weight > 0 and self.lpips_loss is not None:
+            loss_lpips = self.lpips_loss(pred, target)
+            losses["lpips"] = loss_lpips
+            total = total + self.lpips_weight * loss_lpips
+
+        # ID loss
+        if self.id_weight > 0 and self.id_loss is not None:
+            loss_id = self.id_loss(pred, target)
+            losses["id"] = loss_id
+            total = total + self.id_weight * loss_id
+
+        losses["total"] = total
+        return total, losses
+
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
@@ -129,17 +237,17 @@ class DFLModule(pl.LightningModule):
         """
         src, dst = batch
 
-        # For skeleton testing: reconstruct source from source
-        # (Real training will use src->dst mapping)
-        output = self(src)
+        # Forward pass (reconstruct source from source)
+        pred = self(src)
 
-        # Reconstruction loss (L1)
-        loss = F.l1_loss(output, src)
+        # Compute losses
+        total_loss, loss_dict = self.compute_loss(pred, src)
 
-        # Log metrics
-        self.log("train_loss", loss, prog_bar=True)
+        # Log all losses
+        for name, value in loss_dict.items():
+            self.log(f"train_{name}", value, prog_bar=(name == "total"))
 
-        return loss
+        return total_loss
 
     def validation_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -155,12 +263,15 @@ class DFLModule(pl.LightningModule):
             Loss value.
         """
         src, dst = batch
-        output = self(src)
-        loss = F.l1_loss(output, src)
+        pred = self(src)
 
-        self.log("val_loss", loss, prog_bar=True)
+        total_loss, loss_dict = self.compute_loss(pred, src)
 
-        return loss
+        # Log validation losses
+        for name, value in loss_dict.items():
+            self.log(f"val_{name}", value, prog_bar=(name == "total"))
+
+        return total_loss
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """
