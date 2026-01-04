@@ -28,9 +28,10 @@ class TestFaceType:
         assert FaceType.HALF == 0
         assert FaceType.MID_FULL == 1
         assert FaceType.FULL == 2
-        assert FaceType.WHOLE_FACE == 3
-        assert FaceType.HEAD == 4
-        assert FaceType.HEAD_NO_ALIGN == 10
+        assert FaceType.FULL_NO_ALIGN == 3
+        assert FaceType.WHOLE_FACE == 4
+        assert FaceType.HEAD == 5
+        assert FaceType.HEAD_NO_ALIGN == 6
 
     def test_face_type_to_string(self):
         """Verify string conversion."""
@@ -47,7 +48,8 @@ class TestFaceType:
     def test_face_type_padding_values(self):
         """Verify padding values are defined for all types."""
         for face_type in [FaceType.HALF, FaceType.MID_FULL, FaceType.FULL,
-                          FaceType.WHOLE_FACE, FaceType.HEAD]:
+                          FaceType.FULL_NO_ALIGN, FaceType.WHOLE_FACE,
+                          FaceType.HEAD, FaceType.HEAD_NO_ALIGN]:
             assert face_type in FACE_TYPE_TO_PADDING
             padding, remove_align = FACE_TYPE_TO_PADDING[face_type]
             assert isinstance(padding, float)
