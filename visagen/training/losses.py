@@ -556,3 +556,162 @@ class CombinedLoss(nn.Module):
 
         losses["total"] = total
         return total, losses
+
+
+class GANLoss(nn.Module):
+    """
+    GAN Loss for generator training.
+
+    Supports multiple GAN loss modes for flexibility in training dynamics.
+
+    Args:
+        mode: Loss mode - 'vanilla', 'lsgan', or 'hinge'. Default: 'vanilla'.
+        target_real_label: Target label for real images. Default: 1.0.
+        target_fake_label: Target label for fake images. Default: 0.0.
+
+    Example:
+        >>> gan_loss = GANLoss(mode='vanilla')
+        >>> d_fake = discriminator(generated_image)
+        >>> g_loss = gan_loss(d_fake, target_is_real=True)  # Generator wants D to classify as real
+    """
+
+    def __init__(
+        self,
+        mode: str = "vanilla",
+        target_real_label: float = 1.0,
+        target_fake_label: float = 0.0,
+    ) -> None:
+        super().__init__()
+
+        self.mode = mode
+        self.register_buffer("real_label", torch.tensor(target_real_label))
+        self.register_buffer("fake_label", torch.tensor(target_fake_label))
+
+        if mode == "vanilla":
+            self.loss_fn = nn.BCEWithLogitsLoss()
+        elif mode == "lsgan":
+            self.loss_fn = nn.MSELoss()
+        elif mode == "hinge":
+            self.loss_fn = None  # Custom implementation
+        else:
+            raise ValueError(f"Unknown GAN loss mode: {mode}")
+
+    def _get_target_tensor(
+        self, prediction: torch.Tensor, target_is_real: bool
+    ) -> torch.Tensor:
+        """Create target tensor with same shape as prediction."""
+        target_val = self.real_label if target_is_real else self.fake_label
+        return target_val.expand_as(prediction)
+
+    def forward(
+        self,
+        prediction: torch.Tensor,
+        target_is_real: bool,
+    ) -> torch.Tensor:
+        """
+        Compute GAN loss.
+
+        Args:
+            prediction: Discriminator output logits.
+            target_is_real: Whether target should be real (True) or fake (False).
+
+        Returns:
+            Loss value (scalar).
+        """
+        if self.mode == "hinge":
+            if target_is_real:
+                return -prediction.mean()
+            else:
+                return prediction.mean()
+        else:
+            target = self._get_target_tensor(prediction, target_is_real)
+            return self.loss_fn(prediction, target)
+
+
+class DiscriminatorLoss(nn.Module):
+    """
+    Discriminator loss combining real and fake classification losses.
+
+    Computes: (loss_real + loss_fake) / 2
+
+    The discriminator learns to output high values for real images
+    and low values for generated (fake) images.
+
+    Args:
+        mode: Loss mode - 'vanilla', 'lsgan', or 'hinge'. Default: 'vanilla'.
+
+    Example:
+        >>> d_loss_fn = DiscriminatorLoss(mode='vanilla')
+        >>> d_real = discriminator(real_image)
+        >>> d_fake = discriminator(fake_image.detach())
+        >>> d_loss = d_loss_fn(d_real, d_fake)
+    """
+
+    def __init__(self, mode: str = "vanilla") -> None:
+        super().__init__()
+
+        self.mode = mode
+        self.gan_loss = GANLoss(mode=mode)
+
+    def forward(
+        self,
+        d_real: torch.Tensor,
+        d_fake: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute discriminator loss.
+
+        Args:
+            d_real: Discriminator output for real images.
+            d_fake: Discriminator output for fake/generated images.
+
+        Returns:
+            Combined discriminator loss (scalar).
+        """
+        if self.mode == "hinge":
+            # Hinge loss: max(0, 1 - D(real)) + max(0, 1 + D(fake))
+            loss_real = F.relu(1.0 - d_real).mean()
+            loss_fake = F.relu(1.0 + d_fake).mean()
+        else:
+            loss_real = self.gan_loss(d_real, target_is_real=True)
+            loss_fake = self.gan_loss(d_fake, target_is_real=False)
+
+        return (loss_real + loss_fake) * 0.5
+
+
+class TotalVariationLoss(nn.Module):
+    """
+    Total Variation loss to suppress noise and artifacts.
+
+    Encourages spatial smoothness by penalizing differences
+    between neighboring pixels. Useful in GAN training to
+    reduce random bright dots and artifacts.
+
+    Args:
+        weight: Loss weight multiplier. Default: 1e-6.
+
+    Example:
+        >>> tv_loss = TotalVariationLoss(weight=1e-6)
+        >>> loss = tv_loss(generated_image)
+    """
+
+    def __init__(self, weight: float = 1e-6) -> None:
+        super().__init__()
+        self.weight = weight
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Compute total variation loss.
+
+        Args:
+            x: Input tensor (B, C, H, W).
+
+        Returns:
+            TV loss value (scalar).
+        """
+        # Horizontal differences
+        diff_h = x[:, :, 1:, :] - x[:, :, :-1, :]
+        # Vertical differences
+        diff_w = x[:, :, :, 1:] - x[:, :, :, :-1]
+
+        return self.weight * (diff_h.pow(2).mean() + diff_w.pow(2).mean())
