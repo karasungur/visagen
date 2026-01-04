@@ -50,6 +50,13 @@ postprocess = [
     "scipy>=1.10.0",
     "opencv-python>=4.8.0",
 ]
+tuning = [
+    "optuna>=3.0.0",
+    "optuna-integration[pytorch_lightning]>=3.0.0",
+]
+gui = [
+    "gradio>=4.0.0",
+]
 full = [
     "onnx>=1.14.0",
     "onnxruntime>=1.15.0",
@@ -61,6 +68,9 @@ full = [
     "tqdm>=4.65.0",
     "lpips>=0.1.4",
     "scipy>=1.10.0",
+    "optuna>=3.0.0",
+    "optuna-integration[pytorch_lightning]>=3.0.0",
+    "gradio>=4.0.0",
 ]
 
 [project.urls]
@@ -72,6 +82,8 @@ Issues = "https://github.com/karasungur/visagen/issues"
 [project.scripts]
 visagen-extract = "visagen.tools.extract_v2:main"
 visagen-train = "visagen.tools.train:main"
+visagen-tune = "visagen.tools.tune:main"
+visagen-gui = "visagen.tools.gradio_app:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
