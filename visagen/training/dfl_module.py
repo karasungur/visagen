@@ -3,13 +3,14 @@ DFL Lightning Module for Visagen.
 
 Main training module that combines encoder and decoder,
 manages the training loop, and handles optimization.
+Supports optional GAN training with PatchGAN discriminator.
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, Union
 
 from visagen.models.encoders.convnext import ConvNeXtEncoder
 from visagen.models.decoders.decoder import Decoder
@@ -18,10 +19,11 @@ from visagen.training.losses import DSSIMLoss, MultiScaleDSSIMLoss, CombinedLoss
 
 class DFLModule(pl.LightningModule):
     """
-    DeepFaceLab Lightning Module.
+    DeepFaceLab Lightning Module with optional GAN training.
 
     Combines ConvNeXt encoder and decoder for face swapping training.
-    Supports multiple loss functions including DSSIM, LPIPS, and ID loss.
+    Supports multiple loss functions including DSSIM, LPIPS, ID loss,
+    and optional adversarial training with PatchGAN discriminator.
 
     Args:
         image_size: Input/output image size. Default: 256.
@@ -38,6 +40,11 @@ class DFLModule(pl.LightningModule):
         lpips_weight: Weight for LPIPS loss. Default: 0.0.
         id_weight: Weight for identity loss. Default: 0.0.
         use_multiscale_dssim: Use multi-scale DSSIM. Default: True.
+        gan_power: GAN loss weight. 0 disables GAN training. Default: 0.0.
+        gan_patch_size: Discriminator target receptive field. Default: 70.
+        gan_mode: GAN loss mode ('vanilla', 'lsgan', 'hinge'). Default: 'vanilla'.
+        gan_base_ch: Discriminator base channels. Default: 16.
+        use_spectral_norm: Use spectral normalization in discriminator. Default: False.
 
     Example:
         >>> module = DFLModule()
@@ -45,15 +52,18 @@ class DFLModule(pl.LightningModule):
         >>> out = module(x)
         >>> out.shape
         torch.Size([2, 3, 256, 256])
+
+        # With GAN training:
+        >>> module = DFLModule(gan_power=0.1, gan_patch_size=70)
     """
 
     def __init__(
         self,
         image_size: int = 256,
         in_channels: int = 3,
-        encoder_dims: List[int] = None,
-        encoder_depths: List[int] = None,
-        decoder_dims: List[int] = None,
+        encoder_dims: Optional[List[int]] = None,
+        encoder_depths: Optional[List[int]] = None,
+        decoder_dims: Optional[List[int]] = None,
         latent_dim: int = 512,
         learning_rate: float = 1e-4,
         weight_decay: float = 0.01,
@@ -64,6 +74,12 @@ class DFLModule(pl.LightningModule):
         lpips_weight: float = 0.0,
         id_weight: float = 0.0,
         use_multiscale_dssim: bool = True,
+        # GAN parameters
+        gan_power: float = 0.0,
+        gan_patch_size: int = 70,
+        gan_mode: str = "vanilla",
+        gan_base_ch: int = 16,
+        use_spectral_norm: bool = False,
     ) -> None:
         super().__init__()
 
@@ -79,8 +95,11 @@ class DFLModule(pl.LightningModule):
             decoder_dims = [512, 256, 128, 64]
 
         # Store config
+        self.in_channels = in_channels
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
+        self.gan_power = gan_power
+        self.gan_mode = gan_mode
 
         # Build encoder
         self.encoder = ConvNeXtEncoder(
@@ -112,6 +131,22 @@ class DFLModule(pl.LightningModule):
             use_multiscale_dssim=use_multiscale_dssim,
         )
 
+        # Initialize GAN components if enabled
+        if gan_power > 0:
+            self._init_gan(
+                in_channels=in_channels,
+                patch_size=gan_patch_size,
+                base_ch=gan_base_ch,
+                use_spectral_norm=use_spectral_norm,
+            )
+            # Manual optimization for GAN training
+            self.automatic_optimization = False
+        else:
+            self.discriminator = None
+            self.gan_loss = None
+            self.d_loss_fn = None
+            self.tv_loss = None
+
     def _init_losses(
         self,
         dssim_weight: float,
@@ -137,6 +172,28 @@ class DFLModule(pl.LightningModule):
 
         # ID loss (lazy loaded)
         self._id_loss = None
+
+    def _init_gan(
+        self,
+        in_channels: int,
+        patch_size: int,
+        base_ch: int,
+        use_spectral_norm: bool,
+    ) -> None:
+        """Initialize GAN components."""
+        from visagen.models.discriminators import UNetPatchDiscriminator
+        from visagen.training.losses import GANLoss, DiscriminatorLoss, TotalVariationLoss
+
+        self.discriminator = UNetPatchDiscriminator(
+            in_channels=in_channels,
+            patch_size=patch_size,
+            base_ch=base_ch,
+            use_spectral_norm=use_spectral_norm,
+        )
+
+        self.gan_loss = GANLoss(mode=self.gan_mode)
+        self.d_loss_fn = DiscriminatorLoss(mode=self.gan_mode)
+        self.tv_loss = TotalVariationLoss(weight=1e-6)
 
     @property
     def lpips_loss(self):
@@ -183,7 +240,7 @@ class DFLModule(pl.LightningModule):
         target: torch.Tensor,
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
-        Compute combined loss.
+        Compute combined reconstruction loss.
 
         Args:
             pred: Predicted image (B, C, H, W).
@@ -224,19 +281,32 @@ class DFLModule(pl.LightningModule):
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    ) -> Optional[torch.Tensor]:
         """
-        Training step.
+        Training step with optional GAN training.
+
+        When GAN is enabled (gan_power > 0):
+        1. Generator step: reconstruction loss + adversarial loss
+        2. Discriminator step: real vs fake classification
 
         Args:
             batch: Tuple of (source, target) tensors.
             batch_idx: Batch index.
 
         Returns:
-            Loss value.
+            Loss value (only when GAN is disabled).
         """
         src, dst = batch
 
+        if self.gan_power > 0:
+            return self._training_step_gan(src, dst, batch_idx)
+        else:
+            return self._training_step_ae(src, dst, batch_idx)
+
+    def _training_step_ae(
+        self, src: torch.Tensor, dst: torch.Tensor, batch_idx: int
+    ) -> torch.Tensor:
+        """Standard autoencoder training step."""
         # Forward pass (reconstruct source from source)
         pred = self(src)
 
@@ -248,6 +318,69 @@ class DFLModule(pl.LightningModule):
             self.log(f"train_{name}", value, prog_bar=(name == "total"))
 
         return total_loss
+
+    def _training_step_gan(
+        self, src: torch.Tensor, dst: torch.Tensor, batch_idx: int
+    ) -> None:
+        """GAN training step with manual optimization."""
+        g_opt, d_opt = self.optimizers()
+
+        # Forward pass
+        pred = self(src)
+
+        # === GENERATOR STEP ===
+        g_opt.zero_grad()
+
+        # Reconstruction loss
+        total_loss, loss_dict = self.compute_loss(pred, src)
+
+        # Adversarial loss for generator
+        # Generator wants discriminator to classify fake as real
+        d_fake_center, d_fake_final = self.discriminator(pred)
+
+        g_adv_loss = (
+            self.gan_loss(d_fake_center, target_is_real=True) +
+            self.gan_loss(d_fake_final, target_is_real=True)
+        )
+
+        # Total variation to suppress artifacts
+        tv_loss = self.tv_loss(pred)
+
+        # Combined generator loss
+        g_total = total_loss + self.gan_power * g_adv_loss + tv_loss
+
+        self.manual_backward(g_total)
+        g_opt.step()
+
+        loss_dict["g_adv"] = g_adv_loss
+        loss_dict["tv"] = tv_loss
+        loss_dict["g_total"] = g_total
+
+        # === DISCRIMINATOR STEP ===
+        d_opt.zero_grad()
+
+        # Detach generated images to avoid backprop through generator
+        pred_detached = pred.detach()
+
+        # Discriminator outputs for real and fake
+        d_real_center, d_real_final = self.discriminator(src)
+        d_fake_center, d_fake_final = self.discriminator(pred_detached)
+
+        # Discriminator loss (real=1, fake=0)
+        d_loss = (
+            self.d_loss_fn(d_real_center, d_fake_center) +
+            self.d_loss_fn(d_real_final, d_fake_final)
+        ) * 0.5
+
+        self.manual_backward(d_loss)
+        d_opt.step()
+
+        loss_dict["d_loss"] = d_loss
+
+        # Log losses
+        for name, value in loss_dict.items():
+            prog_bar = name in ["total", "d_loss", "g_adv"]
+            self.log(f"train_{name}", value, prog_bar=prog_bar)
 
     def validation_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -273,30 +406,69 @@ class DFLModule(pl.LightningModule):
 
         return total_loss
 
-    def configure_optimizers(self) -> Dict[str, Any]:
+    def configure_optimizers(self) -> Union[Dict[str, Any], Tuple[List, List]]:
         """
-        Configure optimizer and scheduler.
+        Configure optimizer(s) and scheduler(s).
+
+        When GAN is enabled, returns two optimizers:
+        - Generator optimizer (encoder + decoder)
+        - Discriminator optimizer
 
         Returns:
-            Dict with optimizer and lr_scheduler configuration.
+            Single optimizer dict (AE mode) or tuple of optimizer/scheduler lists (GAN mode).
         """
-        optimizer = torch.optim.AdamW(
-            self.parameters(),
-            lr=self.learning_rate,
-            weight_decay=self.weight_decay,
-            betas=(0.9, 0.999),
-        )
+        max_epochs = self.trainer.max_epochs if self.trainer else 100
 
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=self.trainer.max_epochs if self.trainer else 100,
-            eta_min=1e-6,
-        )
+        if self.gan_power > 0:
+            # Generator optimizer (encoder + decoder)
+            g_params = list(self.encoder.parameters()) + list(self.decoder.parameters())
+            g_optimizer = torch.optim.AdamW(
+                g_params,
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay,
+                betas=(0.9, 0.999),
+            )
 
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "epoch",
-            },
-        }
+            # Discriminator optimizer
+            d_optimizer = torch.optim.AdamW(
+                self.discriminator.parameters(),
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay,
+                betas=(0.9, 0.999),
+            )
+
+            # Schedulers
+            g_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                g_optimizer, T_max=max_epochs, eta_min=1e-6
+            )
+            d_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                d_optimizer, T_max=max_epochs, eta_min=1e-6
+            )
+
+            return (
+                [g_optimizer, d_optimizer],
+                [
+                    {"scheduler": g_scheduler, "interval": "epoch"},
+                    {"scheduler": d_scheduler, "interval": "epoch"},
+                ],
+            )
+        else:
+            # Standard single optimizer
+            optimizer = torch.optim.AdamW(
+                self.parameters(),
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay,
+                betas=(0.9, 0.999),
+            )
+
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=max_epochs, eta_min=1e-6
+            )
+
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "epoch",
+                },
+            }
