@@ -105,6 +105,7 @@ Issues = "https://github.com/karasungur/visagen/issues"
 [project.scripts]
 visagen-extract = "visagen.tools.extract_v2:main"
 visagen-train = "visagen.tools.train:main"
+visagen-pretrain = "visagen.tools.pretrain:main"
 visagen-tune = "visagen.tools.tune:main"
 visagen-gui = "visagen.tools.gradio_app:main"
 visagen-merge = "visagen.tools.merge:main"

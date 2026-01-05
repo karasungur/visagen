@@ -179,6 +179,12 @@ Examples:
         help="Resume from checkpoint path",
     )
     parser.add_argument(
+        "--pretrain-from",
+        type=Path,
+        default=None,
+        help="Load pretrained checkpoint weights (resets epoch counter to 0)",
+    )
+    parser.add_argument(
         "--save-top-k",
         type=int,
         default=3,
@@ -294,16 +300,41 @@ def main() -> int:
     print(f"  L1 weight: {args.l1_weight}")
     print(f"  LPIPS weight: {args.lpips_weight}")
 
-    model = DFLModule(
-        image_size=args.image_size,
-        encoder_dims=encoder_dims,
-        encoder_depths=encoder_depths,
-        decoder_dims=decoder_dims,
-        learning_rate=args.learning_rate,
-        dssim_weight=args.dssim_weight,
-        l1_weight=args.l1_weight,
-        lpips_weight=args.lpips_weight,
-    )
+    if args.pretrain_from is not None:
+        # Load pretrained weights for fine-tuning
+        if not args.pretrain_from.exists():
+            print(f"Error: Pretrained checkpoint not found: {args.pretrain_from}")
+            return 1
+
+        print(f"  Pretrained from: {args.pretrain_from}")
+
+        from visagen.training.pretrain_module import PretrainModule
+
+        model = PretrainModule.load_for_finetune(
+            checkpoint_path=args.pretrain_from,
+            strict=False,
+            # Override with CLI settings
+            image_size=args.image_size,
+            encoder_dims=encoder_dims,
+            encoder_depths=encoder_depths,
+            decoder_dims=decoder_dims,
+            learning_rate=args.learning_rate,
+            dssim_weight=args.dssim_weight,
+            l1_weight=args.l1_weight,
+            lpips_weight=args.lpips_weight,
+        )
+        print("  Mode: Fine-tuning from pretrained weights (epoch resets to 0)")
+    else:
+        model = DFLModule(
+            image_size=args.image_size,
+            encoder_dims=encoder_dims,
+            encoder_depths=encoder_depths,
+            decoder_dims=decoder_dims,
+            learning_rate=args.learning_rate,
+            dssim_weight=args.dssim_weight,
+            l1_weight=args.l1_weight,
+            lpips_weight=args.lpips_weight,
+        )
 
     # Callbacks
     callbacks = [

@@ -23,6 +23,13 @@ from visagen.data.datamodule import FaceDataModule, PairedFaceDataset
 from visagen.data.face_dataset import FaceDataset, SimpleFaceDataset
 from visagen.data.face_sample import FaceSample
 from visagen.data.noise_dataset import RandomNoiseDataset
+from visagen.data.pretrain_datamodule import (
+    PRETRAIN_AUGMENTATION_CONFIG,
+    PretrainDataModule,
+    PretrainDataset,
+    scan_images_flat,
+    scan_images_recursive,
+)
 from visagen.data.warp import gen_warp_params, warp_by_params
 
 __all__ = [
@@ -40,6 +47,12 @@ __all__ = [
     # PyTorch DataModule
     "PairedFaceDataset",
     "FaceDataModule",
+    # Pretrain DataModule
+    "PretrainDataset",
+    "PretrainDataModule",
+    "PRETRAIN_AUGMENTATION_CONFIG",
+    "scan_images_recursive",
+    "scan_images_flat",
     # DALI pipeline
     "DALI_AVAILABLE",
     "check_dali_available",
