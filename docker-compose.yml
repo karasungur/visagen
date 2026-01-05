@@ -1,0 +1,153 @@
+# =============================================================================
+# Visagen Docker Compose Configuration
+# =============================================================================
+# Usage:
+#   docker compose up              # Start Gradio UI
+#   docker compose up train        # Start training service
+#   docker compose run --rm cli    # Run CLI commands
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Main Visagen service with Gradio UI
+  # ---------------------------------------------------------------------------
+  visagen:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: visagen:latest
+    container_name: visagen
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      - GRADIO_SERVER_NAME=0.0.0.0
+      - GRADIO_SERVER_PORT=7860
+    ports:
+      - "7860:7860"
+    volumes:
+      # Workspace for user data (src/dst videos, checkpoints, outputs)
+      - ./workspace:/workspace
+      # Optional: Mount local models directory
+      - ./models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Training service with TensorBoard
+  # ---------------------------------------------------------------------------
+  train:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: visagen:dev
+    container_name: visagen-train
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+    ports:
+      - "6006:6006"  # TensorBoard
+    volumes:
+      - ./workspace:/workspace
+      - ./models:/app/models
+      - ./logs:/app/logs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      python -m visagen.tools.train
+      --config /workspace/config.yaml
+      --output /workspace/checkpoints
+    profiles:
+      - training
+
+  # ---------------------------------------------------------------------------
+  # CLI service for running commands
+  # ---------------------------------------------------------------------------
+  cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: visagen:latest
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+    volumes:
+      - ./workspace:/workspace
+      - ./models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    entrypoint: ["/bin/bash", "-c"]
+    profiles:
+      - cli
+
+  # ---------------------------------------------------------------------------
+  # Development service with Jupyter and full dev tools
+  # ---------------------------------------------------------------------------
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: visagen:dev
+    container_name: visagen-dev
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      - JUPYTER_TOKEN=visagen
+    ports:
+      - "7860:7860"  # Gradio
+      - "6006:6006"  # TensorBoard
+      - "8888:8888"  # Jupyter
+    volumes:
+      # Mount source code for live development
+      - .:/app
+      - ./workspace:/workspace
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      bash -c "jupyter notebook --ip=0.0.0.0 --port=8888 --allow-root --no-browser"
+    profiles:
+      - development
+
+# =============================================================================
+# Named Volumes (optional, for persistent data)
+# =============================================================================
+volumes:
+  workspace:
+    driver: local
+  models:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  default:
+    name: visagen-network
