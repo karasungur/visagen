@@ -112,7 +112,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,postprocess,training,export]"
+          pip install -e ".[dev,postprocess,training,export,merger]"
           pip install onnxruntime  # CPU version for CI (override GPU version)
           pip install opencv-python-headless  # Headless for CI (no GUI)
 
