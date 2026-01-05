@@ -1,8 +1,8 @@
 """
 Post-processing modules for Visagen.
 
-Includes color transfer and blending algorithms for face merging
-and post-production workflows.
+Includes color transfer, blending algorithms, and face restoration
+for face merging and post-production workflows.
 
 Color Transfer:
     - reinhard_color_transfer (RCT): LAB space statistics matching
@@ -15,6 +15,11 @@ Blending:
     - laplacian_pyramid_blend: Multi-band frequency-based fusion
     - poisson_blend: Gradient-domain seamless cloning
     - feather_blend: Simple alpha blending with feathered edges
+
+Face Restoration:
+    - FaceRestorer: GFPGAN-based face enhancement
+    - restore_face: One-shot face restoration function
+    - is_gfpgan_available: Check GFPGAN availability
 """
 
 from visagen.postprocess.blending import (
@@ -38,6 +43,12 @@ from visagen.postprocess.color_transfer import (
     linear_color_transfer,
     reinhard_color_transfer,
 )
+from visagen.postprocess.restore import (
+    FaceRestorer,
+    RestoreConfig,
+    is_gfpgan_available,
+    restore_face,
+)
 
 __all__ = [
     # Color transfer
@@ -59,4 +70,9 @@ __all__ = [
     "build_laplacian_pyramid",
     "reconstruct_from_laplacian",
     "BlendMode",
+    # Face restoration
+    "FaceRestorer",
+    "RestoreConfig",
+    "restore_face",
+    "is_gfpgan_available",
 ]

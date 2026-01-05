@@ -47,6 +47,9 @@ class FrameProcessorConfig:
         mask_blur: Mask blur kernel size. Default: 5.
         sharpen: Apply sharpening to output. Default: False.
         sharpen_amount: Sharpening intensity. Default: 0.3.
+        restore_face: Enable GFPGAN face restoration. Default: False.
+        restore_strength: Restoration strength (0.0-1.0). Default: 0.5.
+        restore_model_version: GFPGAN model version (1.2, 1.3, 1.4). Default: 1.4.
     """
 
     # Detection
@@ -67,6 +70,11 @@ class FrameProcessorConfig:
     # Post-processing
     sharpen: bool = False
     sharpen_amount: float = 0.3
+
+    # Face restoration (GFPGAN)
+    restore_face: bool = False
+    restore_strength: float = 0.5
+    restore_model_version: float = 1.4
 
 
 @dataclass
@@ -151,6 +159,7 @@ class FrameProcessor:
         self._detector = None
         self._aligner = None
         self._segmenter = None
+        self._restorer = None
 
     def _load_model(
         self, model: Union[str, Path, "torch.nn.Module"]
@@ -237,6 +246,20 @@ class FrameProcessor:
             self._segmenter = FaceSegmenter()
         return self._segmenter
 
+    @property
+    def restorer(self):
+        """Lazy-load face restorer (GFPGAN)."""
+        if self._restorer is None and self.config.restore_face:
+            from visagen.postprocess.restore import FaceRestorer, RestoreConfig
+
+            restore_config = RestoreConfig(
+                enabled=True,
+                strength=self.config.restore_strength,
+                model_version=self.config.restore_model_version,
+            )
+            self._restorer = FaceRestorer(restore_config, device=self.device)
+        return self._restorer
+
     def process_frame(
         self,
         frame: np.ndarray,
@@ -275,6 +298,10 @@ class FrameProcessor:
                         swapped_face = self._apply_color_transfer(
                             swapped_face, aligned_face
                         )
+
+                    # Apply face restoration (GFPGAN)
+                    if self.config.restore_face:
+                        swapped_face = self._apply_restoration(swapped_face)
 
                     # Blend back to frame
                     output = self._blend_to_frame(output, swapped_face, face_meta, mask)
@@ -411,6 +438,21 @@ class FrameProcessor:
         else:
             # Unknown mode, return unchanged
             return swapped_face
+
+    def _apply_restoration(self, swapped_face: np.ndarray) -> np.ndarray:
+        """
+        Apply GFPGAN face restoration.
+
+        Args:
+            swapped_face: Swapped face (H, W, 3) BGR uint8.
+
+        Returns:
+            Restored face (H, W, 3) BGR uint8.
+        """
+        if self.restorer is None:
+            return swapped_face
+
+        return self.restorer.restore(swapped_face)
 
     def _blend_to_frame(
         self,
