@@ -118,6 +118,27 @@ Examples:
         help="Mask blur kernel size (default: 5)",
     )
 
+    # Face restoration options
+    restore = parser.add_argument_group("Face Restoration")
+    restore.add_argument(
+        "--restore-face",
+        action="store_true",
+        help="Enable GFPGAN face restoration",
+    )
+    restore.add_argument(
+        "--restore-strength",
+        type=float,
+        default=0.5,
+        help="Restoration strength 0.0-1.0 (default: 0.5)",
+    )
+    restore.add_argument(
+        "--restore-model",
+        type=float,
+        default=1.4,
+        choices=[1.2, 1.3, 1.4],
+        help="GFPGAN model version (default: 1.4)",
+    )
+
     # Video output options
     video = parser.add_argument_group("Video Output")
     video.add_argument(
@@ -250,6 +271,9 @@ def build_config(args: argparse.Namespace) -> MergerConfig:
         blend_mode=args.blend_mode,
         mask_erode=args.mask_erode,
         mask_blur=args.mask_blur,
+        restore_face=args.restore_face,
+        restore_strength=args.restore_strength,
+        restore_model_version=args.restore_model,
     )
 
     # Handle codec selection
@@ -343,6 +367,9 @@ def main() -> int:
         print(f"  Checkpoint: {args.checkpoint}")
         print(f"  Color transfer: {config.frame_processor_config.color_transfer_mode}")
         print(f"  Blend mode: {config.frame_processor_config.blend_mode}")
+        if config.frame_processor_config.restore_face:
+            print(f"  Face restoration: GFPGAN v{config.frame_processor_config.restore_model_version}")
+            print(f"  Restore strength: {config.frame_processor_config.restore_strength}")
         print(f"  Encoder: {config.codec}")
         print()
 
