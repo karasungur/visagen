@@ -123,8 +123,14 @@ Examples:
     video.add_argument(
         "--codec",
         type=str,
-        default="libx264",
-        help="Video codec (default: libx264)",
+        default="auto",
+        choices=["auto", "libx264", "libx265", "h264_nvenc", "hevc_nvenc"],
+        help="Video codec. 'auto' selects best available (NVENC if GPU) (default: auto)",
+    )
+    video.add_argument(
+        "--no-hardware-encoder",
+        action="store_true",
+        help="Disable hardware encoder (NVENC) even if available",
     )
     video.add_argument(
         "--crf",
@@ -246,6 +252,16 @@ def build_config(args: argparse.Namespace) -> MergerConfig:
         mask_blur=args.mask_blur,
     )
 
+    # Handle codec selection
+    codec = args.codec
+    if args.no_hardware_encoder and codec == "auto":
+        codec = "libx264"  # Force software encoder
+    elif args.no_hardware_encoder and codec in ("h264_nvenc", "hevc_nvenc"):
+        print(
+            "Warning: --no-hardware-encoder used with hardware codec, forcing libx264"
+        )
+        codec = "libx264"
+
     # Build merger config
     config = MergerConfig(
         input_path=args.input,
@@ -253,7 +269,7 @@ def build_config(args: argparse.Namespace) -> MergerConfig:
         checkpoint_path=args.checkpoint,
         frame_processor_config=frame_config,
         num_workers=args.workers,
-        codec=args.codec,
+        codec=codec,
         crf=args.crf,
         preset=args.preset,
         copy_audio=not args.no_audio,
@@ -327,6 +343,7 @@ def main() -> int:
         print(f"  Checkpoint: {args.checkpoint}")
         print(f"  Color transfer: {config.frame_processor_config.color_transfer_mode}")
         print(f"  Blend mode: {config.frame_processor_config.blend_mode}")
+        print(f"  Encoder: {config.codec}")
         print()
 
     try:

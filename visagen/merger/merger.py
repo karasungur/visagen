@@ -47,8 +47,8 @@ class MergerConfig:
         checkpoint_path: Path to trained model checkpoint.
         frame_processor_config: Frame processing configuration.
         num_workers: Number of parallel workers. Default: 1.
-        codec: Video codec. Default: "libx264".
-        crf: Quality factor (0-51, lower is better). Default: 18.
+        codec: Video codec. "auto" selects best available (NVENC if GPU). Default: "auto".
+        crf: Quality factor for software encoders (0-51, lower is better). Default: 18.
         preset: Encoding preset. Default: "medium".
         copy_audio: Copy audio from source. Default: True.
         resume: Resume from previous run. Default: True.
@@ -61,7 +61,7 @@ class MergerConfig:
     checkpoint_path: Path
     frame_processor_config: FrameProcessorConfig | None = None
     num_workers: int = 1
-    codec: str = "libx264"
+    codec: str = "auto"
     crf: int = 18
     preset: str = "medium"
     copy_audio: bool = True

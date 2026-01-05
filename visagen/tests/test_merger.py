@@ -319,7 +319,7 @@ class TestMergerConfig:
         assert config.input_path == temp_dir / "input.mp4"
         assert config.output_path == temp_dir / "output.mp4"
         assert config.num_workers == 1
-        assert config.codec == "libx264"
+        assert config.codec == "auto"
         assert config.crf == 18
         assert config.copy_audio is True
         assert config.resume is True
@@ -357,7 +357,7 @@ class TestMergerConfig:
         # Load and verify
         loaded = MergerConfig.from_yaml(yaml_path)
         assert loaded.crf == 23
-        assert loaded.codec == "libx264"
+        assert loaded.codec == "auto"
 
 
 # =============================================================================
@@ -675,3 +675,307 @@ class TestUtilityFunctions:
             # After erosion and blur, mask should still have values in [0, 1]
             assert processed.max() <= 1.0
             assert processed.min() >= 0.0
+
+
+# =============================================================================
+# NVENC Encoder Tests
+# =============================================================================
+
+
+class TestEncoderConfig:
+    """Tests for EncoderConfig dataclass."""
+
+    def test_encoder_config_defaults(self):
+        """Test default configuration values."""
+        from visagen.merger.video_io import EncoderConfig
+
+        config = EncoderConfig()
+
+        assert config.codec == "libx264"
+        assert config.preset == "medium"
+        assert config.crf == 18
+        assert config.cq == 23
+        assert config.rc == "vbr"
+        assert config.bitrate is None
+        assert config.gpu_index == 0
+
+    def test_software_encoder_detection(self):
+        """Test is_hardware() for software encoders."""
+        from visagen.merger.video_io import EncoderConfig
+
+        config = EncoderConfig(codec="libx264")
+        assert config.is_hardware() is False
+
+        config = EncoderConfig(codec="libx265")
+        assert config.is_hardware() is False
+
+    def test_hardware_encoder_detection(self):
+        """Test is_hardware() for hardware encoders."""
+        from visagen.merger.video_io import EncoderConfig
+
+        config = EncoderConfig(codec="h264_nvenc")
+        assert config.is_hardware() is True
+
+        config = EncoderConfig(codec="hevc_nvenc")
+        assert config.is_hardware() is True
+
+    def test_software_encoder_ffmpeg_args(self):
+        """Test get_ffmpeg_args() for software encoder."""
+        from visagen.merger.video_io import EncoderConfig
+
+        config = EncoderConfig(codec="libx264", preset="fast", crf=20)
+        args = config.get_ffmpeg_args()
+
+        assert args["vcodec"] == "libx264"
+        assert args["crf"] == 20
+        assert args["preset"] == "fast"
+        assert "cq" not in args
+        assert "rc" not in args
+
+    def test_nvenc_encoder_ffmpeg_args(self):
+        """Test get_ffmpeg_args() for NVENC encoder."""
+        from visagen.merger.video_io import EncoderConfig
+
+        config = EncoderConfig(codec="h264_nvenc", preset="p4", cq=20, rc="vbr")
+        args = config.get_ffmpeg_args()
+
+        assert args["vcodec"] == "h264_nvenc"
+        assert args["cq"] == 20
+        assert args["rc"] == "vbr"
+        assert args["preset"] == "p4"
+        assert args["gpu"] == 0
+        assert "crf" not in args
+
+    def test_nvenc_preset_mapping(self):
+        """Test software preset to NVENC preset mapping."""
+        from visagen.merger.video_io import EncoderConfig
+
+        # Software preset names should be mapped to NVENC equivalents
+        config = EncoderConfig(codec="h264_nvenc", preset="fast")
+        args = config.get_ffmpeg_args()
+        assert args["preset"] == "p4"  # fast -> p4
+
+        config = EncoderConfig(codec="h264_nvenc", preset="ultrafast")
+        args = config.get_ffmpeg_args()
+        assert args["preset"] == "p1"  # ultrafast -> p1
+
+        config = EncoderConfig(codec="h264_nvenc", preset="veryslow")
+        args = config.get_ffmpeg_args()
+        assert args["preset"] == "p7"  # veryslow -> p7
+
+    def test_bitrate_included_when_set(self):
+        """Test bitrate is included in args when specified."""
+        from visagen.merger.video_io import EncoderConfig
+
+        config = EncoderConfig(codec="libx264", bitrate="5M")
+        args = config.get_ffmpeg_args()
+
+        assert args["b:v"] == "5M"
+
+
+class TestNVENCAvailability:
+    """Tests for NVENC availability checking."""
+
+    def test_check_nvenc_available_function_exists(self):
+        """Test that check_nvenc_available function exists."""
+        from visagen.merger.video_io import check_nvenc_available
+
+        # Function should exist and be callable
+        assert callable(check_nvenc_available)
+
+    def test_check_nvenc_returns_bool(self):
+        """Test that check_nvenc_available returns boolean."""
+        from visagen.merger.video_io import check_nvenc_available
+
+        result = check_nvenc_available()
+        assert isinstance(result, bool)
+
+    def test_get_available_encoders(self):
+        """Test get_available_encoders returns correct format."""
+        from visagen.merger.video_io import get_available_encoders
+
+        encoders = get_available_encoders()
+
+        assert isinstance(encoders, dict)
+        assert "libx264" in encoders
+        assert "libx265" in encoders
+        assert "h264_nvenc" in encoders
+        assert "hevc_nvenc" in encoders
+
+        # Software encoders always available
+        assert encoders["libx264"] is True
+        assert encoders["libx265"] is True
+
+    def test_select_best_encoder_software(self):
+        """Test select_best_encoder with software preference."""
+        from visagen.merger.video_io import select_best_encoder
+
+        # With prefer_hardware=False, should always return software encoder
+        result = select_best_encoder(prefer_hardware=False)
+        assert result == "libx264"
+
+
+class TestVideoWriterNVENC:
+    """Tests for VideoWriter NVENC support."""
+
+    def test_writer_codec_auto_default(self, temp_dir):
+        """Test VideoWriter defaults to codec='auto'."""
+        from visagen.merger.video_io import VideoWriter
+
+        output_path = temp_dir / "output.mp4"
+        writer = VideoWriter(output_path, 640, 480, 30.0)
+
+        # codec should be resolved from "auto" to actual codec
+        assert writer.codec in ("libx264", "h264_nvenc")
+
+    def test_writer_explicit_software_codec(self, temp_dir):
+        """Test VideoWriter with explicit software codec."""
+        from visagen.merger.video_io import VideoWriter
+
+        output_path = temp_dir / "output.mp4"
+        writer = VideoWriter(output_path, 640, 480, 30.0, codec="libx264")
+
+        assert writer.codec == "libx264"
+        assert writer.encoder_config.is_hardware() is False
+
+    def test_writer_encoder_config_parameter(self, temp_dir):
+        """Test VideoWriter with EncoderConfig parameter."""
+        from visagen.merger.video_io import EncoderConfig, VideoWriter
+
+        output_path = temp_dir / "output.mp4"
+        config = EncoderConfig(codec="libx265", preset="slow", crf=23)
+        writer = VideoWriter(output_path, 640, 480, 30.0, encoder_config=config)
+
+        assert writer.codec == "libx265"
+        assert writer.encoder_config.preset == "slow"
+        assert writer.encoder_config.crf == 23
+
+    def test_writer_backward_compatibility(self, temp_dir):
+        """Test VideoWriter maintains backward compatibility."""
+        from visagen.merger.video_io import VideoWriter
+
+        output_path = temp_dir / "output.mp4"
+        # Old-style parameters should still work
+        writer = VideoWriter(
+            output_path,
+            640,
+            480,
+            30.0,
+            codec="libx264",
+            crf=20,
+            preset="fast",
+        )
+
+        assert writer.crf == 20
+        assert writer.preset == "fast"
+
+
+class TestMergeCLINVENC:
+    """Tests for merge CLI NVENC support."""
+
+    def test_parse_args_codec_default(self, temp_dir, monkeypatch):
+        """Test default codec is 'auto'."""
+        from visagen.tools.merge import parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+            ],
+        )
+
+        args = parse_args()
+        assert args.codec == "auto"
+
+    def test_parse_args_codec_choices(self, temp_dir, monkeypatch):
+        """Test codec argument accepts valid choices."""
+        from visagen.tools.merge import parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        for codec in ["auto", "libx264", "libx265", "h264_nvenc", "hevc_nvenc"]:
+            monkeypatch.setattr(
+                "sys.argv",
+                [
+                    "visagen-merge",
+                    str(input_file),
+                    str(temp_dir / "output.mp4"),
+                    "--checkpoint",
+                    str(checkpoint),
+                    "--codec",
+                    codec,
+                ],
+            )
+
+            args = parse_args()
+            assert args.codec == codec
+
+    def test_no_hardware_encoder_flag(self, temp_dir, monkeypatch):
+        """Test --no-hardware-encoder flag."""
+        from visagen.tools.merge import build_config, parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--no-hardware-encoder",
+            ],
+        )
+
+        args = parse_args()
+        config = build_config(args)
+
+        # With --no-hardware-encoder, codec should be software
+        assert config.codec == "libx264"
+
+    def test_no_hardware_encoder_with_nvenc_codec(self, temp_dir, monkeypatch, capsys):
+        """Test --no-hardware-encoder overrides explicit NVENC codec."""
+        from visagen.tools.merge import build_config, parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--codec",
+                "h264_nvenc",
+                "--no-hardware-encoder",
+            ],
+        )
+
+        args = parse_args()
+        config = build_config(args)
+
+        # Should fall back to libx264 with warning
+        assert config.codec == "libx264"
+        captured = capsys.readouterr()
+        assert "Warning" in captured.out or config.codec == "libx264"

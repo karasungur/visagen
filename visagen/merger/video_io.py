@@ -10,19 +10,25 @@ Features:
     - probe_video: Get video metadata
     - extract_frames_to_dir: Extract all frames to directory
     - video_from_frames: Create video from frame sequence
+    - NVENC hardware encoding support with automatic fallback
 """
 
+import logging
 import subprocess
 import tempfile
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Lazy imports for optional dependencies
 _ffmpeg = None
 _ffmpeg_exe = None
+_nvenc_available: bool | None = None  # Cached NVENC availability
 
 
 def _get_ffmpeg():
@@ -65,6 +71,200 @@ def _get_ffprobe_exe() -> str:
         if Path(ffprobe).exists():
             return ffprobe
     return "ffprobe"
+
+
+# =============================================================================
+# Encoder Configuration
+# =============================================================================
+
+# Supported encoder types
+EncoderType = Literal[
+    "auto",  # Auto-select best available
+    "libx264",  # Software H.264
+    "libx265",  # Software H.265/HEVC
+    "h264_nvenc",  # NVIDIA NVENC H.264
+    "hevc_nvenc",  # NVIDIA NVENC H.265/HEVC
+]
+
+# NVENC presets (p1=fastest, p7=best quality)
+NVENC_PRESETS = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"]
+
+# Software encoder presets
+SOFTWARE_PRESETS = [
+    "ultrafast",
+    "superfast",
+    "veryfast",
+    "faster",
+    "fast",
+    "medium",
+    "slow",
+    "slower",
+    "veryslow",
+]
+
+
+@dataclass
+class EncoderConfig:
+    """
+    Video encoder configuration with hardware acceleration support.
+
+    Supports both software (libx264/libx265) and hardware (NVENC) encoders
+    with appropriate preset and quality settings for each.
+
+    Attributes:
+        codec: Encoder codec. "auto" selects best available.
+        preset: Encoding preset. Software: ultrafast-veryslow, NVENC: p1-p7.
+        crf: Constant rate factor for software encoders (0-51, lower=better).
+        cq: Constant quality for NVENC (0-51, lower=better).
+        rc: NVENC rate control mode (vbr, cbr, cq).
+        bitrate: Optional target bitrate (e.g., "5M", "10M").
+        gpu_index: GPU index for NVENC (multi-GPU support).
+
+    Example:
+        >>> config = EncoderConfig(codec="h264_nvenc", preset="p4", cq=23)
+        >>> config.is_hardware()
+        True
+    """
+
+    codec: str = "libx264"
+    preset: str = "medium"
+    crf: int = 18
+    cq: int = 23
+    rc: str = "vbr"
+    bitrate: str | None = None
+    gpu_index: int = 0
+
+    def is_hardware(self) -> bool:
+        """Check if using hardware encoder."""
+        return self.codec in ("h264_nvenc", "hevc_nvenc")
+
+    def get_ffmpeg_args(self) -> dict:
+        """
+        Get FFmpeg output arguments for this encoder configuration.
+
+        Returns:
+            Dictionary of FFmpeg output arguments.
+        """
+        if self.is_hardware():
+            # NVENC encoder arguments
+            args = {
+                "vcodec": self.codec,
+                "rc": self.rc,
+                "cq": self.cq,
+                "gpu": self.gpu_index,
+            }
+            # Map preset to NVENC format
+            if self.preset in NVENC_PRESETS:
+                args["preset"] = self.preset
+            else:
+                # Map software preset to NVENC equivalent
+                preset_map = {
+                    "ultrafast": "p1",
+                    "superfast": "p2",
+                    "veryfast": "p3",
+                    "faster": "p3",
+                    "fast": "p4",
+                    "medium": "p4",
+                    "slow": "p5",
+                    "slower": "p6",
+                    "veryslow": "p7",
+                }
+                args["preset"] = preset_map.get(self.preset, "p4")
+        else:
+            # Software encoder arguments
+            args = {
+                "vcodec": self.codec,
+                "crf": self.crf,
+                "preset": self.preset if self.preset in SOFTWARE_PRESETS else "medium",
+            }
+
+        # Add bitrate if specified
+        if self.bitrate:
+            args["b:v"] = self.bitrate
+
+        return args
+
+
+def check_nvenc_available() -> bool:
+    """
+    Check if NVENC hardware encoder is available.
+
+    Checks FFmpeg encoders list for h264_nvenc support.
+    Result is cached after first call.
+
+    Returns:
+        True if NVENC is available, False otherwise.
+
+    Example:
+        >>> if check_nvenc_available():
+        ...     print("NVENC hardware encoding available!")
+    """
+    global _nvenc_available
+
+    if _nvenc_available is not None:
+        return _nvenc_available
+
+    ffmpeg_exe = _get_ffmpeg_exe()
+    try:
+        result = subprocess.run(
+            [ffmpeg_exe, "-encoders"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        _nvenc_available = "h264_nvenc" in result.stdout
+    except Exception:
+        _nvenc_available = False
+
+    if _nvenc_available:
+        logger.debug("NVENC hardware encoder is available")
+    else:
+        logger.debug("NVENC not available, using software encoder")
+
+    return _nvenc_available
+
+
+def get_available_encoders() -> dict[str, bool]:
+    """
+    Get dictionary of available video encoders.
+
+    Returns:
+        Dict mapping encoder names to availability status.
+
+    Example:
+        >>> encoders = get_available_encoders()
+        >>> encoders["libx264"]
+        True
+        >>> encoders["h264_nvenc"]  # Depends on system
+        True/False
+    """
+    nvenc = check_nvenc_available()
+    return {
+        "libx264": True,  # Always available
+        "libx265": True,  # Always available
+        "h264_nvenc": nvenc,
+        "hevc_nvenc": nvenc,
+    }
+
+
+def select_best_encoder(prefer_hardware: bool = True) -> str:
+    """
+    Select the best available encoder.
+
+    Args:
+        prefer_hardware: Prefer hardware encoder if available.
+
+    Returns:
+        Encoder codec name.
+
+    Example:
+        >>> codec = select_best_encoder()
+        >>> codec in ["h264_nvenc", "libx264"]
+        True
+    """
+    if prefer_hardware and check_nvenc_available():
+        return "h264_nvenc"
+    return "libx264"
 
 
 @dataclass
@@ -357,24 +557,40 @@ class VideoReader:
 
 class VideoWriter:
     """
-    FFmpeg-based video writer.
+    FFmpeg-based video writer with hardware acceleration support.
 
     Writes frames to video file using FFmpeg subprocess,
     with optional audio track from source file.
+
+    Supports both software (libx264/libx265) and hardware (NVENC) encoders
+    with automatic fallback when hardware is unavailable.
 
     Args:
         output_path: Path for output video file.
         width: Frame width.
         height: Frame height.
         fps: Frames per second.
-        codec: Video codec. Default: "libx264".
-        crf: Constant rate factor (quality). Default: 18.
+        codec: Video codec. "auto" selects best available. Default: "auto".
+        crf: Constant rate factor for software encoders (0-51). Default: 18.
         preset: Encoding preset. Default: "medium".
         pixel_format: Output pixel format. Default: "yuv420p".
         audio_source: Optional source file for audio track.
+        encoder_config: Optional EncoderConfig for advanced settings.
 
     Example:
+        >>> # Auto-select best encoder (NVENC if available)
         >>> with VideoWriter("output.mp4", 1920, 1080, 30) as writer:
+        ...     for frame in frames:
+        ...         writer.write_frame(frame)
+
+        >>> # Force software encoder
+        >>> with VideoWriter("output.mp4", 1920, 1080, 30, codec="libx264") as writer:
+        ...     for frame in frames:
+        ...         writer.write_frame(frame)
+
+        >>> # Use NVENC with custom quality
+        >>> config = EncoderConfig(codec="h264_nvenc", preset="p4", cq=20)
+        >>> with VideoWriter("output.mp4", 1920, 1080, 30, encoder_config=config) as writer:
         ...     for frame in frames:
         ...         writer.write_frame(frame)
     """
@@ -385,25 +601,55 @@ class VideoWriter:
         width: int,
         height: int,
         fps: float,
-        codec: str = "libx264",
+        codec: str = "auto",
         crf: int = 18,
         preset: str = "medium",
         pixel_format: str = "yuv420p",
         audio_source: Path | None = None,
+        encoder_config: EncoderConfig | None = None,
     ) -> None:
         self.output_path = Path(output_path)
         self.width = width
         self.height = height
         self.fps = fps
-        self.codec = codec
-        self.crf = crf
-        self.preset = preset
         self.pixel_format = pixel_format
         self.audio_source = Path(audio_source) if audio_source else None
+
+        # Handle encoder configuration
+        if encoder_config is not None:
+            self.encoder_config = encoder_config
+        else:
+            # Auto-select or use specified codec
+            if codec == "auto":
+                codec = select_best_encoder(prefer_hardware=True)
+                logger.info(f"Auto-selected encoder: {codec}")
+
+            self.encoder_config = EncoderConfig(
+                codec=codec,
+                preset=preset,
+                crf=crf,
+            )
+
+        # Store for backward compatibility
+        self.codec = self.encoder_config.codec
+        self.crf = crf
+        self.preset = preset
 
         self._process: subprocess.Popen | None = None
         self._temp_video: Path | None = None
         self._frame_count = 0
+
+        # Log encoder selection
+        if self.encoder_config.is_hardware():
+            logger.debug(
+                f"Using hardware encoder: {self.encoder_config.codec} "
+                f"(preset={self.encoder_config.get_ffmpeg_args().get('preset', 'default')})"
+            )
+        else:
+            logger.debug(
+                f"Using software encoder: {self.encoder_config.codec} "
+                f"(preset={self.encoder_config.preset}, crf={self.encoder_config.crf})"
+            )
 
     def _start_process(self) -> None:
         """Start FFmpeg encoding process."""
@@ -431,12 +677,13 @@ class VideoWriter:
             r=self.fps,
         )
 
+        # Get encoder-specific arguments
+        encoder_args = self.encoder_config.get_ffmpeg_args()
+        encoder_args["pix_fmt"] = self.pixel_format
+
         stream = stream.output(
             output_file,
-            vcodec=self.codec,
-            pix_fmt=self.pixel_format,
-            crf=self.crf,
-            preset=self.preset,
+            **encoder_args,
         ).overwrite_output()
 
         self._process = stream.run_async(

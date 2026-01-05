@@ -34,11 +34,15 @@ from visagen.merger.merger import (
     MergerStats,
 )
 from visagen.merger.video_io import (
+    EncoderConfig,
     VideoInfo,
     VideoReader,
     VideoWriter,
+    check_nvenc_available,
     extract_frames_to_dir,
+    get_available_encoders,
     probe_video,
+    select_best_encoder,
     video_from_frames,
 )
 
@@ -50,6 +54,11 @@ __all__ = [
     "probe_video",
     "extract_frames_to_dir",
     "video_from_frames",
+    # Encoder configuration
+    "EncoderConfig",
+    "check_nvenc_available",
+    "get_available_encoders",
+    "select_best_encoder",
     # Frame processing
     "FrameProcessorConfig",
     "ProcessedFrame",
