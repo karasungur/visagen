@@ -68,6 +68,10 @@
 - **Gradio UI**: Web interface for training & inference
 - **Color Transfer**: RCT, LCT, SOT algorithms
 - **Blending**: Feather, Laplacian, Poisson blending
+- **Face Restoration**: GFPGAN integration for enhanced quality
+- **Hardware Encoding**: NVENC support for fast video encoding
+- **Model Export**: ONNX and TensorRT for production deployment
+- **Dataset Sorting**: 14 methods including blur, face-yaw, histogram
 
 ---
 
@@ -117,6 +121,18 @@ pip install -e ".[gui]"
 
 # Postprocessing (Color Transfer, Blending)
 pip install -e ".[postprocess]"
+
+# Video Merger (FFmpeg)
+pip install -e ".[merger]"
+
+# Model Export (ONNX, TensorRT)
+pip install -e ".[export]"
+
+# Face Restoration (GFPGAN)
+pip install -e ".[restore]"
+
+# GPU Data Loading (NVIDIA DALI)
+pip install -e ".[dali]"
 ```
 
 ---
@@ -162,7 +178,29 @@ visagen-tune \
     --epochs-per-trial 50
 ```
 
-### 4. Launch Web Interface
+### 4. Merge Faces into Video
+
+```bash
+# Basic merge with trained model
+visagen-merge input.mp4 output.mp4 -c ./workspace/model/model.ckpt
+
+# With face restoration and hardware encoding
+visagen-merge input.mp4 output.mp4 -c model.ckpt \
+    --restore-face --restore-strength 0.7 \
+    --codec h264_nvenc --color-transfer rct
+```
+
+### 5. Export Model for Production
+
+```bash
+# Export to ONNX
+visagen-export model.ckpt -o model.onnx --validate
+
+# Export to TensorRT (FP16)
+visagen-export model.onnx -o model.engine --format tensorrt --precision fp16
+```
+
+### 6. Launch Web Interface
 
 ```bash
 visagen-gui --port 7860
@@ -237,7 +275,11 @@ trainer.fit(model, datamodule)
 |---------|-------------|
 | `visagen-extract` | Extract and align faces from images/videos |
 | `visagen-train` | Train face swap model |
+| `visagen-pretrain` | Pretrain encoder on FFHQ/CelebA datasets |
 | `visagen-tune` | Hyperparameter optimization with Optuna |
+| `visagen-merge` | Merge face swaps into video with NVENC support |
+| `visagen-export` | Export model to ONNX/TensorRT formats |
+| `visagen-sort` | Sort and filter face datasets (14 methods) |
 | `visagen-gui` | Launch Gradio web interface |
 
 ---
@@ -249,6 +291,7 @@ visagen/
 ├── data/               # Data loading & augmentation
 │   ├── dataset.py      # FaceDataset
 │   ├── datamodule.py   # FaceDataModule
+│   ├── dali_pipeline.py # NVIDIA DALI GPU pipeline
 │   └── augmentations.py
 ├── models/             # Neural network architectures
 │   ├── encoder.py      # ConvNeXt encoder
@@ -257,19 +300,35 @@ visagen/
 │   └── discriminator.py
 ├── training/           # Training logic
 │   ├── dfl_module.py   # PyTorch Lightning module
-│   ├── losses.py       # Loss functions
-│   └── gan_losses.py
+│   ├── pretrain_module.py # Pretraining module
+│   └── losses.py       # Loss functions
+├── merger/             # Video processing pipeline
+│   ├── video_io.py     # FFmpeg video I/O with NVENC
+│   ├── frame_processor.py # Single-frame processing
+│   ├── batch_processor.py # Parallel processing
+│   └── merger.py       # High-level orchestration
 ├── postprocess/        # Post-processing
-│   ├── color_transfer.py
-│   └── blending.py
+│   ├── color_transfer.py # RCT, LCT, SOT algorithms
+│   ├── blending.py     # Laplacian, Poisson, Feather
+│   └── restore.py      # GFPGAN face restoration
+├── export/             # Model export
+│   ├── onnx_exporter.py # ONNX export
+│   ├── tensorrt_builder.py # TensorRT engine builder
+│   └── validation.py   # Export validation
+├── sorting/            # Dataset sorting
+│   └── sorter.py       # 14 sorting methods
 ├── tuning/             # Hyperparameter optimization
 │   └── optuna_tuner.py
 ├── tools/              # CLI tools
-│   ├── extract_v2.py
-│   ├── train.py
-│   ├── tune.py
-│   └── gradio_app.py
-└── tests/              # Unit tests
+│   ├── extract_v2.py   # Face extraction
+│   ├── train.py        # Training
+│   ├── pretrain.py     # Pretraining
+│   ├── merge.py        # Video merging
+│   ├── export.py       # Model export
+│   ├── sorter.py       # Dataset sorting
+│   ├── tune.py         # HPO
+│   └── gradio_app.py   # Web UI
+└── tests/              # Unit tests (400+)
 ```
 
 ---
@@ -292,8 +351,10 @@ visagen/
 - [x] **Phase 4**: Data pipeline with augmentations
 - [x] **Phase 5**: GAN training, color transfer, blending
 - [x] **Phase 6**: Optuna HPO & Gradio UI
-- [ ] **Phase 7**: Video pipeline & batch processing
-- [ ] **Phase 8**: Model export (ONNX, TensorRT)
+- [x] **Phase 7**: Video pipeline & batch processing
+- [x] **Phase 8**: Model export (ONNX, TensorRT)
+- [x] **Phase 9**: Face restoration (GFPGAN)
+- [x] **Phase 10**: Hardware encoding (NVENC)
 
 ---
 
