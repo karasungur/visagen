@@ -250,7 +250,7 @@ class TestONNXRunner:
         """Create a simple ONNX model for testing."""
         onnx_path = temp_dir / "test_model.onnx"
 
-        # Export simple model
+        # Export simple model with dynamic batch size
         dummy_input = torch.randn(1, 3, 64, 64)
         torch.onnx.export(
             simple_model,
@@ -259,6 +259,10 @@ class TestONNXRunner:
             opset_version=14,
             input_names=["input"],
             output_names=["output"],
+            dynamic_axes={
+                "input": {0: "batch_size"},
+                "output": {0: "batch_size"},
+            },
         )
 
         return onnx_path
