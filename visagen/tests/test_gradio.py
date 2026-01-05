@@ -217,3 +217,170 @@ class TestSwapFace:
 
         with pytest.raises(gr.Error, match="provide a source"):
             app.swap_face(None, None)
+
+
+class TestGradioAppMerge:
+    """Tests for merge functionality in GradioApp."""
+
+    def test_init_has_merge_process(self):
+        """Test app has merge_process attribute."""
+        app = GradioApp()
+
+        assert hasattr(app, "merge_process")
+        assert app.merge_process is None
+
+    def test_stop_merge_no_process(self):
+        """Test stop when no merge in progress."""
+        app = GradioApp()
+        result = app.stop_merge()
+
+        assert result == "No merge in progress."
+
+    def test_stop_merge_with_process(self):
+        """Test stop with merge in progress."""
+        app = GradioApp()
+
+        mock_process = Mock()
+        mock_process.terminate = Mock()
+        mock_process.wait = Mock()
+        app.merge_process = mock_process
+
+        result = app.stop_merge()
+
+        assert result == "Merge stopped."
+        assert app.merge_process is None
+        mock_process.terminate.assert_called_once()
+
+    def test_run_merge_invalid_input(self):
+        """Test merge with invalid input path."""
+        app = GradioApp()
+
+        gen = app.run_merge(
+            "/nonexistent/video.mp4",
+            "./output.mp4",
+            "./model.ckpt",
+            "rct",
+            "laplacian",
+            False,
+            0.5,
+            1.4,
+            "auto",
+            18,
+        )
+
+        result = list(gen)
+        assert any("Error" in line for line in result)
+
+
+class TestGradioAppSort:
+    """Tests for sort functionality in GradioApp."""
+
+    def test_init_has_sort_process(self):
+        """Test app has sort_process attribute."""
+        app = GradioApp()
+
+        assert hasattr(app, "sort_process")
+        assert app.sort_process is None
+
+    def test_stop_sort_no_process(self):
+        """Test stop when no sort in progress."""
+        app = GradioApp()
+        result = app.stop_sort()
+
+        assert result == "No sorting in progress."
+
+    def test_stop_sort_with_process(self):
+        """Test stop with sort in progress."""
+        app = GradioApp()
+
+        mock_process = Mock()
+        mock_process.terminate = Mock()
+        mock_process.wait = Mock()
+        app.sort_process = mock_process
+
+        result = app.stop_sort()
+
+        assert result == "Sorting stopped."
+        assert app.sort_process is None
+        mock_process.terminate.assert_called_once()
+
+    def test_run_sort_invalid_input(self):
+        """Test sort with invalid input path."""
+        app = GradioApp()
+
+        gen = app.run_sort(
+            "/nonexistent/dir",
+            "",
+            "blur",
+            2000,
+            True,
+        )
+
+        result = list(gen)
+        assert any("Error" in line for line in result)
+
+
+class TestGradioAppExport:
+    """Tests for export functionality in GradioApp."""
+
+    def test_init_has_export_process(self):
+        """Test app has export_process attribute."""
+        app = GradioApp()
+
+        assert hasattr(app, "export_process")
+        assert app.export_process is None
+
+    def test_stop_export_no_process(self):
+        """Test stop when no export in progress."""
+        app = GradioApp()
+        result = app.stop_export()
+
+        assert result == "No export in progress."
+
+    def test_stop_export_with_process(self):
+        """Test stop with export in progress."""
+        app = GradioApp()
+
+        mock_process = Mock()
+        mock_process.terminate = Mock()
+        mock_process.wait = Mock()
+        app.export_process = mock_process
+
+        result = app.stop_export()
+
+        assert result == "Export stopped."
+        assert app.export_process is None
+        mock_process.terminate.assert_called_once()
+
+    def test_run_export_invalid_input(self):
+        """Test export with invalid input path."""
+        app = GradioApp()
+
+        gen = app.run_export(
+            "/nonexistent/model.ckpt",
+            "./model.onnx",
+            "onnx",
+            "fp16",
+            True,
+        )
+
+        result = list(gen)
+        assert any("Error" in line for line in result)
+
+
+class TestGradioAppFaceRestoration:
+    """Tests for face restoration in GradioApp."""
+
+    def test_init_has_restorer(self):
+        """Test app has _restorer attribute."""
+        app = GradioApp()
+
+        assert hasattr(app, "_restorer")
+        assert app._restorer is None
+
+    def test_restore_no_image(self):
+        """Test error when image not provided."""
+        app = GradioApp()
+
+        with pytest.raises(gr.Error, match="provide an image"):
+            app.apply_face_restoration(None, 0.5, 1.4)

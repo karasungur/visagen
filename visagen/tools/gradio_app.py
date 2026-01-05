@@ -41,7 +41,13 @@ class GradioApp:
     def __init__(self) -> None:
         self.model = None
         self.model_path: str | None = None
+
+        # Subprocess management
         self.training_process: subprocess.Popen | None = None
+        self.merge_process: subprocess.Popen | None = None
+        self.sort_process: subprocess.Popen | None = None
+        self.export_process: subprocess.Popen | None = None
+
         self.training_queue: queue.Queue = queue.Queue()
         self.device = "auto"
         self.settings = {
@@ -50,6 +56,9 @@ class GradioApp:
             "num_workers": 4,
             "workspace_dir": "./workspace",
         }
+
+        # Lazy-loaded components
+        self._restorer = None
 
     def load_model(self, checkpoint_path: str) -> str:
         """
@@ -429,6 +438,315 @@ class GradioApp:
         )
         return "Settings saved."
 
+    def apply_face_restoration(
+        self,
+        image: np.ndarray,
+        strength: float,
+        model_version: float,
+    ) -> np.ndarray:
+        """
+        Apply GFPGAN face restoration to image.
+
+        Args:
+            image: Input face image (H, W, 3) uint8 RGB.
+            strength: Restoration strength (0.0-1.0).
+            model_version: GFPGAN version (1.2, 1.3, 1.4).
+
+        Returns:
+            Restored face image (H, W, 3) uint8 RGB.
+        """
+        if image is None:
+            raise gr.Error("Please provide an image.")
+
+        try:
+            from visagen.postprocess.restore import is_gfpgan_available, restore_face
+
+            if not is_gfpgan_available():
+                raise gr.Error(
+                    "GFPGAN not installed. Install with: pip install 'visagen[restore]'"
+                )
+
+            import cv2
+
+            # Gradio provides RGB, GFPGAN expects BGR
+            image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+            # Apply restoration
+            restored_bgr = restore_face(
+                image_bgr,
+                strength=strength,
+                model_version=model_version,
+            )
+
+            # Convert back to RGB
+            restored_rgb = cv2.cvtColor(restored_bgr, cv2.COLOR_BGR2RGB)
+
+            return restored_rgb
+
+        except ImportError:
+            raise gr.Error(
+                "Restore module not available. Install with: pip install 'visagen[restore]'"
+            )
+        except Exception as e:
+            raise gr.Error(f"Face restoration failed: {e}")
+
+    def run_merge(
+        self,
+        input_video: str,
+        output_video: str,
+        checkpoint: str,
+        color_transfer: str,
+        blend_mode: str,
+        restore_face: bool,
+        restore_strength: float,
+        restore_version: float,
+        codec: str,
+        crf: int,
+    ) -> Generator[str, None, None]:
+        """
+        Run video merge using visagen-merge CLI.
+
+        Yields log lines as processing progresses.
+        """
+        # Validate inputs
+        if not input_video or not Path(input_video).exists():
+            yield "Error: Input video not found"
+            return
+        if not checkpoint or not Path(checkpoint).exists():
+            yield "Error: Checkpoint not found"
+            return
+
+        # Build command
+        cmd = [
+            sys.executable,
+            "-m",
+            "visagen.tools.merge",
+            str(input_video),
+            str(output_video) if output_video else "./output.mp4",
+            "--checkpoint",
+            str(checkpoint),
+            "--color-transfer",
+            color_transfer if color_transfer != "none" else "none",
+            "--blend-mode",
+            blend_mode,
+            "--codec",
+            codec,
+            "--crf",
+            str(int(crf)),
+        ]
+
+        # Add restoration options
+        if restore_face:
+            cmd.append("--restore-face")
+            cmd.extend(["--restore-strength", str(restore_strength)])
+            cmd.extend(["--restore-model", str(restore_version)])
+
+        yield f"Starting merge...\n$ {' '.join(cmd)}\n"
+
+        try:
+            self.merge_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+
+            for line in iter(self.merge_process.stdout.readline, ""):
+                if line:
+                    yield line
+                if self.merge_process.poll() is not None:
+                    break
+
+            remaining, _ = self.merge_process.communicate()
+            if remaining:
+                yield remaining
+
+            exit_code = self.merge_process.returncode
+            if exit_code == 0:
+                yield "\n\nMerge completed successfully!"
+            else:
+                yield f"\n\nMerge exited with code {exit_code}"
+
+        except Exception as e:
+            yield f"\n\nError: {e}"
+
+        finally:
+            self.merge_process = None
+
+    def stop_merge(self) -> str:
+        """Stop running merge process."""
+        if self.merge_process is not None:
+            self.merge_process.terminate()
+            try:
+                self.merge_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.merge_process.kill()
+            self.merge_process = None
+            return "Merge stopped."
+        return "No merge in progress."
+
+    def run_sort(
+        self,
+        input_dir: str,
+        output_dir: str,
+        method: str,
+        target_count: int,
+        dry_run: bool,
+    ) -> Generator[str, None, None]:
+        """
+        Run dataset sorting using visagen-sort CLI.
+
+        Yields log lines as sorting progresses.
+        """
+        if not input_dir or not Path(input_dir).exists():
+            yield "Error: Input directory not found"
+            return
+
+        # Build command
+        cmd = [
+            sys.executable,
+            "-m",
+            "visagen.tools.sorter",
+            str(input_dir),
+            "--method",
+            method,
+            "--verbose",
+        ]
+
+        if output_dir:
+            cmd.extend(["--output-dir", str(output_dir)])
+
+        if method in ("final", "final-fast"):
+            cmd.extend(["--target-count", str(int(target_count))])
+
+        if dry_run:
+            cmd.append("--dry-run")
+
+        yield f"Starting sorting...\n$ {' '.join(cmd)}\n"
+
+        try:
+            self.sort_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+
+            for line in iter(self.sort_process.stdout.readline, ""):
+                if line:
+                    yield line
+                if self.sort_process.poll() is not None:
+                    break
+
+            remaining, _ = self.sort_process.communicate()
+            if remaining:
+                yield remaining
+
+            exit_code = self.sort_process.returncode
+            if exit_code == 0:
+                yield "\n\nSorting completed!"
+            else:
+                yield f"\n\nSorting exited with code {exit_code}"
+
+        except Exception as e:
+            yield f"\n\nError: {e}"
+
+        finally:
+            self.sort_process = None
+
+    def stop_sort(self) -> str:
+        """Stop running sort process."""
+        if self.sort_process is not None:
+            self.sort_process.terminate()
+            try:
+                self.sort_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.sort_process.kill()
+            self.sort_process = None
+            return "Sorting stopped."
+        return "No sorting in progress."
+
+    def run_export(
+        self,
+        input_path: str,
+        output_path: str,
+        export_format: str,
+        precision: str,
+        validate: bool,
+    ) -> Generator[str, None, None]:
+        """
+        Run model export using visagen-export CLI.
+
+        Yields log lines as export progresses.
+        """
+        if not input_path or not Path(input_path).exists():
+            yield "Error: Input file not found"
+            return
+
+        # Build command
+        cmd = [
+            sys.executable,
+            "-m",
+            "visagen.tools.export",
+            str(input_path),
+            "-o",
+            str(output_path) if output_path else "./model.onnx",
+            "--format",
+            export_format,
+            "--precision",
+            precision,
+        ]
+
+        if validate:
+            cmd.append("--validate")
+
+        yield f"Starting export...\n$ {' '.join(cmd)}\n"
+
+        try:
+            self.export_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+
+            for line in iter(self.export_process.stdout.readline, ""):
+                if line:
+                    yield line
+                if self.export_process.poll() is not None:
+                    break
+
+            remaining, _ = self.export_process.communicate()
+            if remaining:
+                yield remaining
+
+            exit_code = self.export_process.returncode
+            if exit_code == 0:
+                yield "\n\nExport completed successfully!"
+            else:
+                yield f"\n\nExport exited with code {exit_code}"
+
+        except Exception as e:
+            yield f"\n\nError: {e}"
+
+        finally:
+            self.export_process = None
+
+    def stop_export(self) -> str:
+        """Stop running export process."""
+        if self.export_process is not None:
+            self.export_process.terminate()
+            try:
+                self.export_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.export_process.kill()
+            self.export_process = None
+            return "Export stopped."
+        return "No export in progress."
+
 
 def create_training_tab(app: GradioApp) -> dict[str, Any]:
     """Create training configuration and execution tab."""
@@ -671,6 +989,274 @@ def create_extract_tab(app: GradioApp) -> dict[str, Any]:
     return {}
 
 
+def create_merge_tab(app: GradioApp) -> dict[str, Any]:
+    """Create video merge processing tab."""
+    with gr.Tab("Merge"):
+        gr.Markdown("### Video Face Swap")
+        gr.Markdown(
+            "Process videos using trained models with customizable blending and color transfer."
+        )
+
+        with gr.Row():
+            with gr.Column():
+                input_video = gr.Textbox(
+                    label="Input Video",
+                    placeholder="./input.mp4",
+                    info="Path to source video file",
+                )
+                output_video = gr.Textbox(
+                    label="Output Video",
+                    placeholder="./output.mp4",
+                    info="Path for processed video output",
+                )
+                merge_checkpoint = gr.Textbox(
+                    label="Model Checkpoint",
+                    placeholder="./workspace/model/checkpoints/last.ckpt",
+                )
+
+            with gr.Column():
+                color_transfer = gr.Dropdown(
+                    ["rct", "lct", "sot", "none"],
+                    value="rct",
+                    label="Color Transfer Mode",
+                    info="RCT=Reinhard, LCT=Linear, SOT=Sliced OT",
+                )
+                blend_mode = gr.Dropdown(
+                    ["laplacian", "poisson", "feather"],
+                    value="laplacian",
+                    label="Blend Mode",
+                    info="Laplacian=pyramid, Poisson=seamless, Feather=alpha",
+                )
+
+        # Face Restoration Section
+        gr.Markdown("#### Face Restoration")
+        with gr.Row():
+            merge_restore_face = gr.Checkbox(
+                label="Enable GFPGAN",
+                value=False,
+                info="Enhance face quality with GFPGAN",
+            )
+            merge_restore_strength = gr.Slider(
+                0.0,
+                1.0,
+                value=0.5,
+                step=0.1,
+                label="Restoration Strength",
+            )
+            merge_restore_version = gr.Dropdown(
+                [1.2, 1.3, 1.4],
+                value=1.4,
+                label="GFPGAN Version",
+            )
+
+        # Video Encoding Section
+        gr.Markdown("#### Video Encoding")
+        with gr.Row():
+            codec = gr.Dropdown(
+                ["auto", "libx264", "libx265", "h264_nvenc", "hevc_nvenc"],
+                value="auto",
+                label="Encoder",
+                info="'auto' selects NVENC if available",
+            )
+            crf = gr.Slider(
+                0,
+                51,
+                value=18,
+                step=1,
+                label="Quality (CRF)",
+                info="Lower = better quality, higher file size",
+            )
+
+        with gr.Row():
+            merge_btn = gr.Button("Start Merge", variant="primary")
+            stop_merge_btn = gr.Button("Stop", variant="stop")
+
+        merge_log = gr.Textbox(
+            label="Merge Log",
+            lines=15,
+            max_lines=30,
+            interactive=False,
+        )
+
+        # Event handlers
+        merge_btn.click(
+            fn=app.run_merge,
+            inputs=[
+                input_video,
+                output_video,
+                merge_checkpoint,
+                color_transfer,
+                blend_mode,
+                merge_restore_face,
+                merge_restore_strength,
+                merge_restore_version,
+                codec,
+                crf,
+            ],
+            outputs=merge_log,
+        )
+
+        stop_merge_btn.click(
+            fn=app.stop_merge,
+            outputs=merge_log,
+        )
+
+    return {}
+
+
+def create_sort_tab(app: GradioApp) -> dict[str, Any]:
+    """Create dataset sorting tab."""
+    with gr.Tab("Sort"):
+        gr.Markdown("### Dataset Sorting")
+        gr.Markdown("Sort and filter face images by various criteria.")
+
+        with gr.Row():
+            with gr.Column():
+                sort_input = gr.Textbox(
+                    label="Input Directory",
+                    placeholder="./workspace/data_src/aligned",
+                    info="Directory containing aligned face images",
+                )
+                sort_output = gr.Textbox(
+                    label="Output Directory (optional)",
+                    placeholder="Leave empty to sort in place",
+                    info="Optional output directory for sorted images",
+                )
+
+            with gr.Column():
+                sort_method = gr.Dropdown(
+                    [
+                        "blur",
+                        "motion-blur",
+                        "face-yaw",
+                        "face-pitch",
+                        "face-source-rect-size",
+                        "hist",
+                        "hist-dissim",
+                        "brightness",
+                        "hue",
+                        "black",
+                        "origname",
+                        "oneface",
+                        "final",
+                        "final-fast",
+                    ],
+                    value="blur",
+                    label="Sort Method",
+                    info="Select sorting/filtering algorithm",
+                )
+                target_count = gr.Slider(
+                    100,
+                    10000,
+                    value=2000,
+                    step=100,
+                    label="Target Count",
+                    info="Used only for 'final' and 'final-fast' methods",
+                )
+                dry_run = gr.Checkbox(
+                    label="Dry Run (Preview)",
+                    value=True,
+                    info="Show what would happen without making changes",
+                )
+
+        with gr.Row():
+            sort_btn = gr.Button("Start Sorting", variant="primary")
+            stop_sort_btn = gr.Button("Stop", variant="stop")
+
+        sort_log = gr.Textbox(
+            label="Sorting Log",
+            lines=15,
+            max_lines=30,
+            interactive=False,
+        )
+
+        # Event handlers
+        sort_btn.click(
+            fn=app.run_sort,
+            inputs=[sort_input, sort_output, sort_method, target_count, dry_run],
+            outputs=sort_log,
+        )
+
+        stop_sort_btn.click(
+            fn=app.stop_sort,
+            outputs=sort_log,
+        )
+
+    return {}
+
+
+def create_export_tab(app: GradioApp) -> dict[str, Any]:
+    """Create model export tab."""
+    with gr.Tab("Export"):
+        gr.Markdown("### Model Export")
+        gr.Markdown(
+            "Export trained models to ONNX or TensorRT for optimized inference."
+        )
+
+        with gr.Row():
+            with gr.Column():
+                export_input = gr.Textbox(
+                    label="Input Path",
+                    placeholder="./workspace/model/checkpoints/last.ckpt",
+                    info="Checkpoint (.ckpt) for ONNX, or ONNX (.onnx) for TensorRT",
+                )
+                export_output = gr.Textbox(
+                    label="Output Path",
+                    placeholder="./model.onnx",
+                    info="Output file path (.onnx or .engine)",
+                )
+
+            with gr.Column():
+                export_format = gr.Dropdown(
+                    ["onnx", "tensorrt"],
+                    value="onnx",
+                    label="Export Format",
+                    info="ONNX for cross-platform, TensorRT for NVIDIA GPUs",
+                )
+                export_precision = gr.Dropdown(
+                    ["fp32", "fp16", "int8"],
+                    value="fp16",
+                    label="Precision",
+                    info="FP16 recommended for balance of speed and quality",
+                )
+                export_validate = gr.Checkbox(
+                    label="Validate Export",
+                    value=True,
+                    info="Compare exported model against PyTorch original",
+                )
+
+        with gr.Row():
+            export_btn = gr.Button("Export Model", variant="primary")
+            stop_export_btn = gr.Button("Stop", variant="stop")
+
+        export_log = gr.Textbox(
+            label="Export Log",
+            lines=15,
+            max_lines=30,
+            interactive=False,
+        )
+
+        # Event handlers
+        export_btn.click(
+            fn=app.run_export,
+            inputs=[
+                export_input,
+                export_output,
+                export_format,
+                export_precision,
+                export_validate,
+            ],
+            outputs=export_log,
+        )
+
+        stop_export_btn.click(
+            fn=app.stop_export,
+            outputs=export_log,
+        )
+
+    return {}
+
+
 def create_postprocess_tab(app: GradioApp) -> dict[str, Any]:
     """Create color transfer and blending demo tab."""
     with gr.Tab("Postprocess"):
@@ -739,6 +1325,42 @@ def create_postprocess_tab(app: GradioApp) -> dict[str, Any]:
             fn=app.apply_blend,
             inputs=[bl_fg, bl_bg, bl_mask, bl_mode],
             outputs=bl_result,
+        )
+
+        gr.Markdown("---")
+        gr.Markdown("### Face Restoration Demo")
+        gr.Markdown("Enhance face quality using GFPGAN.")
+
+        with gr.Row():
+            restore_input = gr.Image(
+                label="Input Face",
+                type="numpy",
+            )
+            restore_result = gr.Image(
+                label="Restored Face",
+                type="numpy",
+            )
+
+        with gr.Row():
+            restore_strength = gr.Slider(
+                0.0,
+                1.0,
+                value=0.5,
+                step=0.1,
+                label="Restoration Strength",
+                info="0 = original, 1 = fully restored",
+            )
+            restore_version = gr.Dropdown(
+                [1.2, 1.3, 1.4],
+                value=1.4,
+                label="GFPGAN Version",
+            )
+            restore_btn = gr.Button("Restore Face")
+
+        restore_btn.click(
+            fn=app.apply_face_restoration,
+            inputs=[restore_input, restore_strength, restore_version],
+            outputs=restore_result,
         )
 
     return {}
@@ -818,6 +1440,9 @@ def create_app() -> "gr.Blocks":
         create_training_tab(app_state)
         create_inference_tab(app_state)
         create_extract_tab(app_state)
+        create_merge_tab(app_state)
+        create_sort_tab(app_state)
+        create_export_tab(app_state)
         create_postprocess_tab(app_state)
         create_settings_tab(app_state)
 
