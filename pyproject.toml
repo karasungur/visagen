@@ -57,6 +57,12 @@ tuning = [
 gui = [
     "gradio>=4.0.0",
 ]
+merger = [
+    "ffmpeg-python>=0.2.0",
+    "imageio-ffmpeg>=0.4.8",
+    "opencv-python>=4.8.0",
+    "tqdm>=4.65.0",
+]
 full = [
     "onnx>=1.14.0",
     "onnxruntime>=1.15.0",
@@ -71,6 +77,8 @@ full = [
     "optuna>=3.0.0",
     "optuna-integration[pytorch_lightning]>=3.0.0",
     "gradio>=4.0.0",
+    "ffmpeg-python>=0.2.0",
+    "imageio-ffmpeg>=0.4.8",
 ]
 
 [project.urls]
@@ -84,6 +92,7 @@ visagen-extract = "visagen.tools.extract_v2:main"
 visagen-train = "visagen.tools.train:main"
 visagen-tune = "visagen.tools.tune:main"
 visagen-gui = "visagen.tools.gradio_app:main"
+visagen-merge = "visagen.tools.merge:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
