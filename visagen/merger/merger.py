@@ -15,26 +15,22 @@ Features:
 import json
 import logging
 import shutil
-import tempfile
 import time
-from dataclasses import dataclass, field, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Set
 
-import numpy as np
 import yaml
 
+from visagen.merger.frame_processor import (
+    FrameProcessor,
+    FrameProcessorConfig,
+)
 from visagen.merger.video_io import (
     VideoInfo,
     VideoReader,
-    VideoWriter,
     probe_video,
     video_from_frames,
-)
-from visagen.merger.frame_processor import (
-    FrameProcessorConfig,
-    FrameProcessor,
-    ProcessedFrame,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,15 +59,15 @@ class MergerConfig:
     input_path: Path
     output_path: Path
     checkpoint_path: Path
-    frame_processor_config: Optional[FrameProcessorConfig] = None
+    frame_processor_config: FrameProcessorConfig | None = None
     num_workers: int = 1
     codec: str = "libx264"
     crf: int = 18
     preset: str = "medium"
     copy_audio: bool = True
     resume: bool = True
-    temp_dir: Optional[Path] = None
-    device: Optional[str] = None
+    temp_dir: Path | None = None
+    device: str | None = None
 
     def __post_init__(self):
         """Convert paths to Path objects."""
@@ -165,7 +161,9 @@ class MergerStats:
         """Update calculated fields."""
         if self.processed_frames > 0:
             self.avg_time_per_frame = self.total_time / self.processed_frames
-            self.fps = self.processed_frames / self.total_time if self.total_time > 0 else 0.0
+            self.fps = (
+                self.processed_frames / self.total_time if self.total_time > 0 else 0.0
+            )
 
 
 class FaceMerger:
@@ -197,11 +195,11 @@ class FaceMerger:
     def __init__(
         self,
         config: MergerConfig,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> None:
         self.config = config
         self.progress_callback = progress_callback
-        self._processor: Optional[FrameProcessor] = None
+        self._processor: FrameProcessor | None = None
 
     @property
     def processor(self) -> FrameProcessor:
@@ -277,6 +275,7 @@ class FaceMerger:
 
                 # Load and process frame
                 import cv2
+
                 frame = cv2.imread(str(frame_path))
                 if frame is None:
                     stats.failed_frames += 1
@@ -349,6 +348,7 @@ class FaceMerger:
 
                     # Save frame
                     import cv2
+
                     cv2.imwrite(str(output_path), result.output_image)
 
                     # Update stats
@@ -417,12 +417,14 @@ class FaceMerger:
             temp_dir = self.config.temp_dir
         else:
             # Create temp dir based on output name
-            temp_dir = self.config.output_path.parent / f".{self.config.output_path.stem}_temp"
+            temp_dir = (
+                self.config.output_path.parent / f".{self.config.output_path.stem}_temp"
+            )
 
         temp_dir.mkdir(parents=True, exist_ok=True)
         return temp_dir
 
-    def _load_resume_state(self, frames_dir: Path) -> Set[int]:
+    def _load_resume_state(self, frames_dir: Path) -> set[int]:
         """Load set of already processed frame indices."""
         checkpoint_file = frames_dir / ".checkpoint.json"
         if checkpoint_file.exists():
@@ -434,7 +436,7 @@ class FaceMerger:
                 pass
         return set()
 
-    def _save_resume_state(self, frames_dir: Path, processed: Set[int]) -> None:
+    def _save_resume_state(self, frames_dir: Path, processed: set[int]) -> None:
         """Save resume checkpoint."""
         checkpoint_file = frames_dir / ".checkpoint.json"
         try:
@@ -447,7 +449,7 @@ class FaceMerger:
         self,
         frames_dir: Path,
         video_info: VideoInfo,
-        audio_path: Optional[Path],
+        audio_path: Path | None,
     ) -> None:
         """Encode processed frames to video."""
         video_from_frames(

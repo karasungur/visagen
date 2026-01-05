@@ -10,14 +10,15 @@ Implements multiple blending algorithms for seamless face compositing:
 All functions expect float32 images in [0, 1] range.
 """
 
+from typing import Literal
+
 import cv2
 import numpy as np
-from typing import Tuple, Optional, Literal, List
 
 BlendMode = Literal["laplacian", "poisson", "feather"]
 
 
-def build_gaussian_pyramid(img: np.ndarray, levels: int) -> List[np.ndarray]:
+def build_gaussian_pyramid(img: np.ndarray, levels: int) -> list[np.ndarray]:
     """
     Build Gaussian pyramid from image.
 
@@ -35,7 +36,7 @@ def build_gaussian_pyramid(img: np.ndarray, levels: int) -> List[np.ndarray]:
     return pyramid
 
 
-def build_laplacian_pyramid(img: np.ndarray, levels: int) -> List[np.ndarray]:
+def build_laplacian_pyramid(img: np.ndarray, levels: int) -> list[np.ndarray]:
     """
     Build Laplacian pyramid from image.
 
@@ -65,7 +66,7 @@ def build_laplacian_pyramid(img: np.ndarray, levels: int) -> List[np.ndarray]:
     return laplacian
 
 
-def reconstruct_from_laplacian(pyramid: List[np.ndarray]) -> np.ndarray:
+def reconstruct_from_laplacian(pyramid: list[np.ndarray]) -> np.ndarray:
     """
     Reconstruct image from Laplacian pyramid.
 
@@ -133,7 +134,7 @@ def laplacian_pyramid_blend(
 
     # Blend at each level
     blended_pyramid = []
-    for fg, bg, m in zip(fg_pyramid, bg_pyramid, mask_pyramid):
+    for fg, bg, m in zip(fg_pyramid, bg_pyramid, mask_pyramid, strict=False):
         # Ensure mask dimensions match
         if m.ndim == 2:
             m = m[..., None]
@@ -154,7 +155,7 @@ def poisson_blend(
     foreground: np.ndarray,
     background: np.ndarray,
     mask: np.ndarray,
-    center: Optional[Tuple[int, int]] = None,
+    center: tuple[int, int] | None = None,
     mode: int = cv2.NORMAL_CLONE,
 ) -> np.ndarray:
     """
@@ -285,9 +286,7 @@ def erode_mask(
     else:
         mask_2d = mask
 
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE, (erosion_size, erosion_size)
-    )
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erosion_size, erosion_size))
 
     if mask_2d.dtype == np.float32 or mask_2d.dtype == np.float64:
         mask_uint8 = (mask_2d * 255).astype(np.uint8)

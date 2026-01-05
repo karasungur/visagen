@@ -1,9 +1,9 @@
 """Tests for Optuna hyperparameter tuning."""
 
-import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
 from dataclasses import asdict
+from unittest.mock import Mock
+
+import pytest
 
 # Skip all tests if optuna not installed
 optuna = pytest.importorskip("optuna")
@@ -187,6 +187,7 @@ class TestOptunaTuner:
 
         # Read and verify content
         import yaml
+
         with open(output_path) as f:
             config = yaml.safe_load(f)
 
@@ -207,6 +208,7 @@ class TestOptunaTuner:
         tuner.export_best_config(output_path, include_study_info=False)
 
         import yaml
+
         with open(output_path) as f:
             config = yaml.safe_load(f)
 

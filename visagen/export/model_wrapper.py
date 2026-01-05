@@ -12,7 +12,6 @@ The wrapper handles:
 
 import logging
 from pathlib import Path
-from typing import Optional, Union
 
 import torch
 import torch.nn as nn
@@ -82,8 +81,8 @@ class ExportableModel(nn.Module):
     @classmethod
     def from_checkpoint(
         cls,
-        checkpoint_path: Union[str, Path],
-        map_location: Optional[str] = "cpu",
+        checkpoint_path: str | Path,
+        map_location: str | None = "cpu",
         strict: bool = True,
     ) -> "ExportableModel":
         """

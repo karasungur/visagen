@@ -14,12 +14,12 @@ Requires:
     nvidia-dali-cuda120 >= 1.30.0 (Linux only)
 """
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Optional, Union
 
 import pytorch_lightning as pl
 
-from .dali_pipeline import DALI_AVAILABLE, check_dali_available, create_dali_iterator
+from .dali_pipeline import check_dali_available, create_dali_iterator
 
 # Import standard datamodule for fallback
 from .datamodule import FaceDataModule
@@ -61,8 +61,8 @@ class DALIFaceDataModule(pl.LightningDataModule):
 
     def __init__(
         self,
-        src_dir: Union[str, Path],
-        dst_dir: Union[str, Path],
+        src_dir: str | Path,
+        dst_dir: str | Path,
         batch_size: int = 8,
         image_size: int = 256,
         num_threads: int = 4,
@@ -71,7 +71,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
         seed: int = 42,
         num_shards: int = 1,
         shard_id: int = 0,
-        use_dali: Optional[bool] = None,
+        use_dali: bool | None = None,
         fallback_num_workers: int = 4,
     ) -> None:
         super().__init__()
@@ -95,18 +95,18 @@ class DALIFaceDataModule(pl.LightningDataModule):
             self._use_dali = use_dali and check_dali_available()
 
         # Store iterators
-        self._train_iterator: Optional[Iterator] = None
-        self._val_iterator: Optional[Iterator] = None
+        self._train_iterator: Iterator | None = None
+        self._val_iterator: Iterator | None = None
 
         # Fallback datamodule
-        self._fallback_dm: Optional[FaceDataModule] = None
+        self._fallback_dm: FaceDataModule | None = None
 
     @property
     def using_dali(self) -> bool:
         """Check if DALI is being used."""
         return self._use_dali
 
-    def setup(self, stage: Optional[str] = None) -> None:
+    def setup(self, stage: str | None = None) -> None:
         """
         Set up data loaders for training/validation.
 
@@ -124,7 +124,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
         if not self.dst_dir.exists():
             raise FileNotFoundError(f"Destination directory not found: {self.dst_dir}")
 
-    def _setup_fallback(self, stage: Optional[str] = None) -> None:
+    def _setup_fallback(self, stage: str | None = None) -> None:
         """Set up fallback PyTorch DataLoader."""
         if self._fallback_dm is None:
             self._fallback_dm = FaceDataModule(
@@ -193,7 +193,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
 
         return self._val_iterator
 
-    def teardown(self, stage: Optional[str] = None) -> None:
+    def teardown(self, stage: str | None = None) -> None:
         """Clean up resources."""
         self._train_iterator = None
         self._val_iterator = None
@@ -247,8 +247,8 @@ class DALIIteratorWrapper:
 
 
 def create_dali_datamodule(
-    src_dir: Union[str, Path],
-    dst_dir: Union[str, Path],
+    src_dir: str | Path,
+    dst_dir: str | Path,
     batch_size: int = 8,
     image_size: int = 256,
     num_threads: int = 4,
@@ -313,8 +313,8 @@ def create_dali_datamodule(
 
 
 def benchmark_dataloaders(
-    src_dir: Union[str, Path],
-    dst_dir: Union[str, Path],
+    src_dir: str | Path,
+    dst_dir: str | Path,
     batch_size: int = 16,
     image_size: int = 256,
     num_batches: int = 100,

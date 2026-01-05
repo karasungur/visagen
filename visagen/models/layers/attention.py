@@ -11,7 +11,6 @@ to help the model focus on important features.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
 
 
 class ChannelAttention(nn.Module):

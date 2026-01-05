@@ -5,15 +5,13 @@ Provides semantic face parsing using SegFormer model
 fine-tuned on CelebAMask-HQ dataset.
 """
 
-import numpy as np
-import cv2
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
 
+import cv2
+import numpy as np
 import torch
 import torch.nn.functional as F
-from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
-
+from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
 
 # CelebAMask-HQ label mapping (19 classes)
 CELEBAMASK_LABELS = {
@@ -43,9 +41,17 @@ LABEL_TO_ID = {v: k for k, v in CELEBAMASK_LABELS.items()}
 
 # Face mask components (excluding background, hair, hat, cloth, accessories)
 FACE_COMPONENTS = {
-    "skin", "nose", "left_eye", "right_eye",
-    "left_brow", "right_brow", "left_ear", "right_ear",
-    "mouth", "upper_lip", "lower_lip",
+    "skin",
+    "nose",
+    "left_eye",
+    "right_eye",
+    "left_brow",
+    "right_brow",
+    "left_ear",
+    "right_ear",
+    "mouth",
+    "upper_lip",
+    "lower_lip",
 }
 
 
@@ -87,7 +93,7 @@ class FaceSegmenter:
     def __init__(
         self,
         model_name: str = "jonathandinu/face-parsing",
-        device: Optional[str] = None,
+        device: str | None = None,
         use_half: bool = True,
     ) -> None:
         if device is None:
@@ -158,7 +164,9 @@ class FaceSegmenter:
                 face_mask += probs[0, component_id].cpu().numpy()
 
         # Calculate confidence as mean probability in face region
-        confidence = float(face_mask[face_mask > 0.5].mean()) if (face_mask > 0.5).any() else 0.0
+        confidence = (
+            float(face_mask[face_mask > 0.5].mean()) if (face_mask > 0.5).any() else 0.0
+        )
 
         # Convert to binary mask
         if not return_soft_mask:
@@ -173,7 +181,7 @@ class FaceSegmenter:
     def get_parsing(
         self,
         face_image: np.ndarray,
-    ) -> Dict[str, np.ndarray]:
+    ) -> dict[str, np.ndarray]:
         """
         Get detailed parsing masks for each face component.
 

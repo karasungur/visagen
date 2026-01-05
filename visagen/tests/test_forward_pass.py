@@ -6,14 +6,12 @@ with correct output shapes.
 """
 
 import torch
-import pytest
-from typing import Tuple
 
-from visagen.models.encoders.convnext import ConvNeXtEncoder, ConvNeXtBlock
+from visagen.data.noise_dataset import RandomNoiseDataset
 from visagen.models.decoders.decoder import Decoder, DecoderBlock
+from visagen.models.encoders.convnext import ConvNeXtBlock, ConvNeXtEncoder
 from visagen.models.layers.attention import CBAM, ChannelAttention, SpatialAttention
 from visagen.training.dfl_module import DFLModule
-from visagen.data.noise_dataset import RandomNoiseDataset
 
 
 class TestCBAM:
@@ -81,7 +79,7 @@ class TestConvNeXtEncoder:
         # Check latent shape (256 / 4 stem / 8 downsamples = 8)
         # Actually: 256/4 = 64, then 3 downsamples by 2 = 64/8 = 8
         # But we have 4 stages with 3 downsamples between them
-        expected_latent_size = 256 // 4 // (2 ** 3)  # 256/4/8 = 8
+        expected_latent_size = 256 // 4 // (2**3)  # 256/4/8 = 8
         assert latent.shape == (batch, 512, expected_latent_size, expected_latent_size)
 
 

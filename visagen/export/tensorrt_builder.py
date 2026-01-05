@@ -12,7 +12,6 @@ Requires NVIDIA TensorRT and a CUDA-capable GPU.
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
 
 import numpy as np
 
@@ -37,9 +36,9 @@ class BuildConfig:
     precision: str = "fp16"
     max_batch_size: int = 8
     workspace_size: int = 1 << 30  # 1GB
-    min_shape: Tuple[int, ...] = (1, 3, 128, 128)
-    opt_shape: Tuple[int, ...] = (1, 3, 256, 256)
-    max_shape: Tuple[int, ...] = (8, 3, 512, 512)
+    min_shape: tuple[int, ...] = (1, 3, 128, 128)
+    opt_shape: tuple[int, ...] = (1, 3, 256, 256)
+    max_shape: tuple[int, ...] = (8, 3, 512, 512)
     strict_types: bool = False
 
 
@@ -69,7 +68,7 @@ class TensorRTBuilder:
         self,
         onnx_path: Path,
         engine_path: Path,
-        config: Optional[BuildConfig] = None,
+        config: BuildConfig | None = None,
     ) -> None:
         self.onnx_path = Path(onnx_path)
         self.engine_path = Path(engine_path)
@@ -124,9 +123,7 @@ class TensorRTBuilder:
                 errors = []
                 for i in range(parser.num_errors):
                     errors.append(str(parser.get_error(i)))
-                raise RuntimeError(
-                    f"Failed to parse ONNX model:\n" + "\n".join(errors)
-                )
+                raise RuntimeError("Failed to parse ONNX model:\n" + "\n".join(errors))
 
         logger.info(f"Network inputs: {network.num_inputs}")
         logger.info(f"Network outputs: {network.num_outputs}")
@@ -139,9 +136,7 @@ class TensorRTBuilder:
             trt.MemoryPoolType.WORKSPACE,
             self.config.workspace_size,
         )
-        logger.info(
-            f"Workspace: {self.config.workspace_size / (1024**3):.1f} GB"
-        )
+        logger.info(f"Workspace: {self.config.workspace_size / (1024**3):.1f} GB")
 
         # Create optimization profile for dynamic shapes
         profile = builder.create_optimization_profile()
@@ -159,8 +154,10 @@ class TensorRTBuilder:
         )
         config.add_optimization_profile(profile)
 
-        logger.info(f"Dynamic shapes: min={self.config.min_shape}, "
-                   f"opt={self.config.opt_shape}, max={self.config.max_shape}")
+        logger.info(
+            f"Dynamic shapes: min={self.config.min_shape}, "
+            f"opt={self.config.opt_shape}, max={self.config.max_shape}"
+        )
 
         # Set precision
         if self.config.precision == "fp16":
@@ -241,7 +238,7 @@ class Int8Calibrator:
     def __init__(
         self,
         calibration_data: np.ndarray,
-        cache_file: Optional[Path] = None,
+        cache_file: Path | None = None,
     ) -> None:
         self.calibration_data = calibration_data
         self.cache_file = cache_file

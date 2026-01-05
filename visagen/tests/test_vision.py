@@ -5,19 +5,18 @@ These tests verify the vision pipeline works correctly
 without requiring actual model weights or GPU.
 """
 
-import pytest
 import numpy as np
+import pytest
 
-from visagen.vision.face_type import FaceType, FACE_TYPE_TO_PADDING
 from visagen.vision.aligner import (
-    FaceAligner,
-    AlignedFace,
-    umeyama,
-    transform_points,
     LANDMARKS_2D_NEW,
     LANDMARKS_68_3D,
+    FaceAligner,
+    transform_points,
+    umeyama,
 )
-from visagen.vision.dflimg import FaceMetadata, DFLImage
+from visagen.vision.dflimg import DFLImage, FaceMetadata
+from visagen.vision.face_type import FACE_TYPE_TO_PADDING, FaceType
 
 
 class TestFaceType:
@@ -47,9 +46,15 @@ class TestFaceType:
 
     def test_face_type_padding_values(self):
         """Verify padding values are defined for all types."""
-        for face_type in [FaceType.HALF, FaceType.MID_FULL, FaceType.FULL,
-                          FaceType.FULL_NO_ALIGN, FaceType.WHOLE_FACE,
-                          FaceType.HEAD, FaceType.HEAD_NO_ALIGN]:
+        for face_type in [
+            FaceType.HALF,
+            FaceType.MID_FULL,
+            FaceType.FULL,
+            FaceType.FULL_NO_ALIGN,
+            FaceType.WHOLE_FACE,
+            FaceType.HEAD,
+            FaceType.HEAD_NO_ALIGN,
+        ]:
             assert face_type in FACE_TYPE_TO_PADDING
             padding, remove_align = FACE_TYPE_TO_PADDING[face_type]
             assert isinstance(padding, float)
@@ -74,12 +79,15 @@ class TestUmeyama:
 
     def test_identity_transform(self):
         """Same points should give identity transform."""
-        points = np.array([
-            [0, 0],
-            [1, 0],
-            [1, 1],
-            [0, 1],
-        ], dtype=np.float32)
+        points = np.array(
+            [
+                [0, 0],
+                [1, 0],
+                [1, 1],
+                [0, 1],
+            ],
+            dtype=np.float32,
+        )
 
         mat = umeyama(points, points, estimate_scale=True)
 
@@ -216,8 +224,13 @@ class TestFaceAligner:
 
     def test_get_transform_mat_all_face_types(self, aligner, dummy_landmarks_68):
         """Transform should work for all face types."""
-        for face_type in [FaceType.HALF, FaceType.MID_FULL, FaceType.FULL,
-                          FaceType.WHOLE_FACE, FaceType.HEAD]:
+        for face_type in [
+            FaceType.HALF,
+            FaceType.MID_FULL,
+            FaceType.FULL,
+            FaceType.WHOLE_FACE,
+            FaceType.HEAD,
+        ]:
             mat = aligner.get_transform_mat(
                 dummy_landmarks_68,
                 output_size=256,

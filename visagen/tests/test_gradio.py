@@ -1,16 +1,15 @@
 """Tests for Gradio web interface."""
 
-import pytest
-import sys
+from unittest.mock import Mock
+
 import numpy as np
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+import pytest
 
 # Skip all tests if gradio not installed
 gr = pytest.importorskip("gradio")
 
 # Import directly to avoid visagen.tools.__init__ importing extract_v2
-from visagen.tools.gradio_app import GradioApp, create_app, GRADIO_AVAILABLE
+from visagen.tools.gradio_app import GRADIO_AVAILABLE, GradioApp, create_app
 
 
 class TestGradioApp:

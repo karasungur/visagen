@@ -6,15 +6,15 @@ manages the training loop, and handles optimization.
 Supports optional GAN training with PatchGAN discriminator.
 """
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import pytorch_lightning as pl
-from typing import Dict, Any, Optional, Tuple, List, Union
+from typing import Any
 
-from visagen.models.encoders.convnext import ConvNeXtEncoder
+import pytorch_lightning as pl
+import torch
+import torch.nn.functional as F
+
 from visagen.models.decoders.decoder import Decoder
-from visagen.training.losses import DSSIMLoss, MultiScaleDSSIMLoss, CombinedLoss
+from visagen.models.encoders.convnext import ConvNeXtEncoder
+from visagen.training.losses import DSSIMLoss, MultiScaleDSSIMLoss
 
 
 class DFLModule(pl.LightningModule):
@@ -61,9 +61,9 @@ class DFLModule(pl.LightningModule):
         self,
         image_size: int = 256,
         in_channels: int = 3,
-        encoder_dims: Optional[List[int]] = None,
-        encoder_depths: Optional[List[int]] = None,
-        decoder_dims: Optional[List[int]] = None,
+        encoder_dims: list[int] | None = None,
+        encoder_depths: list[int] | None = None,
+        decoder_dims: list[int] | None = None,
         latent_dim: int = 512,
         learning_rate: float = 1e-4,
         weight_decay: float = 0.01,
@@ -182,7 +182,11 @@ class DFLModule(pl.LightningModule):
     ) -> None:
         """Initialize GAN components."""
         from visagen.models.discriminators import UNetPatchDiscriminator
-        from visagen.training.losses import GANLoss, DiscriminatorLoss, TotalVariationLoss
+        from visagen.training.losses import (
+            DiscriminatorLoss,
+            GANLoss,
+            TotalVariationLoss,
+        )
 
         self.discriminator = UNetPatchDiscriminator(
             in_channels=in_channels,
@@ -200,6 +204,7 @@ class DFLModule(pl.LightningModule):
         """Lazy load LPIPS loss."""
         if self._lpips_loss is None and self.lpips_weight > 0:
             from visagen.training.losses import LPIPSLoss
+
             self._lpips_loss = LPIPSLoss()
         return self._lpips_loss
 
@@ -208,6 +213,7 @@ class DFLModule(pl.LightningModule):
         """Lazy load ID loss."""
         if self._id_loss is None and self.id_weight > 0:
             from visagen.training.losses import IDLoss
+
             self._id_loss = IDLoss()
         return self._id_loss
 
@@ -238,7 +244,7 @@ class DFLModule(pl.LightningModule):
         self,
         pred: torch.Tensor,
         target: torch.Tensor,
-    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Compute combined reconstruction loss.
 
@@ -280,8 +286,8 @@ class DFLModule(pl.LightningModule):
         return total, losses
 
     def training_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> Optional[torch.Tensor]:
+        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> torch.Tensor | None:
         """
         Training step with optional GAN training.
 
@@ -338,9 +344,8 @@ class DFLModule(pl.LightningModule):
         # Generator wants discriminator to classify fake as real
         d_fake_center, d_fake_final = self.discriminator(pred)
 
-        g_adv_loss = (
-            self.gan_loss(d_fake_center, target_is_real=True) +
-            self.gan_loss(d_fake_final, target_is_real=True)
+        g_adv_loss = self.gan_loss(d_fake_center, target_is_real=True) + self.gan_loss(
+            d_fake_final, target_is_real=True
         )
 
         # Total variation to suppress artifacts
@@ -368,8 +373,8 @@ class DFLModule(pl.LightningModule):
 
         # Discriminator loss (real=1, fake=0)
         d_loss = (
-            self.d_loss_fn(d_real_center, d_fake_center) +
-            self.d_loss_fn(d_real_final, d_fake_final)
+            self.d_loss_fn(d_real_center, d_fake_center)
+            + self.d_loss_fn(d_real_final, d_fake_final)
         ) * 0.5
 
         self.manual_backward(d_loss)
@@ -383,7 +388,7 @@ class DFLModule(pl.LightningModule):
             self.log(f"train_{name}", value, prog_bar=prog_bar)
 
     def validation_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
         """
         Validation step.
@@ -406,7 +411,7 @@ class DFLModule(pl.LightningModule):
 
         return total_loss
 
-    def configure_optimizers(self) -> Union[Dict[str, Any], Tuple[List, List]]:
+    def configure_optimizers(self) -> dict[str, Any] | tuple[list, list]:
         """
         Configure optimizer(s) and scheduler(s).
 

@@ -6,7 +6,6 @@ Uses random displacement grids for data augmentation.
 """
 
 import random
-from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -14,8 +13,8 @@ import torch.nn.functional as F
 
 def gen_warp_params(
     size: int,
-    rng: Optional[torch.Generator] = None,
-) -> Dict[str, torch.Tensor]:
+    rng: torch.Generator | None = None,
+) -> dict[str, torch.Tensor]:
     """
     Generate random warp displacement maps.
 
@@ -40,7 +39,7 @@ def gen_warp_params(
 
     # Choose random cell size from [size//8, size//4, size//2]
     cell_power = torch.randint(1, 4, (1,), generator=rng).item()
-    cell_size = max(size // (2 ** cell_power), 4)
+    cell_size = max(size // (2**cell_power), 4)
     cell_count = size // cell_size + 1
 
     # Create base grid points
@@ -65,8 +64,8 @@ def gen_warp_params(
     mapx = mapx.unsqueeze(0).unsqueeze(0)  # (1, 1, cell_count, cell_count)
     mapy = mapy.unsqueeze(0).unsqueeze(0)
 
-    mapx = F.interpolate(mapx, size=(size, size), mode='bilinear', align_corners=True)
-    mapy = F.interpolate(mapy, size=(size, size), mode='bilinear', align_corners=True)
+    mapx = F.interpolate(mapx, size=(size, size), mode="bilinear", align_corners=True)
+    mapy = F.interpolate(mapy, size=(size, size), mode="bilinear", align_corners=True)
 
     mapx = mapx.squeeze(0).squeeze(0)  # (size, size)
     mapy = mapy.squeeze(0).squeeze(0)
@@ -79,16 +78,16 @@ def gen_warp_params(
     grid = torch.stack([grid_x, grid_y], dim=-1)
 
     return {
-        'grid': grid.unsqueeze(0),  # (1, H, W, 2)
-        'size': size,
+        "grid": grid.unsqueeze(0),  # (1, H, W, 2)
+        "size": size,
     }
 
 
 def warp_by_params(
     image: torch.Tensor,
-    params: Dict[str, torch.Tensor],
-    mode: str = 'bilinear',
-    padding_mode: str = 'border',
+    params: dict[str, torch.Tensor],
+    mode: str = "bilinear",
+    padding_mode: str = "border",
 ) -> torch.Tensor:
     """
     Apply warping to image using displacement grid.
@@ -117,7 +116,7 @@ def warp_by_params(
         image = image.unsqueeze(0)
         squeeze_output = True
 
-    grid = params['grid']
+    grid = params["grid"]
 
     # Expand grid for batch size if needed
     if grid.shape[0] != image.shape[0]:
@@ -143,11 +142,11 @@ def warp_by_params(
 
 def gen_affine_params(
     size: int,
-    rotation_range: Tuple[float, float] = (-10, 10),
-    scale_range: Tuple[float, float] = (-0.05, 0.05),
-    translation_range: Tuple[float, float] = (-0.05, 0.05),
-    rng: Optional[torch.Generator] = None,
-) -> Dict[str, torch.Tensor]:
+    rotation_range: tuple[float, float] = (-10, 10),
+    scale_range: tuple[float, float] = (-0.05, 0.05),
+    translation_range: tuple[float, float] = (-0.05, 0.05),
+    rng: torch.Generator | None = None,
+) -> dict[str, torch.Tensor]:
     """
     Generate random affine transformation parameters.
 
@@ -168,14 +167,12 @@ def gen_affine_params(
 
     # Generate random parameters
     rotation = (
-        torch.rand(1, generator=rng).item()
-        * (rotation_range[1] - rotation_range[0])
+        torch.rand(1, generator=rng).item() * (rotation_range[1] - rotation_range[0])
         + rotation_range[0]
     )
     scale = (
         1.0
-        + torch.rand(1, generator=rng).item()
-        * (scale_range[1] - scale_range[0])
+        + torch.rand(1, generator=rng).item() * (scale_range[1] - scale_range[0])
         + scale_range[0]
     )
     tx = (
@@ -198,25 +195,36 @@ def gen_affine_params(
 
     # Affine matrix: rotate around center, then scale, then translate
     # M = T_center @ R @ S @ T_neg_center @ T_offset
-    matrix = torch.tensor([
-        [cos_a * scale, -sin_a * scale, (1 - cos_a * scale) * center + sin_a * scale * center + tx],
-        [sin_a * scale, cos_a * scale, (1 - cos_a * scale) * center - sin_a * scale * center + ty],
-    ], dtype=torch.float32)
+    matrix = torch.tensor(
+        [
+            [
+                cos_a * scale,
+                -sin_a * scale,
+                (1 - cos_a * scale) * center + sin_a * scale * center + tx,
+            ],
+            [
+                sin_a * scale,
+                cos_a * scale,
+                (1 - cos_a * scale) * center - sin_a * scale * center + ty,
+            ],
+        ],
+        dtype=torch.float32,
+    )
 
     return {
-        'matrix': matrix,
-        'rotation': rotation,
-        'scale': scale,
-        'tx': tx,
-        'ty': ty,
+        "matrix": matrix,
+        "rotation": rotation,
+        "scale": scale,
+        "tx": tx,
+        "ty": ty,
     }
 
 
 def apply_affine(
     image: torch.Tensor,
     matrix: torch.Tensor,
-    mode: str = 'bilinear',
-    padding_mode: str = 'border',
+    mode: str = "bilinear",
+    padding_mode: str = "border",
 ) -> torch.Tensor:
     """
     Apply affine transformation to image.
@@ -242,8 +250,12 @@ def apply_affine(
     matrix_norm = matrix.clone().to(image.device, image.dtype)
 
     # Normalize translation
-    matrix_norm[0, 2] = matrix_norm[0, 2] / (w / 2) - 1 + matrix_norm[0, 0] + matrix_norm[0, 1]
-    matrix_norm[1, 2] = matrix_norm[1, 2] / (h / 2) - 1 + matrix_norm[1, 0] + matrix_norm[1, 1]
+    matrix_norm[0, 2] = (
+        matrix_norm[0, 2] / (w / 2) - 1 + matrix_norm[0, 0] + matrix_norm[0, 1]
+    )
+    matrix_norm[1, 2] = (
+        matrix_norm[1, 2] / (h / 2) - 1 + matrix_norm[1, 0] + matrix_norm[1, 1]
+    )
 
     # Create inverse transformation for grid_sample
     # affine_grid expects theta that maps from output to input

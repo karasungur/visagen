@@ -18,28 +18,28 @@ Example:
     >>> stats = merger.run()
 """
 
+from visagen.merger.batch_processor import (
+    BatchProcessor,
+    WorkItem,
+    WorkResult,
+)
+from visagen.merger.frame_processor import (
+    FrameProcessor,
+    FrameProcessorConfig,
+    ProcessedFrame,
+)
+from visagen.merger.merger import (
+    FaceMerger,
+    MergerConfig,
+    MergerStats,
+)
 from visagen.merger.video_io import (
     VideoInfo,
     VideoReader,
     VideoWriter,
-    probe_video,
     extract_frames_to_dir,
+    probe_video,
     video_from_frames,
-)
-from visagen.merger.frame_processor import (
-    FrameProcessorConfig,
-    ProcessedFrame,
-    FrameProcessor,
-)
-from visagen.merger.merger import (
-    MergerConfig,
-    MergerStats,
-    FaceMerger,
-)
-from visagen.merger.batch_processor import (
-    WorkItem,
-    WorkResult,
-    BatchProcessor,
 )
 
 __all__ = [

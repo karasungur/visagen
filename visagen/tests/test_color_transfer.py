@@ -1,15 +1,15 @@
 """Tests for color transfer functions."""
 
-import pytest
 import numpy as np
+import pytest
 
 from visagen.postprocess.color_transfer import (
-    reinhard_color_transfer,
-    linear_color_transfer,
-    color_transfer_sot,
-    color_transfer_mkl,
-    color_transfer_idt,
     color_transfer,
+    color_transfer_idt,
+    color_transfer_mkl,
+    color_transfer_sot,
+    linear_color_transfer,
+    reinhard_color_transfer,
 )
 
 

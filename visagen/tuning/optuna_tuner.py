@@ -12,15 +12,17 @@ Features:
     - YAML config export for best parameters
 """
 
-import optuna
-from optuna_integration import PyTorchLightningPruningCallback
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-import yaml
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import optuna
+import pytorch_lightning as pl
+import yaml
+from optuna_integration import PyTorchLightningPruningCallback
+from pytorch_lightning.callbacks import EarlyStopping
 
 logger = logging.getLogger(__name__)
 
@@ -50,17 +52,17 @@ class TuningConfig:
         ... )
     """
 
-    learning_rate_range: Tuple[float, float] = (1e-5, 1e-3)
-    weight_decay_range: Tuple[float, float] = (0.001, 0.1)
-    dssim_weight_range: Tuple[float, float] = (1.0, 20.0)
-    l1_weight_range: Tuple[float, float] = (1.0, 20.0)
-    drop_path_rate_range: Tuple[float, float] = (0.0, 0.3)
-    lpips_weight_range: Tuple[float, float] = (0.0, 5.0)
-    gan_power_range: Tuple[float, float] = (0.0, 0.0)  # Disabled by default
+    learning_rate_range: tuple[float, float] = (1e-5, 1e-3)
+    weight_decay_range: tuple[float, float] = (0.001, 0.1)
+    dssim_weight_range: tuple[float, float] = (1.0, 20.0)
+    l1_weight_range: tuple[float, float] = (1.0, 20.0)
+    drop_path_rate_range: tuple[float, float] = (0.0, 0.3)
+    lpips_weight_range: tuple[float, float] = (0.0, 5.0)
+    gan_power_range: tuple[float, float] = (0.0, 0.0)  # Disabled by default
 
     # Categorical options (None = don't tune)
-    batch_size_options: Optional[List[int]] = None
-    encoder_dims_options: Optional[List[List[int]]] = None
+    batch_size_options: list[int] | None = None
+    encoder_dims_options: list[list[int]] | None = None
 
     def is_gan_enabled(self) -> bool:
         """Check if GAN hyperparameter search is enabled."""
@@ -101,10 +103,10 @@ class OptunaTuner:
     def __init__(
         self,
         study_name: str = "visagen_hpo",
-        storage_path: Optional[Path] = None,
+        storage_path: Path | None = None,
         direction: str = "minimize",
-        pruner: Optional[optuna.pruners.BasePruner] = None,
-        sampler: Optional[optuna.samplers.BaseSampler] = None,
+        pruner: optuna.pruners.BasePruner | None = None,
+        sampler: optuna.samplers.BaseSampler | None = None,
     ) -> None:
         self.study_name = study_name
         self.storage_path = storage_path
@@ -133,7 +135,7 @@ class OptunaTuner:
             self.storage = None
 
         # Study will be created on first optimize call
-        self._study: Optional[optuna.Study] = None
+        self._study: optuna.Study | None = None
 
     @property
     def study(self) -> optuna.Study:
@@ -153,7 +155,7 @@ class OptunaTuner:
         self,
         trial: optuna.Trial,
         config: TuningConfig,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Sample hyperparameters for a trial.
 
@@ -325,7 +327,7 @@ class OptunaTuner:
         config: TuningConfig,
         n_trials: int = 20,
         max_epochs: int = 50,
-        timeout: Optional[int] = None,
+        timeout: int | None = None,
         n_jobs: int = 1,
         accelerator: str = "auto",
         devices: int = 1,
@@ -369,7 +371,7 @@ class OptunaTuner:
 
         return self.study
 
-    def get_best_params(self) -> Dict[str, Any]:
+    def get_best_params(self) -> dict[str, Any]:
         """
         Get the best hyperparameters found.
 

@@ -18,15 +18,15 @@ Note:
 """
 
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
 
 import numpy as np
 
 # DALI imports with graceful fallback
 try:
-    from nvidia.dali import pipeline_def, fn, types
-    from nvidia.dali.plugin.pytorch import DALIGenericIterator, LastBatchPolicy
     import nvidia.dali.ops as ops
+    from nvidia.dali import fn, pipeline_def, types
+    from nvidia.dali.plugin.pytorch import DALIGenericIterator, LastBatchPolicy
+
     DALI_AVAILABLE = True
 except ImportError:
     DALI_AVAILABLE = False
@@ -60,8 +60,8 @@ class FaceSwapExternalSource:
 
     def __init__(
         self,
-        src_files: List[Path],
-        dst_files: List[Path],
+        src_files: list[Path],
+        dst_files: list[Path],
         batch_size: int,
         shuffle: bool = True,
         seed: int = 42,
@@ -83,7 +83,7 @@ class FaceSwapExternalSource:
         self.src_pos = 0
         self.dst_pos = 0
 
-    def __call__(self, sample_info) -> Tuple[np.ndarray, np.ndarray]:
+    def __call__(self, sample_info) -> tuple[np.ndarray, np.ndarray]:
         """
         Get next batch of image file contents.
 
@@ -104,10 +104,10 @@ class FaceSwapExternalSource:
         dst_path = self.dst_files[dst_idx]
 
         # Read image files as bytes
-        with open(src_path, 'rb') as f:
+        with open(src_path, "rb") as f:
             src_bytes = np.frombuffer(f.read(), dtype=np.uint8)
 
-        with open(dst_path, 'rb') as f:
+        with open(dst_path, "rb") as f:
             dst_bytes = np.frombuffer(f.read(), dtype=np.uint8)
 
         return src_bytes, dst_bytes
@@ -129,16 +129,16 @@ if DALI_AVAILABLE:
 
     @pipeline_def
     def face_swap_pipeline(
-        src_files: List[str],
-        dst_files: List[str],
+        src_files: list[str],
+        dst_files: list[str],
         image_size: int = 256,
         # Augmentation parameters
         flip_prob: float = 0.5,
         rotation_range: float = 10.0,
-        scale_range: Tuple[float, float] = (0.95, 1.05),
-        brightness_range: Tuple[float, float] = (0.9, 1.1),
-        contrast_range: Tuple[float, float] = (0.9, 1.1),
-        saturation_range: Tuple[float, float] = (0.9, 1.1),
+        scale_range: tuple[float, float] = (0.95, 1.05),
+        brightness_range: tuple[float, float] = (0.9, 1.1),
+        contrast_range: tuple[float, float] = (0.9, 1.1),
+        saturation_range: tuple[float, float] = (0.9, 1.1),
         hue_range: float = 0.05,
         # Pipeline settings
         seed: int = 42,
@@ -300,11 +300,10 @@ if DALI_AVAILABLE:
 
         return src_images, dst_images
 
-
     @pipeline_def
     def face_swap_pipeline_simple(
-        src_files: List[str],
-        dst_files: List[str],
+        src_files: list[str],
+        dst_files: list[str],
         image_size: int = 256,
         seed: int = 42,
         shard_id: int = 0,
@@ -370,8 +369,8 @@ if DALI_AVAILABLE:
 
 
 def create_dali_iterator(
-    src_dir: Union[str, Path],
-    dst_dir: Union[str, Path],
+    src_dir: str | Path,
+    dst_dir: str | Path,
     batch_size: int,
     image_size: int = 256,
     num_threads: int = 4,
@@ -418,21 +417,17 @@ def create_dali_iterator(
         raise FileNotFoundError(f"Destination directory not found: {dst_dir}")
 
     # Get image files
-    src_files = sorted([
-        str(f) for f in src_dir.glob("*.jpg")
-    ] + [
-        str(f) for f in src_dir.glob("*.jpeg")
-    ] + [
-        str(f) for f in src_dir.glob("*.png")
-    ])
+    src_files = sorted(
+        [str(f) for f in src_dir.glob("*.jpg")]
+        + [str(f) for f in src_dir.glob("*.jpeg")]
+        + [str(f) for f in src_dir.glob("*.png")]
+    )
 
-    dst_files = sorted([
-        str(f) for f in dst_dir.glob("*.jpg")
-    ] + [
-        str(f) for f in dst_dir.glob("*.jpeg")
-    ] + [
-        str(f) for f in dst_dir.glob("*.png")
-    ])
+    dst_files = sorted(
+        [str(f) for f in dst_dir.glob("*.jpg")]
+        + [str(f) for f in dst_dir.glob("*.jpeg")]
+        + [str(f) for f in dst_dir.glob("*.png")]
+    )
 
     if not src_files:
         raise FileNotFoundError(f"No images found in {src_dir}")
@@ -479,7 +474,7 @@ def create_dali_iterator(
     return iterator
 
 
-def get_dataset_size(data_dir: Union[str, Path]) -> int:
+def get_dataset_size(data_dir: str | Path) -> int:
     """
     Get number of images in a directory.
 

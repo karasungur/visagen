@@ -8,9 +8,9 @@ This module provides modern computer vision capabilities:
 - Face segmentation via SegFormer
 """
 
-from visagen.vision.face_type import FaceType
 from visagen.vision.aligner import FaceAligner
 from visagen.vision.dflimg import DFLImage, FaceMetadata
+from visagen.vision.face_type import FaceType
 
 # Lazy imports for optional dependencies
 _FaceDetector = None
@@ -24,12 +24,14 @@ def __getattr__(name: str):
     if name == "FaceDetector":
         if _FaceDetector is None:
             from visagen.vision.detector import FaceDetector as _FD
+
             _FaceDetector = _FD
         return _FaceDetector
 
     if name == "FaceSegmenter":
         if _FaceSegmenter is None:
             from visagen.vision.segmenter import FaceSegmenter as _FS
+
             _FaceSegmenter = _FS
         return _FaceSegmenter
 

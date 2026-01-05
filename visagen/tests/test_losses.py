@@ -10,11 +10,11 @@ import torch
 import torch.nn.functional as F
 
 from visagen.training.losses import (
-    DSSIMLoss,
-    MultiScaleDSSIMLoss,
-    EyesMouthLoss,
-    StyleLoss,
     CombinedLoss,
+    DSSIMLoss,
+    EyesMouthLoss,
+    MultiScaleDSSIMLoss,
+    StyleLoss,
 )
 
 
@@ -256,10 +256,7 @@ class TestCombinedLoss:
 
         total, losses = combined_loss(x, y)
 
-        expected_total = (
-            10.0 * losses["dssim"] +
-            10.0 * losses["l1"]
-        )
+        expected_total = 10.0 * losses["dssim"] + 10.0 * losses["l1"]
 
         torch.testing.assert_close(total, expected_total, atol=1e-5, rtol=1e-5)
 

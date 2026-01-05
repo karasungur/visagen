@@ -1,19 +1,18 @@
 """Tests for blending functions."""
 
-import pytest
 import numpy as np
-import cv2
+import pytest
 
 from visagen.postprocess.blending import (
+    blend,
     build_gaussian_pyramid,
     build_laplacian_pyramid,
-    reconstruct_from_laplacian,
+    dilate_mask,
+    erode_mask,
+    feather_blend,
     laplacian_pyramid_blend,
     poisson_blend,
-    feather_blend,
-    erode_mask,
-    dilate_mask,
-    blend,
+    reconstruct_from_laplacian,
 )
 
 

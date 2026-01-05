@@ -10,7 +10,6 @@ Tests cover:
 
 import numpy as np
 import pytest
-import torch
 
 from visagen.data.dali_pipeline import DALI_AVAILABLE, check_dali_available
 from visagen.data.dali_warp import (
@@ -346,7 +345,9 @@ class TestDALIPipelineIntegration:
         from PIL import Image
 
         for i in range(10):
-            img = Image.fromarray(np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8))
+            img = Image.fromarray(
+                np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
+            )
             img.save(src_dir / f"img_{i}.jpg")
             img.save(dst_dir / f"img_{i}.jpg")
 
@@ -367,8 +368,9 @@ class TestDALIPipelineIntegration:
 
     def test_dali_datamodule_training(self, tmp_path):
         """DALI DataModule should work with Lightning Trainer."""
-        from visagen.data.dali_loader import DALIFaceDataModule
         from PIL import Image
+
+        from visagen.data.dali_loader import DALIFaceDataModule
 
         # Create test images
         src_dir = tmp_path / "src"
@@ -377,7 +379,9 @@ class TestDALIPipelineIntegration:
         dst_dir.mkdir()
 
         for i in range(20):
-            img = Image.fromarray(np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8))
+            img = Image.fromarray(
+                np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
+            )
             img.save(src_dir / f"img_{i}.jpg")
             img.save(dst_dir / f"img_{i}.jpg")
 

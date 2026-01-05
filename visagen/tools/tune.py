@@ -23,9 +23,6 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
-
-import pytorch_lightning as pl
 
 
 def parse_args() -> argparse.Namespace:
@@ -214,17 +211,17 @@ def main() -> int:
     print("=" * 60)
     print("VISAGEN HYPERPARAMETER TUNING")
     print("=" * 60)
-    print(f"\nData:")
+    print("\nData:")
     print(f"  Source: {args.src_dir}")
     print(f"  Destination: {args.dst_dir}")
-    print(f"\nTuning settings:")
+    print("\nTuning settings:")
     print(f"  Study name: {args.study_name}")
     print(f"  Trials: {args.n_trials}")
     print(f"  Epochs/trial: {args.epochs_per_trial}")
     print(f"  Learning rate range: [{args.lr_min}, {args.lr_max}]")
     print(f"  GAN search: {'enabled' if args.enable_gan_search else 'disabled'}")
     print(f"  LPIPS search: {'enabled' if args.enable_lpips_search else 'disabled'}")
-    print(f"\nHardware:")
+    print("\nHardware:")
     print(f"  Accelerator: {args.accelerator}")
     print(f"  Devices: {args.devices}")
     print(f"  Precision: {args.precision}")
@@ -275,7 +272,7 @@ def main() -> int:
     print("-" * 60)
 
     try:
-        study = tuner.optimize(
+        tuner.optimize(
             datamodule=datamodule,
             config=config,
             n_trials=args.n_trials,
@@ -289,7 +286,6 @@ def main() -> int:
         )
     except KeyboardInterrupt:
         print("\n\nOptimization interrupted by user.")
-        study = tuner.study
 
     # Print summary
     tuner.print_summary()
@@ -309,7 +305,7 @@ def main() -> int:
         pass  # pandas not available
 
     print("\nTuning complete!")
-    print(f"\nTo train with best params, use:")
+    print("\nTo train with best params, use:")
     print(f"  visagen-train --config {config_path} \\")
     print(f"    --src-dir {args.src_dir} \\")
     print(f"    --dst-dir {args.dst_dir}")

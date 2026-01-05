@@ -163,8 +163,8 @@ def detect_format(args: argparse.Namespace) -> str:
             return "tensorrt"
         else:
             print(
-                f"Error: Cannot auto-detect format. "
-                f"Use --format to specify 'onnx' or 'tensorrt'",
+                "Error: Cannot auto-detect format. "
+                "Use --format to specify 'onnx' or 'tensorrt'",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -172,7 +172,7 @@ def detect_format(args: argparse.Namespace) -> str:
 
 def export_onnx(args: argparse.Namespace) -> int:
     """Export model to ONNX format."""
-    from visagen.export import ONNXExporter, ExportConfig
+    from visagen.export import ExportConfig, ONNXExporter
 
     # Build config
     config = ExportConfig(
@@ -210,11 +210,11 @@ def export_onnx(args: argparse.Namespace) -> int:
             result = exporter.validate()
 
             if result.passed:
-                print(f"✓ Validation PASSED")
+                print("✓ Validation PASSED")
                 print(f"  Max difference: {result.max_diff:.6f}")
                 print(f"  Mean difference: {result.mean_diff:.6f}")
             else:
-                print(f"✗ Validation FAILED")
+                print("✗ Validation FAILED")
                 print(f"  Max difference: {result.max_diff:.6f}")
                 print(f"  Mean difference: {result.mean_diff:.6f}")
                 return 1
@@ -330,7 +330,7 @@ def main() -> int:
     export_format = detect_format(args)
 
     if not args.quiet:
-        print(f"Visagen Export")
+        print("Visagen Export")
         print(f"  Format: {export_format.upper()}")
         print()
 

@@ -7,7 +7,6 @@ with GPU/CPU support and optimized session configuration.
 
 import logging
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -38,7 +37,7 @@ class ONNXRunner:
 
     def __init__(
         self,
-        model_path: Union[str, Path],
+        model_path: str | Path,
         device: str = "cuda",
         device_id: int = 0,
         num_threads: int = 4,
@@ -47,8 +46,7 @@ class ONNXRunner:
             import onnxruntime as ort
         except ImportError:
             raise ImportError(
-                "onnxruntime is required. "
-                "Install with: pip install onnxruntime-gpu"
+                "onnxruntime is required. Install with: pip install onnxruntime-gpu"
             )
 
         self.model_path = Path(model_path)
@@ -72,8 +70,7 @@ class ONNXRunner:
         self.input_dtype = input_info.type
 
         logger.info(
-            f"ONNXRunner initialized: device={device}, "
-            f"input_shape={self.input_shape}"
+            f"ONNXRunner initialized: device={device}, input_shape={self.input_shape}"
         )
 
     def _create_session(self, ort) -> "ort.InferenceSession":
@@ -148,9 +145,9 @@ class ONNXRunner:
 
     def batch_inference(
         self,
-        images: List[np.ndarray],
+        images: list[np.ndarray],
         batch_size: int = 8,
-    ) -> List[np.ndarray]:
+    ) -> list[np.ndarray]:
         """
         Run inference on batch of images.
 
@@ -188,7 +185,7 @@ class ONNXRunner:
 
     def warmup(
         self,
-        shape: Optional[Tuple[int, ...]] = None,
+        shape: tuple[int, ...] | None = None,
         num_iterations: int = 3,
     ) -> None:
         """
@@ -221,19 +218,23 @@ class ONNXRunner:
         """
         inputs = []
         for inp in self.session.get_inputs():
-            inputs.append({
-                "name": inp.name,
-                "shape": inp.shape,
-                "type": inp.type,
-            })
+            inputs.append(
+                {
+                    "name": inp.name,
+                    "shape": inp.shape,
+                    "type": inp.type,
+                }
+            )
 
         outputs = []
         for out in self.session.get_outputs():
-            outputs.append({
-                "name": out.name,
-                "shape": out.shape,
-                "type": out.type,
-            })
+            outputs.append(
+                {
+                    "name": out.name,
+                    "shape": out.shape,
+                    "type": out.type,
+                }
+            )
 
         return {
             "inputs": inputs,

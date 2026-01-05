@@ -13,7 +13,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Tuple, Optional
 
 
 class ResidualBlock(nn.Module):
@@ -224,7 +223,7 @@ class UNetPatchDiscriminator(nn.Module):
         # Final output (after decoder, with skip connection)
         self.final_out = norm_fn(nn.Conv2d(level_chs[-1] * 2, 1, 1))
 
-    def _calc_receptive_field(self, layers: List[Tuple[int, int]]) -> int:
+    def _calc_receptive_field(self, layers: list[tuple[int, int]]) -> int:
         """
         Calculate receptive field size for given layer configuration.
 
@@ -248,7 +247,7 @@ class UNetPatchDiscriminator(nn.Module):
 
     def _find_archi(
         self, target_patch_size: int, max_layers: int = 9
-    ) -> List[Tuple[int, int]]:
+    ) -> list[tuple[int, int]]:
         """
         Find optimal 3x3 conv architecture for target patch size.
 
@@ -303,7 +302,7 @@ class UNetPatchDiscriminator(nn.Module):
 
         return candidates[closest_rf][2]
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass.
 
@@ -329,7 +328,7 @@ class UNetPatchDiscriminator(nn.Module):
         x = F.leaky_relu(self.center_conv(x), 0.2)
 
         # Decoder with skip connections
-        for up_conv, enc in zip(self.up_convs, encodings):
+        for up_conv, enc in zip(self.up_convs, encodings, strict=False):
             x = F.leaky_relu(up_conv(x), 0.2)
             # Concatenate with skip connection
             x = torch.cat([enc, x], dim=1)
@@ -383,7 +382,7 @@ class MultiScaleDiscriminator(nn.Module):
 
         self.downsample = nn.AvgPool2d(3, stride=2, padding=1, count_include_pad=False)
 
-    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         """
         Forward pass at multiple scales.
 

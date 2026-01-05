@@ -11,15 +11,13 @@ The algorithm matches legacy DeepFaceLab behavior:
     4. Normalize to [-1, 1] for grid_sample
 """
 
-from typing import Optional, Tuple
-
 import numpy as np
 
 
 def gen_dali_warp_grid(
     size: int,
     batch_size: int = 1,
-    rng: Optional[np.random.Generator] = None,
+    rng: np.random.Generator | None = None,
 ) -> np.ndarray:
     """
     Generate DFL-style warp grids for DALI external_source.
@@ -49,7 +47,7 @@ def gen_dali_warp_grid(
     for _ in range(batch_size):
         # Choose random cell size from [size//8, size//4, size//2]
         cell_power = rng.integers(1, 4)
-        cell_size = max(size // (2 ** cell_power), 4)
+        cell_size = max(size // (2**cell_power), 4)
         cell_count = size // cell_size + 1
 
         # Create base grid points
@@ -64,8 +62,14 @@ def gen_dali_warp_grid(
         interior_w = cell_count - 2
 
         if interior_h > 0 and interior_w > 0:
-            noise_x = rng.standard_normal((interior_h, interior_w)).astype(np.float32) * displacement
-            noise_y = rng.standard_normal((interior_h, interior_w)).astype(np.float32) * displacement
+            noise_x = (
+                rng.standard_normal((interior_h, interior_w)).astype(np.float32)
+                * displacement
+            )
+            noise_y = (
+                rng.standard_normal((interior_h, interior_w)).astype(np.float32)
+                * displacement
+            )
 
             mapx[1:-1, 1:-1] += noise_x
             mapy[1:-1, 1:-1] += noise_y
@@ -85,8 +89,8 @@ def gen_dali_warp_grid(
         if mapx_full.shape[0] < size or mapx_full.shape[1] < size:
             pad_h = size - mapx_full.shape[0]
             pad_w = size - mapx_full.shape[1]
-            mapx_full = np.pad(mapx_full, ((0, pad_h), (0, pad_w)), mode='edge')
-            mapy_full = np.pad(mapy_full, ((0, pad_h), (0, pad_w)), mode='edge')
+            mapx_full = np.pad(mapx_full, ((0, pad_h), (0, pad_w)), mode="edge")
+            mapy_full = np.pad(mapy_full, ((0, pad_h), (0, pad_w)), mode="edge")
 
         # Normalize to [-1, 1] for grid_sample
         grid_x = (mapx_full / (size - 1)) * 2 - 1
@@ -147,10 +151,10 @@ class DALIWarpGridGenerator:
 def gen_dali_affine_matrix(
     size: int,
     batch_size: int = 1,
-    rotation_range: Tuple[float, float] = (-10.0, 10.0),
-    scale_range: Tuple[float, float] = (0.95, 1.05),
-    translation_range: Tuple[float, float] = (-0.05, 0.05),
-    rng: Optional[np.random.Generator] = None,
+    rotation_range: tuple[float, float] = (-10.0, 10.0),
+    scale_range: tuple[float, float] = (0.95, 1.05),
+    translation_range: tuple[float, float] = (-0.05, 0.05),
+    rng: np.random.Generator | None = None,
 ) -> np.ndarray:
     """
     Generate random affine transformation matrices for DALI.
@@ -186,10 +190,21 @@ def gen_dali_affine_matrix(
         center = size / 2.0
 
         # Affine matrix: rotate around center, then scale, then translate
-        matrix = np.array([
-            [cos_a * scale, -sin_a * scale, (1 - cos_a * scale) * center + sin_a * scale * center + tx],
-            [sin_a * scale, cos_a * scale, (1 - cos_a * scale) * center - sin_a * scale * center + ty],
-        ], dtype=np.float32)
+        matrix = np.array(
+            [
+                [
+                    cos_a * scale,
+                    -sin_a * scale,
+                    (1 - cos_a * scale) * center + sin_a * scale * center + tx,
+                ],
+                [
+                    sin_a * scale,
+                    cos_a * scale,
+                    (1 - cos_a * scale) * center - sin_a * scale * center + ty,
+                ],
+            ],
+            dtype=np.float32,
+        )
 
         matrices.append(matrix)
 
@@ -211,9 +226,9 @@ class DALIAffineGenerator:
     def __init__(
         self,
         size: int,
-        rotation_range: Tuple[float, float] = (-10.0, 10.0),
-        scale_range: Tuple[float, float] = (0.95, 1.05),
-        translation_range: Tuple[float, float] = (-0.05, 0.05),
+        rotation_range: tuple[float, float] = (-10.0, 10.0),
+        scale_range: tuple[float, float] = (0.95, 1.05),
+        translation_range: tuple[float, float] = (-0.05, 0.05),
         seed: int = 42,
     ) -> None:
         self.size = size
@@ -272,7 +287,7 @@ def apply_warp_grid_numpy(
                 image[..., c],
                 [grid_y, grid_x],
                 order=1,
-                mode='nearest',
+                mode="nearest",
             )
             channels.append(warped_c)
         return np.stack(channels, axis=-1)
@@ -281,5 +296,5 @@ def apply_warp_grid_numpy(
             image,
             [grid_y, grid_x],
             order=1,
-            mode='nearest',
+            mode="nearest",
         )

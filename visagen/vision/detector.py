@@ -5,14 +5,14 @@ SCRFD (Sample and Computation Redistribution for Face Detection) provides
 fast and accurate face detection, especially for small faces.
 """
 
-import numpy as np
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
-from pathlib import Path
+
+import numpy as np
 
 try:
     from insightface.app import FaceAnalysis
     from insightface.data import get_image as ins_get_image
+
     INSIGHTFACE_AVAILABLE = True
 except ImportError:
     INSIGHTFACE_AVAILABLE = False
@@ -32,8 +32,8 @@ class DetectedFace:
 
     bbox: np.ndarray  # Shape: (4,) - x1, y1, x2, y2
     confidence: float
-    landmarks: Optional[np.ndarray] = None  # Shape: (5, 2) - 5 keypoints
-    embedding: Optional[np.ndarray] = None  # Shape: (512,) - ArcFace embedding
+    landmarks: np.ndarray | None = None  # Shape: (5, 2) - 5 keypoints
+    embedding: np.ndarray | None = None  # Shape: (512,) - ArcFace embedding
 
     @property
     def x1(self) -> int:
@@ -64,10 +64,10 @@ class DetectedFace:
         return self.width * self.height
 
     @property
-    def center(self) -> Tuple[int, int]:
+    def center(self) -> tuple[int, int]:
         return (self.x1 + self.x2) // 2, (self.y1 + self.y2) // 2
 
-    def to_rect(self) -> Tuple[int, int, int, int]:
+    def to_rect(self) -> tuple[int, int, int, int]:
         """Return bbox as (left, top, right, bottom) tuple."""
         return (self.x1, self.y1, self.x2, self.y2)
 
@@ -100,7 +100,7 @@ class FaceDetector:
         model_name: str = "buffalo_l",
         ctx_id: int = 0,
         det_thresh: float = 0.5,
-        det_size: Tuple[int, int] = (640, 640),
+        det_size: tuple[int, int] = (640, 640),
     ) -> None:
         if not INSIGHTFACE_AVAILABLE:
             raise ImportError(
@@ -120,7 +120,7 @@ class FaceDetector:
         )
         self._app.prepare(ctx_id=ctx_id, det_thresh=det_thresh, det_size=det_size)
 
-    def _get_providers(self, ctx_id: int) -> List[str]:
+    def _get_providers(self, ctx_id: int) -> list[str]:
         """Get ONNX Runtime execution providers based on device."""
         if ctx_id >= 0:
             return ["CUDAExecutionProvider", "CPUExecutionProvider"]
@@ -129,9 +129,9 @@ class FaceDetector:
     def detect(
         self,
         image: np.ndarray,
-        max_faces: Optional[int] = None,
+        max_faces: int | None = None,
         sort_by_size: bool = True,
-    ) -> List[DetectedFace]:
+    ) -> list[DetectedFace]:
         """
         Detect faces in an image.
 
@@ -171,9 +171,9 @@ class FaceDetector:
     def detect_with_rotation(
         self,
         image: np.ndarray,
-        max_faces: Optional[int] = None,
-        rotations: List[int] = None,
-    ) -> Tuple[List[DetectedFace], int]:
+        max_faces: int | None = None,
+        rotations: list[int] = None,
+    ) -> tuple[list[DetectedFace], int]:
         """
         Detect faces with automatic rotation handling.
 
@@ -216,10 +216,10 @@ class FaceDetector:
 
     def _unrotate_faces(
         self,
-        faces: List[DetectedFace],
-        original_shape: Tuple[int, int, int],
+        faces: list[DetectedFace],
+        original_shape: tuple[int, int, int],
         rotation: int,
-    ) -> List[DetectedFace]:
+    ) -> list[DetectedFace]:
         """Transform face coordinates back to original image orientation."""
         h, w = original_shape[:2]
         result = []

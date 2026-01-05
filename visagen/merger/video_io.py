@@ -12,12 +12,11 @@ Features:
     - video_from_frames: Create video from frame sequence
 """
 
-import json
 import subprocess
 import tempfile
+from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator, Optional, Tuple
 
 import numpy as np
 
@@ -32,6 +31,7 @@ def _get_ffmpeg():
     if _ffmpeg is None:
         try:
             import ffmpeg
+
             _ffmpeg = ffmpeg
         except ImportError:
             raise ImportError(
@@ -47,6 +47,7 @@ def _get_ffmpeg_exe() -> str:
     if _ffmpeg_exe is None:
         try:
             import imageio_ffmpeg
+
             _ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
         except ImportError:
             # Fallback to system FFmpeg
@@ -89,7 +90,7 @@ class VideoInfo:
     duration: float
     has_audio: bool
     codec: str
-    audio_codec: Optional[str] = None
+    audio_codec: str | None = None
 
 
 def probe_video(video_path: Path) -> VideoInfo:
@@ -114,9 +115,13 @@ def probe_video(video_path: Path) -> VideoInfo:
     ffmpeg_exe = _get_ffmpeg_exe()
 
     try:
-        probe = ffmpeg.probe(str(video_path), cmd=ffmpeg_exe.replace("ffmpeg", "ffprobe"))
+        probe = ffmpeg.probe(
+            str(video_path), cmd=ffmpeg_exe.replace("ffmpeg", "ffprobe")
+        )
     except ffmpeg.Error as e:
-        raise RuntimeError(f"Failed to probe video: {e.stderr.decode() if e.stderr else str(e)}")
+        raise RuntimeError(
+            f"Failed to probe video: {e.stderr.decode() if e.stderr else str(e)}"
+        )
 
     # Find video stream
     video_stream = next(
@@ -183,14 +188,14 @@ class VideoReader:
     def __init__(
         self,
         video_path: Path,
-        output_size: Optional[Tuple[int, int]] = None,
+        output_size: tuple[int, int] | None = None,
         pixel_format: str = "bgr24",
     ) -> None:
         self.video_path = Path(video_path)
         self.output_size = output_size
         self.pixel_format = pixel_format
-        self._info: Optional[VideoInfo] = None
-        self._process: Optional[subprocess.Popen] = None
+        self._info: VideoInfo | None = None
+        self._process: subprocess.Popen | None = None
 
     def get_info(self) -> VideoInfo:
         """Get video metadata (cached)."""
@@ -215,9 +220,9 @@ class VideoReader:
     def iter_frames(
         self,
         start: int = 0,
-        end: Optional[int] = None,
+        end: int | None = None,
         skip: int = 1,
-    ) -> Generator[Tuple[int, np.ndarray], None, None]:
+    ) -> Generator[tuple[int, np.ndarray], None, None]:
         """
         Iterate over video frames.
 
@@ -291,7 +296,7 @@ class VideoReader:
             process.wait()
             self._process = None
 
-    def read_frame(self, frame_idx: int) -> Optional[np.ndarray]:
+    def read_frame(self, frame_idx: int) -> np.ndarray | None:
         """
         Read a single frame by index.
 
@@ -301,7 +306,7 @@ class VideoReader:
         Returns:
             Frame array or None if frame doesn't exist.
         """
-        for idx, frame in self.iter_frames(start=frame_idx, end=frame_idx + 1):
+        for _idx, frame in self.iter_frames(start=frame_idx, end=frame_idx + 1):
             return frame
         return None
 
@@ -384,7 +389,7 @@ class VideoWriter:
         crf: int = 18,
         preset: str = "medium",
         pixel_format: str = "yuv420p",
-        audio_source: Optional[Path] = None,
+        audio_source: Path | None = None,
     ) -> None:
         self.output_path = Path(output_path)
         self.width = width
@@ -396,8 +401,8 @@ class VideoWriter:
         self.pixel_format = pixel_format
         self.audio_source = Path(audio_source) if audio_source else None
 
-        self._process: Optional[subprocess.Popen] = None
-        self._temp_video: Optional[Path] = None
+        self._process: subprocess.Popen | None = None
+        self._temp_video: Path | None = None
         self._frame_count = 0
 
     def _start_process(self) -> None:
@@ -453,6 +458,7 @@ class VideoWriter:
         # Ensure correct shape
         if frame.shape[:2] != (self.height, self.width):
             import cv2
+
             frame = cv2.resize(frame, (self.width, self.height))
 
         # Write to stdin
@@ -498,6 +504,7 @@ class VideoWriter:
         except ffmpeg.Error:
             # If merge fails, just use video without audio
             import shutil
+
             shutil.move(str(self._temp_video), str(self.output_path))
         finally:
             # Clean up temp file
@@ -524,7 +531,7 @@ def extract_frames_to_dir(
     video_path: Path,
     output_dir: Path,
     ext: str = "png",
-    fps: Optional[float] = None,
+    fps: float | None = None,
     quality: int = 95,
 ) -> int:
     """
@@ -575,7 +582,7 @@ def video_from_frames(
     frames_dir: Path,
     output_path: Path,
     fps: float,
-    audio_source: Optional[Path] = None,
+    audio_source: Path | None = None,
     codec: str = "libx264",
     crf: int = 18,
     pattern: str = "%06d.png",

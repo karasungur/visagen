@@ -9,18 +9,16 @@ import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Generator
 
 import cv2
 import numpy as np
 from tqdm import tqdm
 
-from visagen.vision.face_type import FaceType
-from visagen.vision.detector import FaceDetector
 from visagen.vision.aligner import FaceAligner
-from visagen.vision.segmenter import FaceSegmenter
+from visagen.vision.detector import FaceDetector
 from visagen.vision.dflimg import DFLImage, FaceMetadata
-
+from visagen.vision.face_type import FaceType
+from visagen.vision.segmenter import FaceSegmenter
 
 # Supported image extensions
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -74,7 +72,7 @@ class FaceExtractor:
         face_type: FaceType = FaceType.WHOLE_FACE,
         jpeg_quality: int = 95,
         min_confidence: float = 0.5,
-        device: Optional[str] = None,
+        device: str | None = None,
     ) -> None:
         self.output_size = output_size
         self.face_type = face_type
@@ -84,7 +82,7 @@ class FaceExtractor:
         # Initialize vision components
         self.detector = FaceDetector(device=device)
         self.aligner = FaceAligner()
-        self.segmenter: Optional[FaceSegmenter] = None  # Lazy load
+        self.segmenter: FaceSegmenter | None = None  # Lazy load
 
     def _ensure_segmenter(self) -> FaceSegmenter:
         """Lazy-load segmenter on first use."""
@@ -96,7 +94,7 @@ class FaceExtractor:
         self,
         image_path: Path,
         with_mask: bool = True,
-    ) -> List[ExtractedFace]:
+    ) -> list[ExtractedFace]:
         """
         Extract all faces from a single image.
 
@@ -127,7 +125,7 @@ class FaceExtractor:
         image: np.ndarray,
         source_filename: str,
         with_mask: bool = True,
-    ) -> List[ExtractedFace]:
+    ) -> list[ExtractedFace]:
         """Extract faces from numpy array."""
         results = []
 
@@ -174,12 +172,14 @@ class FaceExtractor:
                 xseg_mask=xseg_mask,
             )
 
-            results.append(ExtractedFace(
-                image=aligned.image,
-                metadata=metadata,
-                confidence=face.confidence,
-                face_index=idx,
-            ))
+            results.append(
+                ExtractedFace(
+                    image=aligned.image,
+                    metadata=metadata,
+                    confidence=face.confidence,
+                    face_index=idx,
+                )
+            )
 
         return results
 
@@ -189,7 +189,7 @@ class FaceExtractor:
         output_dir: Path,
         frame_skip: int = 1,
         with_mask: bool = True,
-        max_frames: Optional[int] = None,
+        max_frames: int | None = None,
     ) -> int:
         """
         Extract faces from video file.
@@ -298,8 +298,7 @@ class FaceExtractor:
         # Find all images
         pattern = "**/*" if recursive else "*"
         image_files = [
-            f for f in input_dir.glob(pattern)
-            if f.suffix.lower() in IMAGE_EXTENSIONS
+            f for f in input_dir.glob(pattern) if f.suffix.lower() in IMAGE_EXTENSIONS
         ]
 
         face_count = 0

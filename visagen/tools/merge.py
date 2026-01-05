@@ -136,8 +136,17 @@ Examples:
         "--preset",
         type=str,
         default="medium",
-        choices=["ultrafast", "superfast", "veryfast", "faster", "fast",
-                 "medium", "slow", "slower", "veryslow"],
+        choices=[
+            "ultrafast",
+            "superfast",
+            "veryfast",
+            "faster",
+            "fast",
+            "medium",
+            "slow",
+            "slower",
+            "veryslow",
+        ],
         help="Encoding preset (default: medium)",
     )
     video.add_argument(
@@ -229,7 +238,9 @@ def build_config(args: argparse.Namespace) -> MergerConfig:
         max_faces=args.max_faces,
         face_type=args.face_type,
         output_size=args.output_size,
-        color_transfer_mode=args.color_transfer if args.color_transfer != "none" else None,
+        color_transfer_mode=args.color_transfer
+        if args.color_transfer != "none"
+        else None,
         blend_mode=args.blend_mode,
         mask_erode=args.mask_erode,
         mask_blur=args.mask_blur,
@@ -261,7 +272,13 @@ def main() -> int:
     # Set up logging
     import logging
 
-    log_level = logging.DEBUG if args.verbose else logging.WARNING if args.quiet else logging.INFO
+    log_level = (
+        logging.DEBUG
+        if args.verbose
+        else logging.WARNING
+        if args.quiet
+        else logging.INFO
+    )
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s - %(levelname)s - %(message)s",
@@ -304,7 +321,7 @@ def main() -> int:
 
     # Run merger
     if not args.quiet:
-        print(f"Visagen Merge")
+        print("Visagen Merge")
         print(f"  Input: {args.input}")
         print(f"  Output: {args.output}")
         print(f"  Checkpoint: {args.checkpoint}")

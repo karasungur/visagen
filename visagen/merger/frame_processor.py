@@ -16,16 +16,16 @@ Features:
 """
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Union
 
 import cv2
 import numpy as np
 import torch
 
 # Type alias for face metadata
-FaceMetadata = Dict[str, Any]
+FaceMetadata = dict[str, Any]
 
 
 @dataclass
@@ -56,7 +56,7 @@ class FrameProcessorConfig:
     output_size: int = 256
 
     # Color transfer
-    color_transfer_mode: Optional[str] = "rct"
+    color_transfer_mode: str | None = "rct"
 
     # Blending
     blend_mode: str = "laplacian"
@@ -88,7 +88,7 @@ class ProcessedFrame:
     faces_detected: int
     faces_swapped: int
     processing_time: float
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 class FrameProcessor:
@@ -129,8 +129,8 @@ class FrameProcessor:
     def __init__(
         self,
         model: Union[str, Path, "torch.nn.Module"],
-        config: Optional[FrameProcessorConfig] = None,
-        device: Optional[str] = None,
+        config: FrameProcessorConfig | None = None,
+        device: str | None = None,
         backend: str = "pytorch",
     ) -> None:
         if backend not in self.VALID_BACKENDS:
@@ -185,7 +185,7 @@ class FrameProcessor:
         else:
             return model.to(self.device)
 
-    def _load_onnx_model(self, model: Union[str, Path]) -> "ONNXRunner":
+    def _load_onnx_model(self, model: str | Path) -> "ONNXRunner":
         """Load ONNX model for inference."""
         from visagen.export.onnx_runner import ONNXRunner
 
@@ -196,7 +196,7 @@ class FrameProcessor:
 
         return ONNXRunner(model_path, device=self.device)
 
-    def _load_tensorrt_model(self, model: Union[str, Path]) -> "TensorRTRunner":
+    def _load_tensorrt_model(self, model: str | Path) -> "TensorRTRunner":
         """Load TensorRT engine for inference."""
         from visagen.export.tensorrt_runner import TensorRTRunner
 
@@ -277,9 +277,7 @@ class FrameProcessor:
                         )
 
                     # Blend back to frame
-                    output = self._blend_to_frame(
-                        output, swapped_face, face_meta, mask
-                    )
+                    output = self._blend_to_frame(output, swapped_face, face_meta, mask)
 
                     faces_swapped += 1
                 except Exception:
@@ -302,7 +300,7 @@ class FrameProcessor:
 
     def _detect_and_align(
         self, frame: np.ndarray
-    ) -> List[Tuple[np.ndarray, FaceMetadata, np.ndarray]]:
+    ) -> list[tuple[np.ndarray, FaceMetadata, np.ndarray]]:
         """
         Detect faces and return aligned images with metadata.
 
@@ -400,8 +398,8 @@ class FrameProcessor:
             Color-corrected face (H, W, 3) BGR.
         """
         from visagen.postprocess.color_transfer import (
-            reinhard_color_transfer,
             linear_color_transfer,
+            reinhard_color_transfer,
         )
 
         mode = self.config.color_transfer_mode.lower()
@@ -455,7 +453,7 @@ class FrameProcessor:
     def _warp_back(
         self,
         face: np.ndarray,
-        frame_shape: Tuple[int, int],
+        frame_shape: tuple[int, int],
         matrix: np.ndarray,
         is_mask: bool = False,
     ) -> np.ndarray:
@@ -564,9 +562,9 @@ class FrameProcessor:
 
         # Ensure mask is 3-channel for blending
         if mask.ndim == 2:
-            mask_3ch = np.stack([mask] * 3, axis=-1)
+            np.stack([mask] * 3, axis=-1)
         else:
-            mask_3ch = mask
+            pass
 
         if mode == "laplacian":
             return laplacian_blend(foreground, background, mask)
@@ -589,7 +587,7 @@ class FrameProcessor:
             # Default: feather blend
             return feather_blend(foreground, background, mask)
 
-    def _get_mask_center(self, mask: np.ndarray) -> Tuple[int, int]:
+    def _get_mask_center(self, mask: np.ndarray) -> tuple[int, int]:
         """Get center point of mask for Poisson blending."""
         # Find mask bounding box
         if mask.ndim == 3:

@@ -7,14 +7,12 @@ Provides backward compatibility with legacy DFLJPG format.
 
 import pickle
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import cv2
 import numpy as np
-
-from visagen.vision.face_type import FaceType
 
 
 @dataclass
@@ -36,23 +34,29 @@ class FaceMetadata:
 
     landmarks: np.ndarray
     source_landmarks: np.ndarray
-    source_rect: Tuple[int, int, int, int]
+    source_rect: tuple[int, int, int, int]
     source_filename: str
     face_type: str
     image_to_face_mat: np.ndarray
     eyebrows_expand_mod: float = 1.0
-    xseg_mask: Optional[bytes] = None
-    seg_ie_polys: Optional[Any] = None
+    xseg_mask: bytes | None = None
+    seg_ie_polys: Any | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to legacy DFL dictionary format."""
         data = {
-            "landmarks": self.landmarks.tolist() if isinstance(self.landmarks, np.ndarray) else self.landmarks,
-            "source_landmarks": self.source_landmarks.tolist() if isinstance(self.source_landmarks, np.ndarray) else self.source_landmarks,
+            "landmarks": self.landmarks.tolist()
+            if isinstance(self.landmarks, np.ndarray)
+            else self.landmarks,
+            "source_landmarks": self.source_landmarks.tolist()
+            if isinstance(self.source_landmarks, np.ndarray)
+            else self.source_landmarks,
             "source_rect": list(self.source_rect),
             "source_filename": self.source_filename,
             "face_type": self.face_type,
-            "image_to_face_mat": self.image_to_face_mat.tolist() if isinstance(self.image_to_face_mat, np.ndarray) else self.image_to_face_mat,
+            "image_to_face_mat": self.image_to_face_mat.tolist()
+            if isinstance(self.image_to_face_mat, np.ndarray)
+            else self.image_to_face_mat,
             "eyebrows_expand_mod": self.eyebrows_expand_mod,
         }
 
@@ -65,7 +69,7 @@ class FaceMetadata:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FaceMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> "FaceMetadata":
         """Create from legacy DFL dictionary format."""
         return cls(
             landmarks=np.array(data["landmarks"]),
@@ -73,7 +77,9 @@ class FaceMetadata:
             source_rect=tuple(data.get("source_rect", [0, 0, 0, 0])),
             source_filename=data.get("source_filename", ""),
             face_type=data.get("face_type", "whole_face"),
-            image_to_face_mat=np.array(data["image_to_face_mat"]) if data.get("image_to_face_mat") else np.eye(2, 3),
+            image_to_face_mat=np.array(data["image_to_face_mat"])
+            if data.get("image_to_face_mat")
+            else np.eye(2, 3),
             eyebrows_expand_mod=data.get("eyebrows_expand_mod", 1.0),
             xseg_mask=data.get("xseg_mask"),
             seg_ie_polys=data.get("seg_ie_polys"),
@@ -98,15 +104,15 @@ class DFLImage:
     """
 
     # JPEG markers
-    _SOI = 0xD8   # Start of image
-    _EOI = 0xD9   # End of image
-    _SOS = 0xDA   # Start of scan
+    _SOI = 0xD8  # Start of image
+    _EOI = 0xD9  # End of image
+    _SOS = 0xDA  # Start of scan
     _SOF0 = 0xC0  # Baseline DCT
     _SOF2 = 0xC2  # Progressive DCT
     _APP15 = 0xEF  # Application segment 15 (DFL data)
 
     @staticmethod
-    def load(filepath: Path) -> Tuple[np.ndarray, Optional[FaceMetadata]]:
+    def load(filepath: Path) -> tuple[np.ndarray, FaceMetadata | None]:
         """
         Load DFL image with metadata.
 
@@ -191,7 +197,7 @@ class DFLImage:
             return False
 
     @staticmethod
-    def _parse_jpeg_metadata(data: bytes) -> Optional[Dict[str, Any]]:
+    def _parse_jpeg_metadata(data: bytes) -> dict[str, Any] | None:
         """Parse JPEG data and extract DFL dictionary from APP15 chunk."""
         if len(data) < 2:
             return None
@@ -231,12 +237,12 @@ class DFLImage:
             if pos + 2 > length:
                 break
 
-            seg_length = struct.unpack(">H", data[pos:pos + 2])[0]
+            seg_length = struct.unpack(">H", data[pos : pos + 2])[0]
             pos += 2
 
             # APP15 - DFL data
             if marker == DFLImage._APP15:
-                chunk_data = data[pos:pos + seg_length - 2]
+                chunk_data = data[pos : pos + seg_length - 2]
                 try:
                     return pickle.loads(chunk_data)
                 except Exception:
@@ -247,7 +253,7 @@ class DFLImage:
         return None
 
     @staticmethod
-    def _inject_metadata(filepath: Path, dfl_dict: Dict[str, Any]) -> None:
+    def _inject_metadata(filepath: Path, dfl_dict: dict[str, Any]) -> None:
         """Inject DFL metadata into existing JPEG file."""
         with open(filepath, "rb") as f:
             data = f.read()
@@ -311,10 +317,10 @@ class DFLImage:
             if pos + 2 > length:
                 break
 
-            seg_length = struct.unpack(">H", data[pos:pos + 2])[0]
+            seg_length = struct.unpack(">H", data[pos : pos + 2])[0]
             pos += 2
 
-            chunk["data"] = data[pos:pos + seg_length - 2]
+            chunk["data"] = data[pos : pos + seg_length - 2]
             pos += seg_length - 2
 
             # SOS has extra data until EOI
@@ -349,7 +355,7 @@ class DFLImage:
         return output
 
     @staticmethod
-    def get_xseg_mask(metadata: FaceMetadata) -> Optional[np.ndarray]:
+    def get_xseg_mask(metadata: FaceMetadata) -> np.ndarray | None:
         """
         Decode XSeg mask from metadata.
 

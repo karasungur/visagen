@@ -14,8 +14,6 @@ ConvNeXt modernizes ResNet with techniques from Vision Transformers:
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from typing import List, Tuple, Optional
 
 
 class DropPath(nn.Module):
@@ -182,8 +180,8 @@ class ConvNeXtEncoder(nn.Module):
     def __init__(
         self,
         in_channels: int = 3,
-        dims: List[int] = None,
-        depths: List[int] = None,
+        dims: list[int] = None,
+        depths: list[int] = None,
         drop_path_rate: float = 0.1,
     ) -> None:
         super().__init__()
@@ -229,9 +227,7 @@ class ConvNeXtEncoder(nn.Module):
                 downsample = DownsampleLayer(dims[i], dims[i + 1])
                 self.downsamples.append(downsample)
 
-    def forward(
-        self, x: torch.Tensor
-    ) -> Tuple[List[torch.Tensor], torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[list[torch.Tensor], torch.Tensor]:
         """
         Extract multi-scale features.
 

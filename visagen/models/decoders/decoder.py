@@ -10,7 +10,6 @@ Uses SiLU (Swish) activation throughout as per AGENTS.md specification.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Optional
 
 from visagen.models.layers.attention import CBAM
 
@@ -65,7 +64,7 @@ class DecoderBlock(nn.Module):
         self.attention = CBAM(out_channels) if use_attention else nn.Identity()
 
     def forward(
-        self, x: torch.Tensor, skip: Optional[torch.Tensor] = None
+        self, x: torch.Tensor, skip: torch.Tensor | None = None
     ) -> torch.Tensor:
         """
         Upsample and combine with skip connection.
@@ -84,7 +83,9 @@ class DecoderBlock(nn.Module):
         if skip is not None:
             # Handle size mismatch if any
             if x.shape[2:] != skip.shape[2:]:
-                x = F.interpolate(x, size=skip.shape[2:], mode="bilinear", align_corners=False)
+                x = F.interpolate(
+                    x, size=skip.shape[2:], mode="bilinear", align_corners=False
+                )
             x = torch.cat([x, skip], dim=1)
 
         # Conv blocks
@@ -123,8 +124,8 @@ class Decoder(nn.Module):
     def __init__(
         self,
         latent_channels: int = 512,
-        dims: List[int] = None,
-        skip_dims: List[int] = None,
+        dims: list[int] = None,
+        skip_dims: list[int] = None,
         out_channels: int = 3,
         use_attention: bool = True,
     ) -> None:
@@ -168,7 +169,7 @@ class Decoder(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        skip_features: Optional[List[torch.Tensor]] = None,
+        skip_features: list[torch.Tensor] | None = None,
     ) -> torch.Tensor:
         """
         Decode latent features to image.

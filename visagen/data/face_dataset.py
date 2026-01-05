@@ -4,8 +4,8 @@ Face Dataset for Training.
 Load DFL-aligned face images with metadata for training.
 """
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Union
 
 import cv2
 import numpy as np
@@ -13,7 +13,6 @@ import torch
 from torch.utils.data import Dataset
 
 from visagen.data.face_sample import FaceSample
-from visagen.vision.dflimg import DFLImage
 from visagen.vision.face_type import FaceType
 
 
@@ -41,10 +40,10 @@ class FaceDataset(Dataset):
 
     def __init__(
         self,
-        root_dir: Union[str, Path],
-        transform: Optional[Callable] = None,
+        root_dir: str | Path,
+        transform: Callable | None = None,
         target_size: int = 256,
-        face_type_filter: Optional[FaceType] = None,
+        face_type_filter: FaceType | None = None,
         with_mask: bool = True,
         preload_metadata: bool = True,
     ) -> None:
@@ -62,7 +61,7 @@ class FaceDataset(Dataset):
             raise ValueError(f"No images found in {self.root_dir}")
 
         # Load metadata
-        self.samples: List[FaceSample] = []
+        self.samples: list[FaceSample] = []
         if preload_metadata:
             self._preload_metadata()
         else:
@@ -81,7 +80,7 @@ class FaceDataset(Dataset):
         """Return number of samples."""
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         """
         Get a sample.
 
@@ -119,7 +118,10 @@ class FaceDataset(Dataset):
         if self.with_mask:
             mask = sample.get_xseg_mask()
             if mask is not None:
-                if mask.shape[0] != self.target_size or mask.shape[1] != self.target_size:
+                if (
+                    mask.shape[0] != self.target_size
+                    or mask.shape[1] != self.target_size
+                ):
                     mask = cv2.resize(
                         mask,
                         (self.target_size, self.target_size),
@@ -140,13 +142,13 @@ class FaceDataset(Dataset):
 
         # Build output dict
         output = {
-            'image': image_tensor,
-            'landmarks': torch.from_numpy(sample.landmarks.copy()),
-            'face_type': self._get_face_type_int(sample.face_type),
+            "image": image_tensor,
+            "landmarks": torch.from_numpy(sample.landmarks.copy()),
+            "face_type": self._get_face_type_int(sample.face_type),
         }
 
         if mask_tensor is not None:
-            output['mask'] = mask_tensor
+            output["mask"] = mask_tensor
 
         return output
 
@@ -177,7 +179,7 @@ class FaceDataset(Dataset):
             )
 
     @staticmethod
-    def scan_directory(root_dir: Path) -> List[Path]:
+    def scan_directory(root_dir: Path) -> list[Path]:
         """
         Find all image files in directory.
 
@@ -187,12 +189,12 @@ class FaceDataset(Dataset):
         Returns:
             List of image file paths, sorted alphabetically.
         """
-        extensions = {'.jpg', '.jpeg', '.png'}
+        extensions = {".jpg", ".jpeg", ".png"}
         paths = []
 
         for ext in extensions:
-            paths.extend(root_dir.glob(f'*{ext}'))
-            paths.extend(root_dir.glob(f'*{ext.upper()}'))
+            paths.extend(root_dir.glob(f"*{ext}"))
+            paths.extend(root_dir.glob(f"*{ext.upper()}"))
 
         return sorted(paths)
 
@@ -220,9 +222,9 @@ class SimpleFaceDataset(Dataset):
 
     def __init__(
         self,
-        root_dir: Union[str, Path],
+        root_dir: str | Path,
         target_size: int = 256,
-        transform: Optional[Callable] = None,
+        transform: Callable | None = None,
     ) -> None:
         self.root_dir = Path(root_dir)
         self.target_size = target_size
@@ -236,7 +238,7 @@ class SimpleFaceDataset(Dataset):
     def __len__(self) -> int:
         return len(self.image_paths)
 
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         path = self.image_paths[idx]
 
         # Load image
@@ -266,4 +268,4 @@ class SimpleFaceDataset(Dataset):
         if image_tensor.max() <= 1.0:
             image_tensor = image_tensor * 2 - 1
 
-        return {'image': image_tensor}
+        return {"image": image_tensor}

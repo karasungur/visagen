@@ -7,7 +7,6 @@ without requiring actual image data.
 
 import torch
 from torch.utils.data import Dataset
-from typing import Tuple, Optional
 
 
 class RandomNoiseDataset(Dataset):
@@ -35,7 +34,7 @@ class RandomNoiseDataset(Dataset):
         size: int = 1000,
         image_size: int = 256,
         channels: int = 3,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> None:
         super().__init__()
         self.size = size
@@ -50,7 +49,7 @@ class RandomNoiseDataset(Dataset):
         """Return dataset size."""
         return self.size
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Get a random sample pair.
 

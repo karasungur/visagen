@@ -20,7 +20,6 @@ import pytest
 import torch
 import torch.nn as nn
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -199,7 +198,7 @@ class TestONNXExporter:
 
     def test_exporter_with_config(self, temp_dir):
         """Test ONNXExporter with custom config."""
-        from visagen.export.onnx_exporter import ONNXExporter, ExportConfig
+        from visagen.export.onnx_exporter import ExportConfig, ONNXExporter
 
         config = ExportConfig(opset_version=14, dynamic_axes=False)
 
@@ -214,7 +213,7 @@ class TestONNXExporter:
 
     def test_export_simple_model(self, temp_dir, simple_model):
         """Test exporting a simple model to ONNX."""
-        from visagen.export.onnx_exporter import ONNXExporter, ExportConfig
+        from visagen.export.onnx_exporter import ExportConfig, ONNXExporter
 
         output_path = temp_dir / "simple.onnx"
 
@@ -266,7 +265,7 @@ class TestONNXRunner:
 
     def test_runner_init(self, onnx_model_path):
         """Test ONNXRunner initialization."""
-        onnxruntime = pytest.importorskip("onnxruntime")
+        pytest.importorskip("onnxruntime")
         from visagen.export.onnx_runner import ONNXRunner
 
         runner = ONNXRunner(onnx_model_path, device="cpu")
@@ -278,7 +277,7 @@ class TestONNXRunner:
 
     def test_runner_inference(self, onnx_model_path):
         """Test ONNXRunner inference."""
-        onnxruntime = pytest.importorskip("onnxruntime")
+        pytest.importorskip("onnxruntime")
         from visagen.export.onnx_runner import ONNXRunner
 
         runner = ONNXRunner(onnx_model_path, device="cpu")
@@ -292,7 +291,7 @@ class TestONNXRunner:
 
     def test_runner_warmup(self, onnx_model_path):
         """Test ONNXRunner warmup."""
-        onnxruntime = pytest.importorskip("onnxruntime")
+        pytest.importorskip("onnxruntime")
         from visagen.export.onnx_runner import ONNXRunner
 
         runner = ONNXRunner(onnx_model_path, device="cpu")
@@ -302,7 +301,7 @@ class TestONNXRunner:
 
     def test_runner_batch_inference(self, onnx_model_path):
         """Test ONNXRunner batch inference."""
-        onnxruntime = pytest.importorskip("onnxruntime")
+        pytest.importorskip("onnxruntime")
         from visagen.export.onnx_runner import ONNXRunner
 
         runner = ONNXRunner(onnx_model_path, device="cpu")
@@ -319,7 +318,7 @@ class TestONNXRunner:
 
     def test_runner_get_io_info(self, onnx_model_path):
         """Test ONNXRunner get_io_info."""
-        onnxruntime = pytest.importorskip("onnxruntime")
+        pytest.importorskip("onnxruntime")
         from visagen.export.onnx_runner import ONNXRunner
 
         runner = ONNXRunner(onnx_model_path, device="cpu")
@@ -401,7 +400,7 @@ class TestValidateExport:
 
     def test_validate_export_passes(self, simple_onnx):
         """Test validation passes for consistent export."""
-        onnxruntime = pytest.importorskip("onnxruntime")
+        pytest.importorskip("onnxruntime")
         from visagen.export.validation import validate_export
 
         onnx_path, model = simple_onnx
@@ -446,7 +445,7 @@ class TestTensorRTBuilder:
 
     def test_builder_init_file_not_found(self, temp_dir):
         """Test builder raises error for missing ONNX file."""
-        tensorrt = pytest.importorskip("tensorrt")
+        pytest.importorskip("tensorrt")
         from visagen.export.tensorrt_builder import TensorRTBuilder
 
         with pytest.raises(FileNotFoundError):
@@ -554,7 +553,7 @@ class TestExportCLI:
 
     def test_detect_format_from_extension(self, temp_dir, monkeypatch):
         """Test format detection from file extension."""
-        from visagen.tools.export import parse_args, detect_format
+        from visagen.tools.export import detect_format, parse_args
 
         input_file = temp_dir / "model.ckpt"
         input_file.touch()
@@ -687,7 +686,7 @@ class TestExportIntegration:
 
     def test_export_and_run_simple_model(self, temp_dir, simple_model):
         """Test full export and inference pipeline."""
-        onnxruntime = pytest.importorskip("onnxruntime")
+        pytest.importorskip("onnxruntime")
         from visagen.export.onnx_runner import ONNXRunner
 
         # Export model

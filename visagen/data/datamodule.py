@@ -4,8 +4,8 @@ Face Data Module for PyTorch Lightning.
 Provides DataModules for training face swapping models.
 """
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -15,8 +15,8 @@ try:
 except ImportError:
     pl = None
 
+from visagen.data.augmentations import FaceAugmentationPipeline
 from visagen.data.face_dataset import FaceDataset
-from visagen.data.augmentations import FaceAugmentationPipeline, SimpleAugmentation
 
 
 class PairedFaceDataset(Dataset):
@@ -51,7 +51,7 @@ class PairedFaceDataset(Dataset):
     def __len__(self) -> int:
         return self._length
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Get paired sample.
 
@@ -68,7 +68,7 @@ class PairedFaceDataset(Dataset):
         src_sample = self.src_dataset[src_idx]
         dst_sample = self.dst_dataset[dst_idx]
 
-        return src_sample['image'], dst_sample['image']
+        return src_sample["image"], dst_sample["image"]
 
 
 class TransformWrapper(Dataset):
@@ -85,7 +85,7 @@ class TransformWrapper(Dataset):
     def __init__(
         self,
         dataset: Dataset,
-        transform: Optional[Callable] = None,
+        transform: Callable | None = None,
     ) -> None:
         self.dataset = dataset
         self.transform = transform
@@ -105,12 +105,12 @@ class TransformWrapper(Dataset):
                 return src, dst
             elif isinstance(item, dict):
                 # Single dataset returns dict
-                image = item['image']
-                mask = item.get('mask')
+                image = item["image"]
+                mask = item.get("mask")
                 image, mask = self.transform(image, mask)
-                item['image'] = image
+                item["image"] = image
                 if mask is not None:
-                    item['mask'] = mask
+                    item["mask"] = mask
                 return item
 
         return item
@@ -147,13 +147,13 @@ if pl is not None:
 
         def __init__(
             self,
-            src_dir: Union[str, Path],
-            dst_dir: Union[str, Path],
+            src_dir: str | Path,
+            dst_dir: str | Path,
             batch_size: int = 8,
             num_workers: int = 4,
             target_size: int = 256,
             val_split: float = 0.1,
-            augmentation_config: Optional[Dict] = None,
+            augmentation_config: dict | None = None,
             pin_memory: bool = True,
         ) -> None:
             super().__init__()
@@ -169,32 +169,32 @@ if pl is not None:
 
             # Default augmentation config matching legacy DFL
             self.aug_config = augmentation_config or {
-                'random_flip_prob': 0.4,
-                'random_warp': True,
-                'rotation_range': (-10, 10),
-                'scale_range': (-0.05, 0.05),
-                'translation_range': (-0.05, 0.05),
-                'hsv_shift_amount': 0.1,
-                'brightness_range': 0.1,
-                'contrast_range': 0.1,
+                "random_flip_prob": 0.4,
+                "random_warp": True,
+                "rotation_range": (-10, 10),
+                "scale_range": (-0.05, 0.05),
+                "translation_range": (-0.05, 0.05),
+                "hsv_shift_amount": 0.1,
+                "brightness_range": 0.1,
+                "contrast_range": 0.1,
             }
 
             # Will be set in setup()
-            self.train_dataset: Optional[Dataset] = None
-            self.val_dataset: Optional[Dataset] = None
-            self._src_train: Optional[Dataset] = None
-            self._src_val: Optional[Dataset] = None
-            self._dst_train: Optional[Dataset] = None
-            self._dst_val: Optional[Dataset] = None
+            self.train_dataset: Dataset | None = None
+            self.val_dataset: Dataset | None = None
+            self._src_train: Dataset | None = None
+            self._src_val: Dataset | None = None
+            self._dst_train: Dataset | None = None
+            self._dst_val: Dataset | None = None
 
-        def setup(self, stage: Optional[str] = None) -> None:
+        def setup(self, stage: str | None = None) -> None:
             """
             Setup datasets for training/validation.
 
             Args:
                 stage: Current stage ('fit', 'validate', 'test', 'predict').
             """
-            if stage == 'fit' or stage is None:
+            if stage == "fit" or stage is None:
                 # Load full datasets (no augmentation yet)
                 src_full = FaceDataset(
                     self.src_dir,

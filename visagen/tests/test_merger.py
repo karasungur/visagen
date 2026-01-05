@@ -132,7 +132,8 @@ class TestVideoReader:
         assert reader.video_path == sample_video
 
     @pytest.mark.skipif(
-        not Path("/usr/bin/ffmpeg").exists() and not Path("/usr/local/bin/ffmpeg").exists(),
+        not Path("/usr/bin/ffmpeg").exists()
+        and not Path("/usr/local/bin/ffmpeg").exists(),
         reason="FFmpeg not found",
     )
     def test_reader_get_info(self, sample_video):
@@ -265,7 +266,9 @@ class TestFrameProcessor:
 
         config = FrameProcessorConfig()
 
-        with patch("visagen.merger.frame_processor.FrameProcessor._load_model") as load_mock:
+        with patch(
+            "visagen.merger.frame_processor.FrameProcessor._load_model"
+        ) as load_mock:
             load_mock.return_value = mock_model
             processor = FrameProcessor(mock_model, config=config, device="cpu")
 
@@ -276,7 +279,9 @@ class TestFrameProcessor:
         """Test ellipse mask generation fallback."""
         from visagen.merger.frame_processor import FrameProcessor
 
-        with patch("visagen.merger.frame_processor.FrameProcessor._load_model") as load_mock:
+        with patch(
+            "visagen.merger.frame_processor.FrameProcessor._load_model"
+        ) as load_mock:
             load_mock.return_value = mock_model
             processor = FrameProcessor(mock_model, device="cpu")
 
@@ -553,7 +558,7 @@ class TestMergeCLI:
 
     def test_build_config(self, temp_dir, monkeypatch):
         """Test building config from args."""
-        from visagen.tools.merge import parse_args, build_config
+        from visagen.tools.merge import build_config, parse_args
 
         input_file = temp_dir / "input.mp4"
         input_file.touch()
@@ -633,7 +638,9 @@ class TestUtilityFunctions:
         """Test mask center calculation."""
         from visagen.merger.frame_processor import FrameProcessor
 
-        with patch("visagen.merger.frame_processor.FrameProcessor._load_model") as load_mock:
+        with patch(
+            "visagen.merger.frame_processor.FrameProcessor._load_model"
+        ) as load_mock:
             load_mock.return_value = mock_model
             processor = FrameProcessor(mock_model, device="cpu")
 
@@ -652,7 +659,9 @@ class TestUtilityFunctions:
 
         config = FrameProcessorConfig(mask_erode=5, mask_blur=5)
 
-        with patch("visagen.merger.frame_processor.FrameProcessor._load_model") as load_mock:
+        with patch(
+            "visagen.merger.frame_processor.FrameProcessor._load_model"
+        ) as load_mock:
             load_mock.return_value = mock_model
             processor = FrameProcessor(mock_model, config=config, device="cpu")
 

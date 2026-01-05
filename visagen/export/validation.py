@@ -8,7 +8,6 @@ by comparing their outputs against the original PyTorch model.
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -36,12 +35,12 @@ class ValidationResult:
     mean_diff: float
     rtol: float
     atol: float
-    details: Optional[str] = None
+    details: str | None = None
 
 
 def validate_export(
     pytorch_model: nn.Module,
-    exported_path: Union[str, Path],
+    exported_path: str | Path,
     test_input: torch.Tensor,
     rtol: float = 1e-3,
     atol: float = 1e-5,
@@ -113,7 +112,7 @@ def validate_export(
 
 def validate_tensorrt(
     pytorch_model: nn.Module,
-    engine_path: Union[str, Path],
+    engine_path: str | Path,
     test_input: torch.Tensor,
     rtol: float = 1e-2,
     atol: float = 1e-3,
@@ -141,8 +140,7 @@ def validate_tensorrt(
         from visagen.export.tensorrt_runner import TensorRTRunner
     except ImportError:
         raise ImportError(
-            "TensorRT is required for validation. "
-            "Install TensorRT from NVIDIA."
+            "TensorRT is required for validation. Install TensorRT from NVIDIA."
         )
 
     engine_path = Path(engine_path)
@@ -178,8 +176,8 @@ def validate_tensorrt(
 
 def compare_inference_speed(
     pytorch_model: nn.Module,
-    onnx_path: Optional[Path] = None,
-    trt_path: Optional[Path] = None,
+    onnx_path: Path | None = None,
+    trt_path: Path | None = None,
     input_shape: tuple = (1, 3, 256, 256),
     num_warmup: int = 10,
     num_iterations: int = 100,

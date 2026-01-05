@@ -1,13 +1,13 @@
 """Visagen Models - Neural Network Architectures."""
 
-from visagen.models.layers import CBAM
-from visagen.models.encoders import ConvNeXtEncoder
 from visagen.models.decoders import Decoder
 from visagen.models.discriminators import (
+    MultiScaleDiscriminator,
     PatchDiscriminator,
     UNetPatchDiscriminator,
-    MultiScaleDiscriminator,
 )
+from visagen.models.encoders import ConvNeXtEncoder
+from visagen.models.layers import CBAM
 
 __all__ = [
     "CBAM",

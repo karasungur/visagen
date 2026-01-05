@@ -18,13 +18,11 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 
-import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import (
-    ModelCheckpoint,
     LearningRateMonitor,
+    ModelCheckpoint,
     RichProgressBar,
 )
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -215,7 +213,9 @@ def load_config(config_path: Path) -> dict:
     try:
         import yaml
     except ImportError:
-        print("Error: PyYAML required for config files. Install with: pip install pyyaml")
+        print(
+            "Error: PyYAML required for config files. Install with: pip install pyyaml"
+        )
         sys.exit(1)
 
     with open(config_path) as f:
@@ -259,18 +259,18 @@ def main() -> int:
     aug_config = None
     if not args.no_augmentation:
         aug_config = {
-            'random_flip_prob': 0.4,
-            'random_warp': not args.no_warp,
-            'rotation_range': (-10, 10),
-            'scale_range': (-0.05, 0.05),
-            'translation_range': (-0.05, 0.05),
-            'hsv_shift_amount': 0.1,
-            'brightness_range': 0.1,
-            'contrast_range': 0.1,
+            "random_flip_prob": 0.4,
+            "random_warp": not args.no_warp,
+            "rotation_range": (-10, 10),
+            "scale_range": (-0.05, 0.05),
+            "translation_range": (-0.05, 0.05),
+            "hsv_shift_amount": 0.1,
+            "brightness_range": 0.1,
+            "contrast_range": 0.1,
         }
 
     # Create DataModule
-    print(f"Loading data from:")
+    print("Loading data from:")
     print(f"  Source: {args.src_dir}")
     print(f"  Destination: {args.dst_dir}")
 
@@ -285,7 +285,7 @@ def main() -> int:
     )
 
     # Create Model
-    print(f"\nModel configuration:")
+    print("\nModel configuration:")
     print(f"  Image size: {args.image_size}")
     print(f"  Encoder dims: {encoder_dims}")
     print(f"  Encoder depths: {encoder_depths}")
@@ -333,7 +333,7 @@ def main() -> int:
     )
 
     # Trainer
-    print(f"\nTraining configuration:")
+    print("\nTraining configuration:")
     print(f"  Batch size: {args.batch_size}")
     print(f"  Max epochs: {args.max_epochs}")
     print(f"  Precision: {args.precision}")
@@ -355,7 +355,7 @@ def main() -> int:
 
     # Setup data to get sample counts
     datamodule.setup()
-    print(f"\nDataset:")
+    print("\nDataset:")
     print(f"  Training samples: {datamodule.num_train_samples}")
     print(f"  Validation samples: {datamodule.num_val_samples}")
 
@@ -367,7 +367,7 @@ def main() -> int:
     else:
         trainer.fit(model, datamodule)
 
-    print(f"\nTraining complete!")
+    print("\nTraining complete!")
     print(f"Checkpoints saved to: {args.output_dir / 'checkpoints'}")
     print(f"Logs saved to: {args.output_dir / 'logs'}")
 

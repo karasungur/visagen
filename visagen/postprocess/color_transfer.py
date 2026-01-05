@@ -16,10 +16,11 @@ Reference:
     - https://github.com/dcoeurjo/OTColorTransfer
 """
 
+from typing import Literal
+
 import cv2
 import numpy as np
 from numpy import linalg as npla
-from typing import Optional, Literal
 
 ColorTransferMode = Literal["rct", "lct", "sot", "mkl", "idt"]
 
@@ -27,8 +28,8 @@ ColorTransferMode = Literal["rct", "lct", "sot", "mkl", "idt"]
 def reinhard_color_transfer(
     target: np.ndarray,
     source: np.ndarray,
-    target_mask: Optional[np.ndarray] = None,
-    source_mask: Optional[np.ndarray] = None,
+    target_mask: np.ndarray | None = None,
+    source_mask: np.ndarray | None = None,
     mask_cutoff: float = 0.5,
 ) -> np.ndarray:
     """
@@ -82,9 +83,15 @@ def reinhard_color_transfer(
     tgt_b_mean, tgt_b_std = target_input[..., 2].mean(), target_input[..., 2].std()
 
     # Transfer: scale by standard deviations, shift by means
-    result_l = (target_lab[..., 0] - tgt_l_mean) * (src_l_std / (tgt_l_std + eps)) + src_l_mean
-    result_a = (target_lab[..., 1] - tgt_a_mean) * (src_a_std / (tgt_a_std + eps)) + src_a_mean
-    result_b = (target_lab[..., 2] - tgt_b_mean) * (src_b_std / (tgt_b_std + eps)) + src_b_mean
+    result_l = (target_lab[..., 0] - tgt_l_mean) * (
+        src_l_std / (tgt_l_std + eps)
+    ) + src_l_mean
+    result_a = (target_lab[..., 1] - tgt_a_mean) * (
+        src_a_std / (tgt_a_std + eps)
+    ) + src_a_mean
+    result_b = (target_lab[..., 2] - tgt_b_mean) * (
+        src_b_std / (tgt_b_std + eps)
+    ) + src_b_mean
 
     # Clip to valid LAB ranges
     result_l = np.clip(result_l, 0, 255)
@@ -199,7 +206,9 @@ def color_transfer_sot(
         raise ValueError("trg must be float type")
 
     if src.shape != trg.shape:
-        raise ValueError(f"src and trg must have same shape, got {src.shape} vs {trg.shape}")
+        raise ValueError(
+            f"src and trg must have same shape, got {src.shape} vs {trg.shape}"
+        )
 
     h, w, c = src.shape
     new_src = src.copy()

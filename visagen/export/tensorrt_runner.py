@@ -9,7 +9,6 @@ Requires NVIDIA TensorRT and CUDA.
 
 import logging
 from pathlib import Path
-from typing import Optional, Tuple, Union
 
 import numpy as np
 
@@ -42,7 +41,7 @@ class TensorRTRunner:
 
     def __init__(
         self,
-        engine_path: Union[str, Path],
+        engine_path: str | Path,
         device_id: int = 0,
     ) -> None:
         self.engine_path = Path(engine_path)
@@ -58,13 +57,12 @@ class TensorRTRunner:
             self.trt = trt
         except ImportError:
             raise ImportError(
-                "TensorRT is required for inference. "
-                "Install TensorRT from NVIDIA."
+                "TensorRT is required for inference. Install TensorRT from NVIDIA."
             )
 
         try:
+            import pycuda.autoinit  # noqa: F401 - Initializes CUDA context
             import pycuda.driver as cuda
-            import pycuda.autoinit
 
             self.cuda = cuda
         except ImportError:
@@ -125,8 +123,12 @@ class TensorRTRunner:
 
             self.bindings.append(binding)
 
-        logger.info(f"Input: {self.input_binding['name']} {self.input_binding['shape']}")
-        logger.info(f"Output: {self.output_binding['name']} {self.output_binding['shape']}")
+        logger.info(
+            f"Input: {self.input_binding['name']} {self.input_binding['shape']}"
+        )
+        logger.info(
+            f"Output: {self.output_binding['name']} {self.output_binding['shape']}"
+        )
 
     def _allocate_buffers(self, batch_size: int, height: int, width: int):
         """Allocate CUDA buffers for given dimensions."""
@@ -173,8 +175,9 @@ class TensorRTRunner:
         batch_size, channels, height, width = image.shape
 
         # Allocate buffers
-        d_input, d_output, h_output, input_shape, output_shape = \
-            self._allocate_buffers(batch_size, height, width)
+        d_input, d_output, h_output, input_shape, output_shape = self._allocate_buffers(
+            batch_size, height, width
+        )
 
         try:
             # Set dynamic shapes
@@ -202,7 +205,7 @@ class TensorRTRunner:
 
     def warmup(
         self,
-        shape: Optional[Tuple[int, ...]] = None,
+        shape: tuple[int, ...] | None = None,
         num_iterations: int = 3,
     ) -> None:
         """
@@ -256,7 +259,7 @@ class TensorRTRunnerV2:
 
     def __init__(
         self,
-        engine_path: Union[str, Path],
+        engine_path: str | Path,
         device_id: int = 0,
     ) -> None:
         self.engine_path = Path(engine_path)
@@ -284,12 +287,11 @@ class TensorRTRunnerV2:
             self.trt = trt
         except ImportError:
             raise ImportError(
-                "TensorRT is required for inference. "
-                "Install TensorRT from NVIDIA."
+                "TensorRT is required for inference. Install TensorRT from NVIDIA."
             )
 
         # Initialize CUDA
-        err, = self.cuda_driver.cuInit(0)
+        (err,) = self.cuda_driver.cuInit(0)
         if err != self.cuda_driver.CUresult.CUDA_SUCCESS:
             raise RuntimeError(f"Failed to initialize CUDA: {err}")
 

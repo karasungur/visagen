@@ -135,7 +135,17 @@ select = [
 ignore = [
     "E501",   # line too long (handled by formatter)
     "B008",   # do not perform function calls in argument defaults
+    "B904",   # raise from - not enforced (stylistic)
+    "E741",   # ambiguous variable name
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"visagen/tests/*.py" = ["E402"]  # Allow late imports in test files
+"visagen/export/*.py" = ["F821"]  # Forward references in type hints
+"visagen/merger/*.py" = ["F821"]  # Forward references in type hints
+"visagen/tuning/*.py" = ["F821"]  # Forward references in type hints
+"visagen/tools/*.py" = ["F401"]  # Runtime import checks
+"visagen/vision/*.py" = ["F401"]  # Optional dependency imports
 
 [tool.ruff.lint.isort]
 known-first-party = ["visagen"]

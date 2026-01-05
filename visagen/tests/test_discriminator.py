@@ -4,10 +4,10 @@ import pytest
 import torch
 
 from visagen.models.discriminators import (
-    PatchDiscriminator,
-    UNetPatchDiscriminator,
     MultiScaleDiscriminator,
+    PatchDiscriminator,
     ResidualBlock,
+    UNetPatchDiscriminator,
 )
 
 
@@ -139,9 +139,7 @@ class TestUNetPatchDiscriminator:
     def test_spectral_norm_unet(self):
         """Spectral normalization should be applied to UNet."""
         d = UNetPatchDiscriminator(use_spectral_norm=True)
-        has_spectral_norm = any(
-            hasattr(m, "weight_orig") for m in d.modules()
-        )
+        has_spectral_norm = any(hasattr(m, "weight_orig") for m in d.modules())
         assert has_spectral_norm
 
     def test_receptive_field_calculation(self):

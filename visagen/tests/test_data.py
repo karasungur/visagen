@@ -4,16 +4,15 @@ Tests for dataset and augmentation components.
 Covers warp functions, augmentations, dataset loading, and datamodule.
 """
 
+from pathlib import Path
+
+import numpy as np
 import pytest
 import torch
-import numpy as np
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import tempfile
 
-from visagen.data.face_sample import FaceSample
-from visagen.data.warp import gen_warp_params, warp_by_params, gen_affine_params
 from visagen.data.augmentations import FaceAugmentationPipeline, SimpleAugmentation
+from visagen.data.face_sample import FaceSample
+from visagen.data.warp import gen_affine_params, gen_warp_params, warp_by_params
 
 
 class TestFaceSample:
@@ -64,20 +63,20 @@ class TestWarpFunctions:
         params = gen_warp_params(256)
 
         assert isinstance(params, dict)
-        assert 'grid' in params
-        assert 'size' in params
+        assert "grid" in params
+        assert "size" in params
 
     def test_gen_warp_params_grid_shape(self):
         """Test warp grid has correct shape."""
         params = gen_warp_params(256)
 
-        assert params['grid'].shape == (1, 256, 256, 2)
+        assert params["grid"].shape == (1, 256, 256, 2)
 
     def test_gen_warp_params_different_sizes(self):
         """Test warp params work for different sizes."""
         for size in [64, 128, 256, 512]:
             params = gen_warp_params(size)
-            assert params['grid'].shape == (1, size, size, 2)
+            assert params["grid"].shape == (1, size, size, 2)
 
     def test_gen_warp_params_reproducible(self):
         """Test warp params are reproducible with same seed."""
@@ -87,7 +86,7 @@ class TestWarpFunctions:
         params1 = gen_warp_params(256, rng=gen1)
         params2 = gen_warp_params(256, rng=gen2)
 
-        torch.testing.assert_close(params1['grid'], params2['grid'])
+        torch.testing.assert_close(params1["grid"], params2["grid"])
 
     def test_warp_by_params_shape_preserved(self):
         """Test warp preserves image shape."""
@@ -122,8 +121,8 @@ class TestWarpFunctions:
         """Test gen_affine_params returns affine matrix."""
         params = gen_affine_params(256)
 
-        assert 'matrix' in params
-        assert params['matrix'].shape == (2, 3)
+        assert "matrix" in params
+        assert params["matrix"].shape == (2, 3)
 
 
 class TestFaceAugmentationPipeline:

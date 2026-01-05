@@ -8,10 +8,10 @@ Provides PatchGAN discriminators for adversarial training:
 """
 
 from visagen.models.discriminators.patch_discriminator import (
-    PatchDiscriminator,
-    UNetPatchDiscriminator,
     MultiScaleDiscriminator,
+    PatchDiscriminator,
     ResidualBlock,
+    UNetPatchDiscriminator,
 )
 
 __all__ = [

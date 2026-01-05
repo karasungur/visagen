@@ -13,17 +13,19 @@ Usage:
 """
 
 import argparse
-import sys
-import subprocess
-import threading
 import queue
+import subprocess
+import sys
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Dict, Generator, Optional, Tuple
+from typing import Any
+
 import numpy as np
 
 # Check gradio availability
 try:
     import gradio as gr
+
     GRADIO_AVAILABLE = True
 except ImportError:
     GRADIO_AVAILABLE = False
@@ -38,8 +40,8 @@ class GradioApp:
 
     def __init__(self) -> None:
         self.model = None
-        self.model_path: Optional[str] = None
-        self.training_process: Optional[subprocess.Popen] = None
+        self.model_path: str | None = None
+        self.training_process: subprocess.Popen | None = None
         self.training_queue: queue.Queue = queue.Queue()
         self.device = "auto"
         self.settings = {
@@ -64,6 +66,7 @@ class GradioApp:
 
         try:
             import torch
+
             from visagen.training.dfl_module import DFLModule
 
             self.model = DFLModule.load_from_checkpoint(
@@ -92,6 +95,7 @@ class GradioApp:
             # Clear GPU cache
             try:
                 import torch
+
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             except Exception:
@@ -122,8 +126,8 @@ class GradioApp:
             raise gr.Error("Please provide a source image.")
 
         try:
-            import torch
             import cv2
+            import torch
 
             # Preprocess: resize and normalize
             img = cv2.resize(source_img, (256, 256))
@@ -182,17 +186,29 @@ class GradioApp:
 
         # Build command
         cmd = [
-            sys.executable, "-m", "visagen.tools.train",
-            "--src-dir", src_dir,
-            "--dst-dir", dst_dir,
-            "--output-dir", output_dir or "./workspace/model",
-            "--batch-size", str(int(batch_size)),
-            "--max-epochs", str(int(max_epochs)),
-            "--learning-rate", str(learning_rate),
-            "--dssim-weight", str(dssim_weight),
-            "--l1-weight", str(l1_weight),
-            "--lpips-weight", str(lpips_weight),
-            "--precision", precision,
+            sys.executable,
+            "-m",
+            "visagen.tools.train",
+            "--src-dir",
+            src_dir,
+            "--dst-dir",
+            dst_dir,
+            "--output-dir",
+            output_dir or "./workspace/model",
+            "--batch-size",
+            str(int(batch_size)),
+            "--max-epochs",
+            str(int(max_epochs)),
+            "--learning-rate",
+            str(learning_rate),
+            "--dssim-weight",
+            str(dssim_weight),
+            "--l1-weight",
+            str(l1_weight),
+            "--lpips-weight",
+            str(lpips_weight),
+            "--precision",
+            precision,
         ]
 
         if resume_ckpt and Path(resume_ckpt).exists():
@@ -277,6 +293,7 @@ class GradioApp:
 
             # Gradio provides RGB, convert to BGR for OpenCV-based functions
             import cv2
+
             source_bgr = cv2.cvtColor(source, cv2.COLOR_RGB2BGR)
             target_bgr = cv2.cvtColor(target, cv2.COLOR_RGB2BGR)
 
@@ -313,8 +330,9 @@ class GradioApp:
             raise gr.Error("Please provide foreground, background, and mask images.")
 
         try:
-            from visagen.postprocess import blend
             import cv2
+
+            from visagen.postprocess import blend
 
             # Ensure float32 [0, 1]
             if foreground.dtype == np.uint8:
@@ -353,12 +371,19 @@ class GradioApp:
             return
 
         cmd = [
-            sys.executable, "-m", "visagen.tools.extract_v2",
-            "--input", input_path,
-            "--output", output_dir or "./workspace/extracted",
-            "--face-type", face_type,
-            "--output-size", str(int(output_size)),
-            "--min-confidence", str(min_confidence),
+            sys.executable,
+            "-m",
+            "visagen.tools.extract_v2",
+            "--input",
+            input_path,
+            "--output",
+            output_dir or "./workspace/extracted",
+            "--face-type",
+            face_type,
+            "--output-size",
+            str(int(output_size)),
+            "--min-confidence",
+            str(min_confidence),
         ]
 
         yield f"Starting extraction...\n$ {' '.join(cmd)}\n"
@@ -393,17 +418,19 @@ class GradioApp:
         workspace_dir: str,
     ) -> str:
         """Save application settings."""
-        self.settings.update({
-            "device": device,
-            "gpu_id": int(gpu_id),
-            "default_batch_size": int(default_batch_size),
-            "num_workers": int(num_workers),
-            "workspace_dir": workspace_dir,
-        })
+        self.settings.update(
+            {
+                "device": device,
+                "gpu_id": int(gpu_id),
+                "default_batch_size": int(default_batch_size),
+                "num_workers": int(num_workers),
+                "workspace_dir": workspace_dir,
+            }
+        )
         return "Settings saved."
 
 
-def create_training_tab(app: GradioApp) -> Dict[str, Any]:
+def create_training_tab(app: GradioApp) -> dict[str, Any]:
     """Create training configuration and execution tab."""
     with gr.Tab("Training"):
         gr.Markdown("### Model Training")
@@ -428,11 +455,17 @@ def create_training_tab(app: GradioApp) -> Dict[str, Any]:
 
             with gr.Column():
                 batch_size = gr.Slider(
-                    1, 32, value=8, step=1,
+                    1,
+                    32,
+                    value=8,
+                    step=1,
                     label="Batch Size",
                 )
                 max_epochs = gr.Slider(
-                    10, 2000, value=500, step=10,
+                    10,
+                    2000,
+                    value=500,
+                    step=10,
                     label="Max Epochs",
                 )
                 learning_rate = gr.Number(
@@ -443,22 +476,30 @@ def create_training_tab(app: GradioApp) -> Dict[str, Any]:
         with gr.Row():
             with gr.Column():
                 dssim_weight = gr.Slider(
-                    0, 30, value=10.0,
+                    0,
+                    30,
+                    value=10.0,
                     label="DSSIM Weight",
                 )
                 l1_weight = gr.Slider(
-                    0, 30, value=10.0,
+                    0,
+                    30,
+                    value=10.0,
                     label="L1 Weight",
                 )
                 lpips_weight = gr.Slider(
-                    0, 10, value=0.0,
+                    0,
+                    10,
+                    value=0.0,
                     label="LPIPS Weight",
                     info="Requires lpips package",
                 )
 
             with gr.Column():
                 gan_power = gr.Slider(
-                    0, 1.0, value=0.0,
+                    0,
+                    1.0,
+                    value=0.0,
                     label="GAN Power",
                     info="0 = disabled, > 0 = adversarial training",
                 )
@@ -489,10 +530,18 @@ def create_training_tab(app: GradioApp) -> Dict[str, Any]:
         train_btn.click(
             fn=app.start_training,
             inputs=[
-                src_dir, dst_dir, output_dir,
-                batch_size, max_epochs, learning_rate,
-                dssim_weight, l1_weight, lpips_weight,
-                gan_power, precision, resume_ckpt,
+                src_dir,
+                dst_dir,
+                output_dir,
+                batch_size,
+                max_epochs,
+                learning_rate,
+                dssim_weight,
+                l1_weight,
+                lpips_weight,
+                gan_power,
+                precision,
+                resume_ckpt,
             ],
             outputs=training_log,
         )
@@ -509,7 +558,7 @@ def create_training_tab(app: GradioApp) -> Dict[str, Any]:
     }
 
 
-def create_inference_tab(app: GradioApp) -> Dict[str, Any]:
+def create_inference_tab(app: GradioApp) -> dict[str, Any]:
     """Create single image face swap inference tab."""
     with gr.Tab("Inference"):
         gr.Markdown("### Face Swap Inference")
@@ -566,7 +615,7 @@ def create_inference_tab(app: GradioApp) -> Dict[str, Any]:
     return {}
 
 
-def create_extract_tab(app: GradioApp) -> Dict[str, Any]:
+def create_extract_tab(app: GradioApp) -> dict[str, Any]:
     """Create face extraction tab."""
     with gr.Tab("Extract"):
         gr.Markdown("### Face Extraction")
@@ -589,11 +638,17 @@ def create_extract_tab(app: GradioApp) -> Dict[str, Any]:
                 label="Face Type",
             )
             output_size = gr.Slider(
-                128, 1024, value=512, step=64,
+                128,
+                1024,
+                value=512,
+                step=64,
                 label="Output Size",
             )
             min_confidence = gr.Slider(
-                0.1, 1.0, value=0.5, step=0.05,
+                0.1,
+                1.0,
+                value=0.5,
+                step=0.05,
                 label="Min Confidence",
             )
 
@@ -616,7 +671,7 @@ def create_extract_tab(app: GradioApp) -> Dict[str, Any]:
     return {}
 
 
-def create_postprocess_tab(app: GradioApp) -> Dict[str, Any]:
+def create_postprocess_tab(app: GradioApp) -> dict[str, Any]:
     """Create color transfer and blending demo tab."""
     with gr.Tab("Postprocess"):
         gr.Markdown("### Color Transfer Demo")
@@ -689,7 +744,7 @@ def create_postprocess_tab(app: GradioApp) -> Dict[str, Any]:
     return {}
 
 
-def create_settings_tab(app: GradioApp) -> Dict[str, Any]:
+def create_settings_tab(app: GradioApp) -> dict[str, Any]:
     """Create application settings tab."""
     with gr.Tab("Settings"):
         gr.Markdown("### Application Settings")
@@ -707,11 +762,17 @@ def create_settings_tab(app: GradioApp) -> Dict[str, Any]:
 
         with gr.Row():
             default_batch_size = gr.Slider(
-                1, 32, value=8, step=1,
+                1,
+                32,
+                value=8,
+                step=1,
                 label="Default Batch Size",
             )
             num_workers = gr.Slider(
-                0, 16, value=4, step=1,
+                0,
+                16,
+                value=4,
+                step=1,
                 label="DataLoader Workers",
             )
 
@@ -740,7 +801,9 @@ def create_settings_tab(app: GradioApp) -> Dict[str, Any]:
 def create_app() -> "gr.Blocks":
     """Create Gradio application."""
     if not GRADIO_AVAILABLE:
-        raise ImportError("Gradio is required. Install with: pip install 'visagen[gui]'")
+        raise ImportError(
+            "Gradio is required. Install with: pip install 'visagen[gui]'"
+        )
 
     app_state = GradioApp()
 

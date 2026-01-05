@@ -6,7 +6,6 @@ matching the legacy DeepFaceLab format for backward compatibility.
 """
 
 from enum import IntEnum
-from typing import Tuple
 
 
 class FaceType(IntEnum):
@@ -78,7 +77,7 @@ class FaceType(IntEnum):
         """Convert to lowercase string representation."""
         return self.name.lower()
 
-    def get_padding_and_align(self) -> Tuple[float, bool]:
+    def get_padding_and_align(self) -> tuple[float, bool]:
         """
         Get padding value and alignment flag.
 

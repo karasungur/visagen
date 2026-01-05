@@ -14,7 +14,6 @@ Features:
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 import torch
 
@@ -40,8 +39,8 @@ class ExportConfig:
     opset_version: int = 17
     dynamic_axes: bool = True
     optimize: bool = True
-    input_names: List[str] = field(default_factory=lambda: ["input"])
-    output_names: List[str] = field(default_factory=lambda: ["output"])
+    input_names: list[str] = field(default_factory=lambda: ["input"])
+    output_names: list[str] = field(default_factory=lambda: ["output"])
     verbose: bool = False
 
 
@@ -74,14 +73,14 @@ class ONNXExporter:
         self,
         checkpoint_path: Path,
         output_path: Path,
-        config: Optional[ExportConfig] = None,
-        input_shape: Tuple[int, ...] = (1, 3, 256, 256),
+        config: ExportConfig | None = None,
+        input_shape: tuple[int, ...] = (1, 3, 256, 256),
     ) -> None:
         self.checkpoint_path = Path(checkpoint_path)
         self.output_path = Path(output_path)
         self.config = config or ExportConfig()
         self.input_shape = input_shape
-        self._model: Optional[ExportableModel] = None
+        self._model: ExportableModel | None = None
 
     @property
     def model(self) -> ExportableModel:
@@ -245,7 +244,9 @@ class ONNXExporter:
             mean_diffs.append(result.mean_diff)
 
             if not result.passed:
-                logger.warning(f"Validation test {i+1} failed: max_diff={result.max_diff:.6f}")
+                logger.warning(
+                    f"Validation test {i + 1} failed: max_diff={result.max_diff:.6f}"
+                )
 
         # Aggregate results
         from visagen.export.validation import ValidationResult
@@ -271,7 +272,7 @@ class ONNXExporter:
 
     def export_with_metadata(
         self,
-        metadata: Optional[dict] = None,
+        metadata: dict | None = None,
     ) -> Path:
         """
         Export model with custom metadata.

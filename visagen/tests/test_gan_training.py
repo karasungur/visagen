@@ -3,8 +3,8 @@
 import pytest
 import torch
 
-from visagen.training.losses import GANLoss, DiscriminatorLoss, TotalVariationLoss
 from visagen.training.dfl_module import DFLModule
+from visagen.training.losses import DiscriminatorLoss, GANLoss, TotalVariationLoss
 
 
 class TestGANLoss:

@@ -17,27 +17,26 @@ Blending:
     - feather_blend: Simple alpha blending with feathered edges
 """
 
-from visagen.postprocess.color_transfer import (
-    reinhard_color_transfer,
-    linear_color_transfer,
-    color_transfer_sot,
-    color_transfer_mkl,
-    color_transfer_idt,
-    color_transfer,
-    ColorTransferMode,
-)
-
 from visagen.postprocess.blending import (
-    laplacian_pyramid_blend,
-    poisson_blend,
-    feather_blend,
+    BlendMode,
     blend,
-    erode_mask,
-    dilate_mask,
     build_gaussian_pyramid,
     build_laplacian_pyramid,
+    dilate_mask,
+    erode_mask,
+    feather_blend,
+    laplacian_pyramid_blend,
+    poisson_blend,
     reconstruct_from_laplacian,
-    BlendMode,
+)
+from visagen.postprocess.color_transfer import (
+    ColorTransferMode,
+    color_transfer,
+    color_transfer_idt,
+    color_transfer_mkl,
+    color_transfer_sot,
+    linear_color_transfer,
+    reinhard_color_transfer,
 )
 
 __all__ = [

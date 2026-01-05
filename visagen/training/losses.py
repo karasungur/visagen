@@ -9,9 +9,6 @@ Implements modern perceptual loss functions:
 - StyleLoss: Gram matrix based style transfer
 """
 
-import math
-from typing import Optional, Tuple
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -57,15 +54,13 @@ class DSSIMLoss(nn.Module):
         kernel = self._create_gaussian_kernel(filter_size, filter_sigma)
         self.register_buffer("kernel", kernel)
 
-    def _create_gaussian_kernel(
-        self, size: int, sigma: float
-    ) -> torch.Tensor:
+    def _create_gaussian_kernel(self, size: int, sigma: float) -> torch.Tensor:
         """Create 2D Gaussian kernel."""
         coords = torch.arange(size, dtype=torch.float32)
         coords -= (size - 1) / 2.0
 
-        g = coords ** 2
-        g = torch.exp(-g / (2 * sigma ** 2))
+        g = coords**2
+        g = torch.exp(-g / (2 * sigma**2))
 
         g_2d = g.unsqueeze(0) * g.unsqueeze(1)
         g_2d = g_2d / g_2d.sum()
@@ -100,13 +95,13 @@ class DSSIMLoss(nn.Module):
         mu1 = F.conv2d(pred, kernel, padding=0, groups=c)
         mu2 = F.conv2d(target, kernel, padding=0, groups=c)
 
-        mu1_sq = mu1 ** 2
-        mu2_sq = mu2 ** 2
+        mu1_sq = mu1**2
+        mu2_sq = mu2**2
         mu1_mu2 = mu1 * mu2
 
         # Compute variances
-        sigma1_sq = F.conv2d(pred ** 2, kernel, padding=0, groups=c) - mu1_sq
-        sigma2_sq = F.conv2d(target ** 2, kernel, padding=0, groups=c) - mu2_sq
+        sigma1_sq = F.conv2d(pred**2, kernel, padding=0, groups=c) - mu1_sq
+        sigma2_sq = F.conv2d(target**2, kernel, padding=0, groups=c) - mu2_sq
         sigma12 = F.conv2d(pred * target, kernel, padding=0, groups=c) - mu1_mu2
 
         # SSIM formula
@@ -135,8 +130,8 @@ class MultiScaleDSSIMLoss(nn.Module):
 
     def __init__(
         self,
-        filter_sizes: Tuple[int, ...] = (11, 23),
-        weights: Optional[Tuple[float, ...]] = None,
+        filter_sizes: tuple[int, ...] = (11, 23),
+        weights: tuple[float, ...] | None = None,
     ) -> None:
         super().__init__()
 
@@ -144,9 +139,7 @@ class MultiScaleDSSIMLoss(nn.Module):
             weights = tuple(1.0 / len(filter_sizes) for _ in filter_sizes)
 
         self.weights = weights
-        self.losses = nn.ModuleList([
-            DSSIMLoss(filter_size=fs) for fs in filter_sizes
-        ])
+        self.losses = nn.ModuleList([DSSIMLoss(filter_size=fs) for fs in filter_sizes])
 
     def forward(
         self,
@@ -155,7 +148,7 @@ class MultiScaleDSSIMLoss(nn.Module):
     ) -> torch.Tensor:
         """Compute multi-scale DSSIM loss."""
         total = 0.0
-        for weight, loss_fn in zip(self.weights, self.losses):
+        for weight, loss_fn in zip(self.weights, self.losses, strict=False):
             total = total + weight * loss_fn(pred, target)
         return total
 
@@ -190,6 +183,7 @@ class LPIPSLoss(nn.Module):
         if self._lpips is None:
             try:
                 import lpips
+
                 self._lpips = lpips.LPIPS(net=self.net)
                 if self._use_gpu and torch.cuda.is_available():
                     self._lpips = self._lpips.cuda()
@@ -239,7 +233,7 @@ class IDLoss(nn.Module):
         Requires insightface package for default model.
     """
 
-    def __init__(self, model_path: Optional[str] = None) -> None:
+    def __init__(self, model_path: str | None = None) -> None:
         super().__init__()
         self.model_path = model_path
         self._model = None
@@ -336,8 +330,8 @@ class EyesMouthLoss(nn.Module):
     def _create_region_mask(
         self,
         landmarks: torch.Tensor,
-        image_size: Tuple[int, int],
-        region_indices: Tuple[int, ...],
+        image_size: tuple[int, int],
+        region_indices: tuple[int, ...],
         radius: int = 15,
     ) -> torch.Tensor:
         """Create soft mask for facial region."""
@@ -370,7 +364,7 @@ class EyesMouthLoss(nn.Module):
         self,
         pred: torch.Tensor,
         target: torch.Tensor,
-        landmarks: Optional[torch.Tensor] = None,
+        landmarks: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Compute eyes/mouth priority loss.
@@ -409,7 +403,9 @@ class EyesMouthLoss(nn.Module):
             pixel_loss = (pred - target) ** 2
 
         # Apply priority weighting
-        weighted_loss = pixel_loss * (1.0 + priority_mask * (self.weight_multiplier - 1.0))
+        weighted_loss = pixel_loss * (
+            1.0 + priority_mask * (self.weight_multiplier - 1.0)
+        )
 
         return weighted_loss.mean()
 
@@ -439,7 +435,7 @@ class StyleLoss(nn.Module):
         self,
         pred: torch.Tensor,
         target: torch.Tensor,
-        mask: Optional[torch.Tensor] = None,
+        mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Compute style loss.
@@ -508,8 +504,8 @@ class CombinedLoss(nn.Module):
         self,
         pred: torch.Tensor,
         target: torch.Tensor,
-        landmarks: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, dict]:
+        landmarks: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, dict]:
         """
         Compute combined loss.
 

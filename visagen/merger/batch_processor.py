@@ -15,9 +15,10 @@ import logging
 import multiprocessing as mp
 import queue
 import time
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Generator, List, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 
@@ -36,8 +37,8 @@ class WorkItem:
     """
 
     frame_idx: int
-    frame_path: Optional[Path] = None
-    frame_data: Optional[np.ndarray] = None
+    frame_path: Path | None = None
+    frame_data: np.ndarray | None = None
 
 
 @dataclass
@@ -57,8 +58,8 @@ class WorkResult:
 
     frame_idx: int
     success: bool
-    output_path: Optional[Path] = None
-    error: Optional[str] = None
+    output_path: Path | None = None
+    error: str | None = None
     processing_time: float = 0.0
     faces_detected: int = 0
     faces_swapped: int = 0
@@ -213,7 +214,7 @@ class BatchProcessor:
         checkpoint_path: Path,
         config: Optional["FrameProcessorConfig"] = None,
         num_workers: int = 4,
-        gpu_ids: Optional[List[int]] = None,
+        gpu_ids: list[int] | None = None,
         queue_size: int = 32,
     ) -> None:
         from visagen.merger.frame_processor import FrameProcessorConfig
@@ -227,13 +228,13 @@ class BatchProcessor:
         self.devices = self._get_devices(gpu_ids)
 
         # Process management
-        self._workers: List[mp.Process] = []
-        self._input_queue: Optional[mp.Queue] = None
-        self._output_queue: Optional[mp.Queue] = None
-        self._shutdown_event: Optional[mp.Event] = None
+        self._workers: list[mp.Process] = []
+        self._input_queue: mp.Queue | None = None
+        self._output_queue: mp.Queue | None = None
+        self._shutdown_event: mp.Event | None = None
         self._started = False
 
-    def _get_devices(self, gpu_ids: Optional[List[int]]) -> List[str]:
+    def _get_devices(self, gpu_ids: list[int] | None) -> list[str]:
         """Get list of device strings for workers."""
         import torch
 
@@ -270,6 +271,7 @@ class BatchProcessor:
 
         # Convert config to dict for pickling
         from dataclasses import asdict
+
         config_dict = asdict(self.config)
 
         for worker_id in range(self.num_workers):
@@ -296,10 +298,10 @@ class BatchProcessor:
 
     def process_batch(
         self,
-        items: List[WorkItem],
+        items: list[WorkItem],
         output_dir: Path,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
-    ) -> List[WorkResult]:
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> list[WorkResult]:
         """
         Process batch of frames in parallel.
 
@@ -322,7 +324,9 @@ class BatchProcessor:
                 continue
 
             output_path = output_dir / f"{item.frame_idx:06d}.png"
-            self._input_queue.put((item.frame_idx, str(item.frame_path), str(output_path)))
+            self._input_queue.put(
+                (item.frame_idx, str(item.frame_path), str(output_path))
+            )
 
         # Collect results
         results = []
@@ -348,9 +352,9 @@ class BatchProcessor:
 
     def process_streaming(
         self,
-        frame_generator: Generator[Tuple[int, np.ndarray], None, None],
+        frame_generator: Generator[tuple[int, np.ndarray], None, None],
         output_dir: Path,
-        total_frames: Optional[int] = None,
+        total_frames: int | None = None,
     ) -> Generator[WorkResult, None, None]:
         """
         Process frames from generator with streaming output.
@@ -363,8 +367,9 @@ class BatchProcessor:
         Yields:
             WorkResult as each frame completes.
         """
-        import cv2
         import tempfile
+
+        import cv2
 
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -410,6 +415,7 @@ class BatchProcessor:
         finally:
             # Clean up temp input
             import shutil
+
             shutil.rmtree(temp_input, ignore_errors=True)
 
     def shutdown(self) -> None:

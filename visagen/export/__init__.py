@@ -23,7 +23,7 @@ Example:
 """
 
 from visagen.export.model_wrapper import ExportableModel
-from visagen.export.onnx_exporter import ONNXExporter, ExportConfig
+from visagen.export.onnx_exporter import ExportConfig, ONNXExporter
 from visagen.export.onnx_runner import ONNXRunner
 from visagen.export.validation import ValidationResult, validate_export
 

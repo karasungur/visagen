@@ -7,7 +7,6 @@ Matches legacy DeepFaceLab augmentation behavior.
 
 import math
 import random
-from typing import Dict, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -50,9 +49,9 @@ class FaceAugmentationPipeline(nn.Module):
         # Geometric
         random_flip_prob: float = 0.4,
         random_warp: bool = True,
-        rotation_range: Tuple[float, float] = (-10, 10),
-        scale_range: Tuple[float, float] = (-0.05, 0.05),
-        translation_range: Tuple[float, float] = (-0.05, 0.05),
+        rotation_range: tuple[float, float] = (-10, 10),
+        scale_range: tuple[float, float] = (-0.05, 0.05),
+        translation_range: tuple[float, float] = (-0.05, 0.05),
         # Color
         hsv_shift_amount: float = 0.1,
         brightness_range: float = 0.1,
@@ -77,8 +76,8 @@ class FaceAugmentationPipeline(nn.Module):
     def forward(
         self,
         image: torch.Tensor,
-        mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """
         Apply augmentations to face image and optional mask.
 
@@ -133,8 +132,8 @@ class FaceAugmentationPipeline(nn.Module):
     def _apply_geometric(
         self,
         image: torch.Tensor,
-        mask: Optional[torch.Tensor],
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        mask: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Apply geometric augmentations."""
         b, c, h, w = image.shape
 
@@ -152,11 +151,13 @@ class FaceAugmentationPipeline(nn.Module):
                 mask = warp_by_params(mask, warp_params)
 
         # Random affine (rotation, scale, translation)
-        if any([
-            self.rotation_range != (0, 0),
-            self.scale_range != (0, 0),
-            self.translation_range != (0, 0),
-        ]):
+        if any(
+            [
+                self.rotation_range != (0, 0),
+                self.scale_range != (0, 0),
+                self.translation_range != (0, 0),
+            ]
+        ):
             affine_matrix = self._gen_affine_matrix(h, w)
             image = self._apply_affine(image, affine_matrix)
             if mask is not None:
@@ -179,10 +180,13 @@ class FaceAugmentationPipeline(nn.Module):
 
         # Affine matrix for torch affine_grid (maps output to input)
         # theta format: [[a, b, tx], [c, d, ty]]
-        matrix = torch.tensor([
-            [cos_a, -sin_a, tx],
-            [sin_a, cos_a, ty],
-        ], dtype=torch.float32)
+        matrix = torch.tensor(
+            [
+                [cos_a, -sin_a, tx],
+                [sin_a, cos_a, ty],
+            ],
+            dtype=torch.float32,
+        )
 
         return matrix
 
@@ -204,8 +208,8 @@ class FaceAugmentationPipeline(nn.Module):
         return F.grid_sample(
             tensor,
             grid,
-            mode='bilinear',
-            padding_mode='border',
+            mode="bilinear",
+            padding_mode="border",
             align_corners=True,
         )
 
@@ -217,7 +221,9 @@ class FaceAugmentationPipeline(nn.Module):
 
         # Brightness
         if self.brightness_range > 0:
-            brightness = 1.0 + random.uniform(-self.brightness_range, self.brightness_range)
+            brightness = 1.0 + random.uniform(
+                -self.brightness_range, self.brightness_range
+            )
             image = image * brightness
 
         # Contrast
@@ -318,9 +324,15 @@ class FaceAugmentationPipeline(nn.Module):
         mask4 = i == 4
         mask5 = i == 5
 
-        rgb[:, 0, :, :] = torch.where(mask0 | mask5, v, torch.where(mask1, q, torch.where(mask4, t, p)))
-        rgb[:, 1, :, :] = torch.where(mask0, t, torch.where(mask1 | mask2, v, torch.where(mask3, q, p)))
-        rgb[:, 2, :, :] = torch.where(mask2, t, torch.where(mask3 | mask4, v, torch.where(mask5, q, p)))
+        rgb[:, 0, :, :] = torch.where(
+            mask0 | mask5, v, torch.where(mask1, q, torch.where(mask4, t, p))
+        )
+        rgb[:, 1, :, :] = torch.where(
+            mask0, t, torch.where(mask1 | mask2, v, torch.where(mask3, q, p))
+        )
+        rgb[:, 2, :, :] = torch.where(
+            mask2, t, torch.where(mask3 | mask4, v, torch.where(mask5, q, p))
+        )
 
         return rgb
 
@@ -338,15 +350,15 @@ class SimpleAugmentation:
     def __call__(
         self,
         image: torch.Tensor,
-        mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Apply deterministic transformations only."""
         # Just ensure correct size
         if image.shape[-1] != self.target_size:
             image = F.interpolate(
                 image.unsqueeze(0) if image.dim() == 3 else image,
                 size=(self.target_size, self.target_size),
-                mode='bilinear',
+                mode="bilinear",
                 align_corners=True,
             )
             if image.dim() == 4 and image.shape[0] == 1:
@@ -356,7 +368,7 @@ class SimpleAugmentation:
             mask = F.interpolate(
                 mask.unsqueeze(0) if mask.dim() == 3 else mask,
                 size=(self.target_size, self.target_size),
-                mode='bilinear',
+                mode="bilinear",
                 align_corners=True,
             )
             if mask.dim() == 4 and mask.shape[0] == 1:

@@ -6,7 +6,7 @@ Lightweight container for face sample data with lazy image loading.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -44,15 +44,13 @@ class FaceSample:
 
     filepath: Path
     face_type: str
-    shape: Tuple[int, int, int]
+    shape: tuple[int, int, int]
     landmarks: np.ndarray
-    xseg_mask: Optional[bytes] = None
+    xseg_mask: bytes | None = None
     eyebrows_expand_mod: float = 1.0
-    source_filename: Optional[str] = None
-    image_to_face_mat: Optional[np.ndarray] = None
-    _pitch_yaw_roll: Optional[Tuple[float, float, float]] = field(
-        default=None, repr=False
-    )
+    source_filename: str | None = None
+    image_to_face_mat: np.ndarray | None = None
+    _pitch_yaw_roll: tuple[float, float, float] | None = field(default=None, repr=False)
 
     def load_image(self) -> np.ndarray:
         """
@@ -74,7 +72,7 @@ class FaceSample:
 
         return image.astype(np.float32) / 255.0
 
-    def get_xseg_mask(self) -> Optional[np.ndarray]:
+    def get_xseg_mask(self) -> np.ndarray | None:
         """
         Decompress and return XSeg mask.
 
@@ -99,7 +97,7 @@ class FaceSample:
 
         return mask.astype(np.float32) / 255.0
 
-    def get_pitch_yaw_roll(self) -> Tuple[float, float, float]:
+    def get_pitch_yaw_roll(self) -> tuple[float, float, float]:
         """
         Get face pose estimation (pitch, yaw, roll).
 
