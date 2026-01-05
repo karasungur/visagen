@@ -63,6 +63,16 @@ merger = [
     "opencv-python>=4.8.0",
     "tqdm>=4.65.0",
 ]
+export = [
+    "onnx>=1.14.0",
+    "onnxruntime-gpu>=1.16.0",
+    "onnx-simplifier>=0.4.0",
+    "onnxscript>=0.1.0",
+]
+tensorrt = [
+    "tensorrt>=8.6.0",
+    "pycuda>=2022.1",
+]
 full = [
     "onnx>=1.14.0",
     "onnxruntime>=1.15.0",
@@ -93,6 +103,7 @@ visagen-train = "visagen.tools.train:main"
 visagen-tune = "visagen.tools.tune:main"
 visagen-gui = "visagen.tools.gradio_app:main"
 visagen-merge = "visagen.tools.merge:main"
+visagen-export = "visagen.tools.export:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
