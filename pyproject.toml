@@ -118,6 +118,7 @@ visagen-gui = "visagen.tools.gradio_app:main"
 visagen-merge = "visagen.tools.merge:main"
 visagen-export = "visagen.tools.export:main"
 visagen-sort = "visagen.tools.sorter:main"
+visagen-benchmark = "visagen.tools.benchmark:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
@@ -156,6 +157,7 @@ ignore = [
 "visagen/sorting/*.py" = ["F821"]  # Forward references in type hints
 "visagen/tools/*.py" = ["F401"]  # Runtime import checks
 "visagen/vision/*.py" = ["F401"]  # Optional dependency imports
+"visagen/benchmark/*.py" = ["F821"]  # Forward references in type hints
 
 [tool.ruff.lint.isort]
 known-first-party = ["visagen"]
