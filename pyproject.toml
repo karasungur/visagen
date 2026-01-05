@@ -109,6 +109,7 @@ visagen-tune = "visagen.tools.tune:main"
 visagen-gui = "visagen.tools.gradio_app:main"
 visagen-merge = "visagen.tools.merge:main"
 visagen-export = "visagen.tools.export:main"
+visagen-sort = "visagen.tools.sorter:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
@@ -144,6 +145,7 @@ ignore = [
 "visagen/export/*.py" = ["F821"]  # Forward references in type hints
 "visagen/merger/*.py" = ["F821"]  # Forward references in type hints
 "visagen/tuning/*.py" = ["F821"]  # Forward references in type hints
+"visagen/sorting/*.py" = ["F821"]  # Forward references in type hints
 "visagen/tools/*.py" = ["F401"]  # Runtime import checks
 "visagen/vision/*.py" = ["F401"]  # Optional dependency imports
 
