@@ -12,6 +12,7 @@ Features:
     - Configurable color transfer (RCT, LCT, SOT)
     - Multiple blending modes (Laplacian, Poisson, Feather)
     - Mask erosion for seamless edges
+    - Multiple inference backends (PyTorch, ONNX, TensorRT)
 """
 
 import time
@@ -97,29 +98,54 @@ class FrameProcessor:
     Handles face detection, model inference, and seamless blending
     for swapping faces in individual video frames.
 
+    Supports multiple inference backends:
+    - "pytorch": Native PyTorch (default)
+    - "onnx": ONNX Runtime for optimized CPU/GPU inference
+    - "tensorrt": TensorRT for maximum GPU performance
+
     Args:
-        model: Trained model (DFLModule, checkpoint path, or loaded model).
+        model: Trained model (DFLModule, checkpoint path, ONNX path, or TensorRT engine).
         config: Processing configuration.
-        device: Torch device for inference.
+        device: Torch device for PyTorch inference.
+        backend: Inference backend ("pytorch", "onnx", "tensorrt"). Default: "pytorch".
 
     Example:
+        >>> # PyTorch backend
         >>> processor = FrameProcessor("model.ckpt")
         >>> result = processor.process_frame(frame, frame_idx=0)
-        >>> cv2.imwrite("output.png", result.output_image)
+
+        >>> # ONNX backend for faster inference
+        >>> processor = FrameProcessor("model.onnx", backend="onnx")
+        >>> result = processor.process_frame(frame)
+
+        >>> # TensorRT backend for maximum performance
+        >>> processor = FrameProcessor("model.engine", backend="tensorrt")
+        >>> result = processor.process_frame(frame)
     """
+
+    # Valid backends
+    VALID_BACKENDS = ("pytorch", "onnx", "tensorrt")
 
     def __init__(
         self,
         model: Union[str, Path, "torch.nn.Module"],
         config: Optional[FrameProcessorConfig] = None,
         device: Optional[str] = None,
+        backend: str = "pytorch",
     ) -> None:
+        if backend not in self.VALID_BACKENDS:
+            raise ValueError(
+                f"Invalid backend '{backend}'. Must be one of: {self.VALID_BACKENDS}"
+            )
+
         self.config = config or FrameProcessorConfig()
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.backend = backend
 
-        # Load model
+        # Load model based on backend
         self.model = self._load_model(model)
-        self.model.eval()
+        if self.backend == "pytorch":
+            self.model.eval()
 
         # Lazy-loaded components
         self._detector = None
@@ -128,8 +154,21 @@ class FrameProcessor:
 
     def _load_model(
         self, model: Union[str, Path, "torch.nn.Module"]
+    ) -> Union["torch.nn.Module", "ONNXRunner", "TensorRTRunner"]:
+        """Load model based on backend type."""
+        if self.backend == "pytorch":
+            return self._load_pytorch_model(model)
+        elif self.backend == "onnx":
+            return self._load_onnx_model(model)
+        elif self.backend == "tensorrt":
+            return self._load_tensorrt_model(model)
+        else:
+            raise ValueError(f"Unknown backend: {self.backend}")
+
+    def _load_pytorch_model(
+        self, model: Union[str, Path, "torch.nn.Module"]
     ) -> "torch.nn.Module":
-        """Load model from path or return if already loaded."""
+        """Load PyTorch model from checkpoint or return if already loaded."""
         if isinstance(model, (str, Path)):
             from visagen.training.dfl_module import DFLModule
 
@@ -145,6 +184,28 @@ class FrameProcessor:
             return loaded_model
         else:
             return model.to(self.device)
+
+    def _load_onnx_model(self, model: Union[str, Path]) -> "ONNXRunner":
+        """Load ONNX model for inference."""
+        from visagen.export.onnx_runner import ONNXRunner
+
+        model_path = Path(model) if isinstance(model, str) else model
+
+        if not model_path.exists():
+            raise FileNotFoundError(f"ONNX model not found: {model_path}")
+
+        return ONNXRunner(model_path, device=self.device)
+
+    def _load_tensorrt_model(self, model: Union[str, Path]) -> "TensorRTRunner":
+        """Load TensorRT engine for inference."""
+        from visagen.export.tensorrt_runner import TensorRTRunner
+
+        model_path = Path(model) if isinstance(model, str) else model
+
+        if not model_path.exists():
+            raise FileNotFoundError(f"TensorRT engine not found: {model_path}")
+
+        return TensorRTRunner(model_path)
 
     @property
     def detector(self):
@@ -284,23 +345,40 @@ class FrameProcessor:
         """
         Run model inference on aligned face.
 
+        Supports multiple backends: PyTorch, ONNX, TensorRT.
+
         Args:
             aligned_face: Aligned face (H, W, 3) uint8 BGR.
 
         Returns:
             Swapped face (H, W, 3) uint8 BGR.
         """
-        # Preprocess
+        # Preprocess: normalize and convert to CHW
         img = aligned_face.astype(np.float32) / 255.0
         img = np.transpose(img, (2, 0, 1))  # HWC -> CHW
-        img = torch.from_numpy(img).unsqueeze(0).to(self.device)
 
-        # Inference
-        with torch.no_grad():
-            output = self.model(img)
+        if self.backend == "pytorch":
+            # PyTorch inference
+            img_tensor = torch.from_numpy(img).unsqueeze(0).to(self.device)
 
-        # Postprocess
-        output = output.squeeze(0).cpu().numpy()
+            with torch.no_grad():
+                output = self.model(img_tensor)
+
+            output = output.squeeze(0).cpu().numpy()
+
+        elif self.backend in ("onnx", "tensorrt"):
+            # ONNX / TensorRT inference
+            img_batch = img[np.newaxis, ...].astype(np.float32)
+            output = self.model(img_batch)
+
+            # Remove batch dimension
+            if output.ndim == 4:
+                output = output[0]
+
+        else:
+            raise ValueError(f"Unknown backend: {self.backend}")
+
+        # Postprocess: CHW -> HWC, scale to 0-255
         output = np.transpose(output, (1, 2, 0))  # CHW -> HWC
         output = np.clip(output * 255, 0, 255).astype(np.uint8)
 
