@@ -73,6 +73,11 @@ tensorrt = [
     "tensorrt>=8.6.0",
     "pycuda>=2022.1",
 ]
+dali = [
+    # NVIDIA DALI for GPU-accelerated data loading
+    # NOTE: Linux only - pip install nvidia-dali-cuda120
+    "nvidia-dali-cuda120>=1.30.0",
+]
 full = [
     "onnx>=1.14.0",
     "onnxruntime>=1.15.0",

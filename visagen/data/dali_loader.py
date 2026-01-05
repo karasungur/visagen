@@ -1,0 +1,416 @@
+"""
+DALI-based DataModule for PyTorch Lightning.
+
+Provides GPU-accelerated data loading using NVIDIA DALI.
+Falls back to standard PyTorch DataLoader when DALI is unavailable.
+
+Features:
+    - GPU-based image decoding and augmentation
+    - Zero CPU bottleneck for data loading
+    - Seamless PyTorch Lightning integration
+    - Automatic fallback for Windows/non-CUDA systems
+
+Requires:
+    nvidia-dali-cuda120 >= 1.30.0 (Linux only)
+"""
+
+from pathlib import Path
+from typing import Iterator, Optional, Union
+
+import pytorch_lightning as pl
+
+from .dali_pipeline import DALI_AVAILABLE, check_dali_available, create_dali_iterator
+
+# Import standard datamodule for fallback
+from .datamodule import FaceDataModule
+
+
+class DALIFaceDataModule(pl.LightningDataModule):
+    """
+    DALI-accelerated DataModule for face swap training.
+
+    Uses NVIDIA DALI for GPU-based data loading and augmentation.
+    Automatically falls back to standard PyTorch DataLoader if DALI
+    is not available (e.g., on Windows).
+
+    Args:
+        src_dir: Directory containing source face images.
+        dst_dir: Directory containing destination face images.
+        batch_size: Batch size per GPU.
+        image_size: Output image size (square).
+        num_threads: Number of CPU threads for DALI pipeline.
+        device_id: GPU device ID.
+        augment: Whether to apply data augmentation.
+        seed: Random seed for reproducibility.
+        num_shards: Total number of shards (for distributed training).
+        shard_id: Current shard ID.
+        use_dali: Force DALI usage (False for fallback to PyTorch).
+        fallback_num_workers: Number of workers for PyTorch fallback.
+
+    Example:
+        >>> dm = DALIFaceDataModule(
+        ...     src_dir="data/src",
+        ...     dst_dir="data/dst",
+        ...     batch_size=8,
+        ... )
+        >>> dm.setup("fit")
+        >>> for batch in dm.train_dataloader():
+        ...     src_images = batch["src_images"]
+        ...     dst_images = batch["dst_images"]
+    """
+
+    def __init__(
+        self,
+        src_dir: Union[str, Path],
+        dst_dir: Union[str, Path],
+        batch_size: int = 8,
+        image_size: int = 256,
+        num_threads: int = 4,
+        device_id: int = 0,
+        augment: bool = True,
+        seed: int = 42,
+        num_shards: int = 1,
+        shard_id: int = 0,
+        use_dali: Optional[bool] = None,
+        fallback_num_workers: int = 4,
+    ) -> None:
+        super().__init__()
+
+        self.src_dir = Path(src_dir)
+        self.dst_dir = Path(dst_dir)
+        self.batch_size = batch_size
+        self.image_size = image_size
+        self.num_threads = num_threads
+        self.device_id = device_id
+        self.augment = augment
+        self.seed = seed
+        self.num_shards = num_shards
+        self.shard_id = shard_id
+        self.fallback_num_workers = fallback_num_workers
+
+        # Determine if DALI should be used
+        if use_dali is None:
+            self._use_dali = check_dali_available()
+        else:
+            self._use_dali = use_dali and check_dali_available()
+
+        # Store iterators
+        self._train_iterator: Optional[Iterator] = None
+        self._val_iterator: Optional[Iterator] = None
+
+        # Fallback datamodule
+        self._fallback_dm: Optional[FaceDataModule] = None
+
+    @property
+    def using_dali(self) -> bool:
+        """Check if DALI is being used."""
+        return self._use_dali
+
+    def setup(self, stage: Optional[str] = None) -> None:
+        """
+        Set up data loaders for training/validation.
+
+        Args:
+            stage: Either 'fit', 'validate', 'test', or 'predict'.
+        """
+        if not self._use_dali:
+            # Use fallback PyTorch DataLoader
+            self._setup_fallback(stage)
+            return
+
+        # Validate directories
+        if not self.src_dir.exists():
+            raise FileNotFoundError(f"Source directory not found: {self.src_dir}")
+        if not self.dst_dir.exists():
+            raise FileNotFoundError(f"Destination directory not found: {self.dst_dir}")
+
+    def _setup_fallback(self, stage: Optional[str] = None) -> None:
+        """Set up fallback PyTorch DataLoader."""
+        if self._fallback_dm is None:
+            self._fallback_dm = FaceDataModule(
+                src_dir=self.src_dir,
+                dst_dir=self.dst_dir,
+                batch_size=self.batch_size,
+                image_size=self.image_size,
+                num_workers=self.fallback_num_workers,
+                augment=self.augment,
+            )
+        self._fallback_dm.setup(stage)
+
+    def train_dataloader(self) -> Iterator:
+        """
+        Get training data loader.
+
+        Returns:
+            DALI iterator or PyTorch DataLoader.
+        """
+        if not self._use_dali:
+            if self._fallback_dm is None:
+                self._setup_fallback("fit")
+            return self._fallback_dm.train_dataloader()
+
+        # Create DALI iterator
+        self._train_iterator = create_dali_iterator(
+            src_dir=self.src_dir,
+            dst_dir=self.dst_dir,
+            batch_size=self.batch_size,
+            image_size=self.image_size,
+            num_threads=self.num_threads,
+            device_id=self.device_id,
+            augment=self.augment,
+            seed=self.seed,
+            shard_id=self.shard_id,
+            num_shards=self.num_shards,
+        )
+
+        return self._train_iterator
+
+    def val_dataloader(self) -> Iterator:
+        """
+        Get validation data loader.
+
+        Returns:
+            DALI iterator or PyTorch DataLoader (no augmentation).
+        """
+        if not self._use_dali:
+            if self._fallback_dm is None:
+                self._setup_fallback("validate")
+            return self._fallback_dm.val_dataloader()
+
+        # Create DALI iterator without augmentation
+        self._val_iterator = create_dali_iterator(
+            src_dir=self.src_dir,
+            dst_dir=self.dst_dir,
+            batch_size=self.batch_size,
+            image_size=self.image_size,
+            num_threads=self.num_threads,
+            device_id=self.device_id,
+            augment=False,  # No augmentation for validation
+            seed=self.seed + 1,
+            shard_id=self.shard_id,
+            num_shards=self.num_shards,
+        )
+
+        return self._val_iterator
+
+    def teardown(self, stage: Optional[str] = None) -> None:
+        """Clean up resources."""
+        self._train_iterator = None
+        self._val_iterator = None
+
+        if self._fallback_dm is not None:
+            self._fallback_dm.teardown(stage)
+
+
+class DALIIteratorWrapper:
+    """
+    Wrapper to make DALI iterator compatible with Lightning.
+
+    Converts DALI output format to match expected batch structure.
+
+    Args:
+        dali_iterator: DALI generic iterator.
+    """
+
+    def __init__(self, dali_iterator) -> None:
+        self.dali_iterator = dali_iterator
+        self._epoch_size = None
+
+    def __iter__(self):
+        """Return iterator."""
+        return self
+
+    def __next__(self):
+        """Get next batch, converting DALI format to dict."""
+        try:
+            data = next(self.dali_iterator)
+            # DALI returns list of dicts, one per pipeline
+            # We use single pipeline, so take first element
+            batch = data[0]
+            return {
+                "src_images": batch["src_images"],
+                "dst_images": batch["dst_images"],
+            }
+        except StopIteration:
+            self.dali_iterator.reset()
+            raise
+
+    def __len__(self):
+        """Return epoch size."""
+        if self._epoch_size is None:
+            self._epoch_size = self.dali_iterator.epoch_size("src_reader")
+        return self._epoch_size // self.dali_iterator.batch_size
+
+    def reset(self):
+        """Reset iterator for new epoch."""
+        self.dali_iterator.reset()
+
+
+def create_dali_datamodule(
+    src_dir: Union[str, Path],
+    dst_dir: Union[str, Path],
+    batch_size: int = 8,
+    image_size: int = 256,
+    num_threads: int = 4,
+    device_id: int = 0,
+    augment: bool = True,
+    seed: int = 42,
+    force_pytorch: bool = False,
+    **kwargs,
+) -> pl.LightningDataModule:
+    """
+    Create a data module, preferring DALI when available.
+
+    Factory function that returns DALIFaceDataModule when DALI is
+    available, otherwise returns standard FaceDataModule.
+
+    Args:
+        src_dir: Source images directory.
+        dst_dir: Destination images directory.
+        batch_size: Batch size.
+        image_size: Output image size.
+        num_threads: Number of CPU threads.
+        device_id: GPU device ID.
+        augment: Enable augmentation.
+        seed: Random seed.
+        force_pytorch: Force PyTorch DataLoader even if DALI available.
+        **kwargs: Additional arguments passed to datamodule.
+
+    Returns:
+        LightningDataModule (DALI or PyTorch based).
+
+    Example:
+        >>> dm = create_dali_datamodule(
+        ...     src_dir="data/src",
+        ...     dst_dir="data/dst",
+        ...     batch_size=16,
+        ... )
+        >>> print(f"Using DALI: {dm.using_dali}")
+    """
+    if force_pytorch or not check_dali_available():
+        # Use standard PyTorch DataModule
+        return FaceDataModule(
+            src_dir=src_dir,
+            dst_dir=dst_dir,
+            batch_size=batch_size,
+            image_size=image_size,
+            num_workers=kwargs.get("num_workers", 4),
+            augment=augment,
+        )
+
+    # Use DALI DataModule
+    return DALIFaceDataModule(
+        src_dir=src_dir,
+        dst_dir=dst_dir,
+        batch_size=batch_size,
+        image_size=image_size,
+        num_threads=num_threads,
+        device_id=device_id,
+        augment=augment,
+        seed=seed,
+        **kwargs,
+    )
+
+
+def benchmark_dataloaders(
+    src_dir: Union[str, Path],
+    dst_dir: Union[str, Path],
+    batch_size: int = 16,
+    image_size: int = 256,
+    num_batches: int = 100,
+) -> dict:
+    """
+    Benchmark DALI vs PyTorch data loading performance.
+
+    Args:
+        src_dir: Source images directory.
+        dst_dir: Destination images directory.
+        batch_size: Batch size to test.
+        image_size: Image size.
+        num_batches: Number of batches to measure.
+
+    Returns:
+        Dict with 'pytorch_fps', 'dali_fps', 'speedup'.
+    """
+    import time
+
+    import torch
+
+    results = {}
+
+    # Benchmark PyTorch DataLoader
+    pytorch_dm = FaceDataModule(
+        src_dir=src_dir,
+        dst_dir=dst_dir,
+        batch_size=batch_size,
+        image_size=image_size,
+        num_workers=4,
+        augment=True,
+    )
+    pytorch_dm.setup("fit")
+    pytorch_loader = pytorch_dm.train_dataloader()
+
+    # Warm up
+    for i, batch in enumerate(pytorch_loader):
+        if i >= 5:
+            break
+        _ = batch["src_images"].cuda()
+        _ = batch["dst_images"].cuda()
+
+    torch.cuda.synchronize()
+    start = time.perf_counter()
+
+    for i, batch in enumerate(pytorch_loader):
+        if i >= num_batches:
+            break
+        _ = batch["src_images"].cuda()
+        _ = batch["dst_images"].cuda()
+
+    torch.cuda.synchronize()
+    pytorch_time = time.perf_counter() - start
+    pytorch_fps = (num_batches * batch_size * 2) / pytorch_time  # *2 for src+dst
+    results["pytorch_fps"] = pytorch_fps
+    results["pytorch_time"] = pytorch_time
+
+    # Benchmark DALI if available
+    if check_dali_available():
+        dali_dm = DALIFaceDataModule(
+            src_dir=src_dir,
+            dst_dir=dst_dir,
+            batch_size=batch_size,
+            image_size=image_size,
+            num_threads=4,
+            device_id=0,
+            augment=True,
+        )
+        dali_dm.setup("fit")
+        dali_loader = dali_dm.train_dataloader()
+
+        # Warm up
+        for i, batch in enumerate(dali_loader):
+            if i >= 5:
+                break
+            _ = batch["src_images"]
+            _ = batch["dst_images"]
+
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+
+        for i, batch in enumerate(dali_loader):
+            if i >= num_batches:
+                break
+            _ = batch["src_images"]
+            _ = batch["dst_images"]
+
+        torch.cuda.synchronize()
+        dali_time = time.perf_counter() - start
+        dali_fps = (num_batches * batch_size * 2) / dali_time
+        results["dali_fps"] = dali_fps
+        results["dali_time"] = dali_time
+        results["speedup"] = dali_fps / pytorch_fps
+    else:
+        results["dali_fps"] = None
+        results["dali_time"] = None
+        results["speedup"] = None
+
+    return results
