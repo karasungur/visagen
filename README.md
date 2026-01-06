@@ -1,14 +1,9 @@
 <div align="center">
 
-<!-- Animated Header -->
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:667eea,100:764ba2&height=120&section=header" width="100%"/>
-
 <!-- Logo -->
-<img src="https://raw.githubusercontent.com/karasungur/visagen/main/assets/logo.png" alt="Visagen Logo" width="200"/>
+<img src="assets/logo.png" alt="Visagen Logo" width="200"/>
 
-<h1>
-  <img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&weight=700&size=28&pause=1000&color=667EEA&center=true&vCenter=true&width=435&lines=Visagen;Modern+Face+Swapping;Built+with+PyTorch+Lightning" alt="Typing SVG" />
-</h1>
+<h1>Visagen</h1>
 
 <p><strong>Next-Generation Face Swapping Framework</strong></p>
 <p><em>Powered by ConvNeXt, CBAM Attention & PyTorch Lightning</em></p>
@@ -19,20 +14,12 @@
   <a href="README_TR.md">🇹🇷 Türkçe</a>
 </p>
 
-<!-- Badges Row 1 -->
+<!-- Badges -->
 <p>
-  <a href="https://github.com/karasungur/visagen/actions"><img src="https://img.shields.io/github/actions/workflow/status/karasungur/visagen/test.yml?branch=main&style=for-the-badge&logo=github&logoColor=white&label=CI" alt="Build Status"/></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
   <img src="https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch"/>
   <img src="https://img.shields.io/badge/Lightning-2.0%2B-792EE5?style=for-the-badge&logo=lightning&logoColor=white" alt="Lightning"/>
-</p>
-
-<!-- Badges Row 2 -->
-<p>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-00C853?style=for-the-badge" alt="License: MIT"/></a>
-  <a href="https://github.com/karasungur/visagen/stargazers"><img src="https://img.shields.io/github/stars/karasungur/visagen?style=for-the-badge&logo=github&color=FFD700" alt="Stars"/></a>
-  <a href="https://github.com/karasungur/visagen/network/members"><img src="https://img.shields.io/github/forks/karasungur/visagen?style=for-the-badge&logo=github&color=1E90FF" alt="Forks"/></a>
-  <a href="https://github.com/karasungur/visagen/issues"><img src="https://img.shields.io/github/issues/karasungur/visagen?style=for-the-badge&logo=github&color=FF6B6B" alt="Issues"/></a>
 </p>
 
 <!-- Quick Navigation -->
@@ -56,15 +43,15 @@
 **Visagen** is a next-generation face swapping framework built from the ground up with modern deep learning practices. Inspired by DeepFaceLab, Visagen reimagines the entire pipeline using **PyTorch Lightning**, offering cleaner code, better performance, and easier extensibility.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         VISAGEN PIPELINE                        │
-├─────────────────────────────────────────────────────────────────┤
-│  📥 Extract  →  🏋️ Train  →  🎬 Swap  →  ✨ Postprocess         │
-│      │            │           │             │                   │
-│      ▼            ▼           ▼             ▼                   │
-│  InsightFace   DFLModule    CBAM      Color Transfer            │
-│  SegFormer     Lightning   Attention    Blending                │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                       VISAGEN PIPELINE                        │
+├───────────────────────────────────────────────────────────────┤
+│  Extract   ──►   Train   ──►   Swap   ──►   Postprocess       │
+│     │              │            │              │              │
+│     ▼              ▼            ▼              ▼              │
+│ InsightFace    DFLModule      CBAM       Color Transfer       │
+│ SegFormer     Lightning    Attention      Blending            │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -411,17 +398,11 @@ visagen/
 
 ## 👥 Contributors
 
-<a href="https://github.com/karasungur/visagen/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=karasungur/visagen" />
-</a>
-
-### Core Team
-
 <table>
 <tr>
 <td align="center">
   <a href="https://github.com/karasungur">
-    <img src="https://github.com/karasungur.png" width="100px;" alt="Mustafa Karasungur"/><br />
+    <img src="https://github.com/karasungur.png" width="80px;" alt="Mustafa Karasungur"/><br />
     <sub><b>Mustafa Karasungur</b></sub>
   </a><br />
   <sub>🏗️ Project Lead & Core Developer</sub>
@@ -515,19 +496,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <div align="center">
 
-<!-- Animated Footer -->
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:667eea,100:764ba2&height=100&section=footer" width="100%"/>
-
-<br/>
-
 **Made with ❤️ by [Mustafa Karasungur](https://github.com/karasungur)**
-
-<sub>If you find this project useful, please consider giving it a ⭐</sub>
-
-<br/>
-
-<a href="https://github.com/karasungur/visagen/stargazers">
-  <img src="https://img.shields.io/github/stars/karasungur/visagen?style=social" alt="GitHub Stars"/>
-</a>
 
 </div>

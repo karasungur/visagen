@@ -1,14 +1,9 @@
 <div align="center">
 
-<!-- Animated Header -->
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:667eea,100:764ba2&height=120&section=header" width="100%"/>
-
 <!-- Logo -->
-<img src="https://raw.githubusercontent.com/karasungur/visagen/main/assets/logo.png" alt="Visagen Logo" width="200"/>
+<img src="assets/logo.png" alt="Visagen Logo" width="200"/>
 
-<h1>
-  <img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&weight=700&size=28&pause=1000&color=667EEA&center=true&vCenter=true&width=500&lines=Visagen;Yeni+Nesil+Y%C3%BCz+De%C4%9Fi%C5%9Ftirme;PyTorch+Lightning+ile" alt="Typing SVG" />
-</h1>
+<h1>Visagen</h1>
 
 <p><strong>Yeni Nesil Yüz Değiştirme Framework'ü</strong></p>
 <p><em>ConvNeXt, CBAM Attention ve PyTorch Lightning ile Güçlendirildi</em></p>
@@ -19,20 +14,12 @@
   <a href="README_TR.md">🇹🇷 Türkçe</a>
 </p>
 
-<!-- Badges Row 1 -->
+<!-- Badges -->
 <p>
-  <a href="https://github.com/karasungur/visagen/actions"><img src="https://img.shields.io/github/actions/workflow/status/karasungur/visagen/test.yml?branch=main&style=for-the-badge&logo=github&logoColor=white&label=CI" alt="Build Status"/></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
   <img src="https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch"/>
   <img src="https://img.shields.io/badge/Lightning-2.0%2B-792EE5?style=for-the-badge&logo=lightning&logoColor=white" alt="Lightning"/>
-</p>
-
-<!-- Badges Row 2 -->
-<p>
   <a href="LICENSE"><img src="https://img.shields.io/badge/lisans-MIT-00C853?style=for-the-badge" alt="Lisans: MIT"/></a>
-  <a href="https://github.com/karasungur/visagen/stargazers"><img src="https://img.shields.io/github/stars/karasungur/visagen?style=for-the-badge&logo=github&color=FFD700" alt="Yıldızlar"/></a>
-  <a href="https://github.com/karasungur/visagen/network/members"><img src="https://img.shields.io/github/forks/karasungur/visagen?style=for-the-badge&logo=github&color=1E90FF" alt="Forklar"/></a>
-  <a href="https://github.com/karasungur/visagen/issues"><img src="https://img.shields.io/github/issues/karasungur/visagen?style=for-the-badge&logo=github&color=FF6B6B" alt="Sorunlar"/></a>
 </p>
 
 <!-- Hızlı Navigasyon -->
@@ -56,15 +43,15 @@
 **Visagen**, modern derin öğrenme pratikleri ile sıfırdan inşa edilmiş yeni nesil bir yüz değiştirme framework'üdür. DeepFaceLab'dan ilham alınarak, Visagen tüm pipeline'ı **PyTorch Lightning** kullanarak yeniden tasarlar ve daha temiz kod, daha iyi performans ve kolay genişletilebilirlik sunar.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         VISAGEN PIPELINE                        │
-├─────────────────────────────────────────────────────────────────┤
-│  📥 Çıkart  →  🏋️ Eğit  →  🎬 Değiştir  →  ✨ Son İşlem        │
-│      │            │           │             │                   │
-│      ▼            ▼           ▼             ▼                   │
-│  InsightFace   DFLModule    CBAM      Renk Transferi            │
-│  SegFormer     Lightning   Attention    Harmanlama              │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                       VISAGEN PIPELINE                        │
+├───────────────────────────────────────────────────────────────┤
+│  Çıkart    ──►   Eğit    ──►  Değiştir  ──►   Son İşlem       │
+│     │              │            │              │              │
+│     ▼              ▼            ▼              ▼              │
+│ InsightFace    DFLModule      CBAM       Renk Transferi       │
+│ SegFormer     Lightning    Attention      Harmanlama          │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -411,17 +398,11 @@ visagen/
 
 ## 👥 Katkıda Bulunanlar
 
-<a href="https://github.com/karasungur/visagen/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=karasungur/visagen" />
-</a>
-
-### Çekirdek Ekip
-
 <table>
 <tr>
 <td align="center">
   <a href="https://github.com/karasungur">
-    <img src="https://github.com/karasungur.png" width="100px;" alt="Mustafa Karasungur"/><br />
+    <img src="https://github.com/karasungur.png" width="80px;" alt="Mustafa Karasungur"/><br />
     <sub><b>Mustafa Karasungur</b></sub>
   </a><br />
   <sub>🏗️ Proje Lideri & Çekirdek Geliştirici</sub>
@@ -515,19 +496,6 @@ Bu proje MIT Lisansı altında lisanslanmıştır - detaylar için [LICENSE](LIC
 
 <div align="center">
 
-<!-- Animated Footer -->
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:667eea,100:764ba2&height=100&section=footer" width="100%"/>
-
-<br/>
-
 **[Mustafa Karasungur](https://github.com/karasungur) tarafından ❤️ ile yapıldı**
-
-<sub>Bu projeyi faydalı bulduysanız, lütfen bir ⭐ vermeyi düşünün</sub>
-
-<br/>
-
-<a href="https://github.com/karasungur/visagen/stargazers">
-  <img src="https://img.shields.io/github/stars/karasungur/visagen?style=social" alt="GitHub Yıldızları"/>
-</a>
 
 </div>
