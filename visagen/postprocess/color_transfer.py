@@ -22,7 +22,7 @@ import cv2
 import numpy as np
 from numpy import linalg as npla
 
-ColorTransferMode = Literal["rct", "lct", "sot", "mkl", "idt"]
+ColorTransferMode = Literal["rct", "lct", "sot", "mkl", "idt", "neural"]
 
 
 def reinhard_color_transfer(
@@ -387,7 +387,7 @@ def color_transfer(
     Unified color transfer interface.
 
     Args:
-        mode: Transfer mode ('rct', 'lct', 'sot', 'mkl', 'idt').
+        mode: Transfer mode ('rct', 'lct', 'sot', 'mkl', 'idt', 'neural').
         target: Target image to modify (H, W, 3) float32 [0, 1].
         source: Source image to match colors from (H, W, 3) float32 [0, 1].
         **kwargs: Additional arguments passed to specific function.
@@ -402,6 +402,7 @@ def color_transfer(
         >>> result = color_transfer('rct', target_img, source_img)
         >>> result = color_transfer('lct', target_img, source_img, mode='pca')
         >>> result = color_transfer('sot', src_img, trg_img, steps=20)
+        >>> result = color_transfer('neural', target_img, source_img, strength=0.8)
     """
     if mode == "rct":
         return reinhard_color_transfer(target, source, **kwargs)
@@ -413,5 +414,9 @@ def color_transfer(
         return color_transfer_mkl(target, source, **kwargs)
     elif mode == "idt":
         return color_transfer_idt(target, source, **kwargs)
+    elif mode == "neural":
+        from visagen.postprocess.neural_color import neural_color_transfer
+
+        return neural_color_transfer(target, source, **kwargs)
     else:
         raise ValueError(f"Unknown color transfer mode: {mode}")

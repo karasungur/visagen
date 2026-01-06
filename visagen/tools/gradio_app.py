@@ -747,6 +747,306 @@ class GradioApp:
             return "Export stopped."
         return "No export in progress."
 
+    def run_extract_frames(
+        self,
+        input_video: str,
+        output_dir: str,
+        fps: float | None,
+        output_format: str,
+    ) -> Generator[str, None, None]:
+        """Run frame extraction from video."""
+        if not input_video or not Path(input_video).exists():
+            yield "Error: Input video not found"
+            return
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "visagen.tools.video_ed",
+            "extract",
+            str(input_video),
+            "--output",
+            output_dir or "./frames",
+            "--format",
+            output_format,
+        ]
+
+        if fps and fps > 0:
+            cmd.extend(["--fps", str(fps)])
+
+        yield f"Starting frame extraction...\n$ {' '.join(cmd)}\n"
+
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+
+            for line in iter(process.stdout.readline, ""):
+                if line:
+                    yield line
+
+            exit_code = process.wait()
+            if exit_code == 0:
+                yield "\n\nExtraction completed!"
+            else:
+                yield f"\n\nExtraction failed with code {exit_code}"
+
+        except Exception as e:
+            yield f"\n\nError: {e}"
+
+    def run_create_video(
+        self,
+        input_dir: str,
+        output_video: str,
+        fps: float,
+        codec: str,
+        bitrate: str,
+    ) -> Generator[str, None, None]:
+        """Run video creation from frames."""
+        if not input_dir or not Path(input_dir).exists():
+            yield "Error: Input directory not found"
+            return
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "visagen.tools.video_ed",
+            "create",
+            str(input_dir),
+            "--output",
+            output_video or "./output.mp4",
+            "--fps",
+            str(fps),
+            "--codec",
+            codec,
+            "--bitrate",
+            bitrate,
+        ]
+
+        yield f"Starting video creation...\n$ {' '.join(cmd)}\n"
+
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+
+            for line in iter(process.stdout.readline, ""):
+                if line:
+                    yield line
+
+            exit_code = process.wait()
+            if exit_code == 0:
+                yield "\n\nVideo created successfully!"
+            else:
+                yield f"\n\nVideo creation failed with code {exit_code}"
+
+        except Exception as e:
+            yield f"\n\nError: {e}"
+
+    def run_cut_video(
+        self,
+        input_video: str,
+        output_video: str,
+        start_time: str,
+        end_time: str,
+    ) -> Generator[str, None, None]:
+        """Run video cutting."""
+        if not input_video or not Path(input_video).exists():
+            yield "Error: Input video not found"
+            return
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "visagen.tools.video_ed",
+            "cut",
+            str(input_video),
+            "--output",
+            output_video or "./cut_output.mp4",
+            "--start",
+            start_time,
+            "--end",
+            end_time,
+        ]
+
+        yield f"Starting video cut...\n$ {' '.join(cmd)}\n"
+
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+
+            for line in iter(process.stdout.readline, ""):
+                if line:
+                    yield line
+
+            exit_code = process.wait()
+            if exit_code == 0:
+                yield "\n\nVideo cut completed!"
+            else:
+                yield f"\n\nVideo cut failed with code {exit_code}"
+
+        except Exception as e:
+            yield f"\n\nError: {e}"
+
+    def run_denoise_sequence(
+        self,
+        input_dir: str,
+        output_dir: str,
+        factor: int,
+    ) -> Generator[str, None, None]:
+        """Run temporal denoising on frame sequence."""
+        if not input_dir or not Path(input_dir).exists():
+            yield "Error: Input directory not found"
+            return
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "visagen.tools.video_ed",
+            "denoise",
+            str(input_dir),
+            "--factor",
+            str(factor),
+        ]
+
+        if output_dir:
+            cmd.extend(["--output", output_dir])
+
+        yield f"Starting temporal denoising...\n$ {' '.join(cmd)}\n"
+
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+
+            for line in iter(process.stdout.readline, ""):
+                if line:
+                    yield line
+
+            exit_code = process.wait()
+            if exit_code == 0:
+                yield "\n\nDenoising completed!"
+            else:
+                yield f"\n\nDenoising failed with code {exit_code}"
+
+        except Exception as e:
+            yield f"\n\nError: {e}"
+
+    def run_enhance_faceset(
+        self,
+        input_dir: str,
+        output_dir: str,
+        strength: float,
+        model_version: float,
+    ) -> Generator[str, None, None]:
+        """Run faceset enhancement with GFPGAN."""
+        if not input_dir or not Path(input_dir).exists():
+            yield "Error: Input directory not found"
+            return
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "visagen.tools.faceset_enhancer",
+            str(input_dir),
+            "--strength",
+            str(strength),
+            "--model-version",
+            str(model_version),
+        ]
+
+        if output_dir:
+            cmd.extend(["--output", output_dir])
+
+        yield f"Starting faceset enhancement...\n$ {' '.join(cmd)}\n"
+
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+
+            for line in iter(process.stdout.readline, ""):
+                if line:
+                    yield line
+
+            exit_code = process.wait()
+            if exit_code == 0:
+                yield "\n\nEnhancement completed!"
+            else:
+                yield f"\n\nEnhancement failed with code {exit_code}"
+
+        except Exception as e:
+            yield f"\n\nError: {e}"
+
+    def run_resize_faceset(
+        self,
+        input_dir: str,
+        output_dir: str,
+        target_size: int,
+        face_type: str | None,
+        interpolation: str,
+    ) -> Generator[str, None, None]:
+        """Run faceset resizing."""
+        if not input_dir or not Path(input_dir).exists():
+            yield "Error: Input directory not found"
+            return
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "visagen.tools.faceset_resizer",
+            str(input_dir),
+            "--size",
+            str(target_size),
+            "--interpolation",
+            interpolation,
+        ]
+
+        if output_dir:
+            cmd.extend(["--output", output_dir])
+
+        if face_type and face_type != "keep":
+            cmd.extend(["--face-type", face_type])
+
+        yield f"Starting faceset resize...\n$ {' '.join(cmd)}\n"
+
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+
+            for line in iter(process.stdout.readline, ""):
+                if line:
+                    yield line
+
+            exit_code = process.wait()
+            if exit_code == 0:
+                yield "\n\nResize completed!"
+            else:
+                yield f"\n\nResize failed with code {exit_code}"
+
+        except Exception as e:
+            yield f"\n\nError: {e}"
+
 
 def create_training_tab(app: GradioApp) -> dict[str, Any]:
     """Create training configuration and execution tab."""
@@ -1420,6 +1720,306 @@ def create_settings_tab(app: GradioApp) -> dict[str, Any]:
     return {}
 
 
+def create_video_tools_tab(app: GradioApp) -> dict[str, Any]:
+    """Create video editing tools tab."""
+    with gr.Tab("Video Tools"):
+        gr.Markdown("### Video Editing Tools")
+        gr.Markdown("Tools for video-to-frame and frame-to-video conversion.")
+
+        # Extract Frames Section
+        gr.Markdown("#### Extract Frames from Video")
+        with gr.Row():
+            with gr.Column():
+                extract_input = gr.Textbox(
+                    label="Input Video",
+                    placeholder="./input.mp4",
+                    info="Path to video file",
+                )
+                extract_output = gr.Textbox(
+                    label="Output Directory",
+                    placeholder="./frames",
+                    info="Directory to save extracted frames",
+                )
+            with gr.Column():
+                extract_fps = gr.Number(
+                    label="FPS (0 = original)",
+                    value=0,
+                    info="Target frame rate (0 to keep original)",
+                )
+                extract_format = gr.Dropdown(
+                    ["png", "jpg"],
+                    value="png",
+                    label="Output Format",
+                )
+
+        extract_btn = gr.Button("Extract Frames", variant="primary")
+        extract_log = gr.Textbox(
+            label="Log",
+            lines=8,
+            max_lines=15,
+            interactive=False,
+        )
+
+        extract_btn.click(
+            fn=app.run_extract_frames,
+            inputs=[extract_input, extract_output, extract_fps, extract_format],
+            outputs=extract_log,
+        )
+
+        gr.Markdown("---")
+
+        # Create Video Section
+        gr.Markdown("#### Create Video from Frames")
+        with gr.Row():
+            with gr.Column():
+                create_input = gr.Textbox(
+                    label="Input Directory",
+                    placeholder="./frames",
+                    info="Directory containing image sequence",
+                )
+                create_output = gr.Textbox(
+                    label="Output Video",
+                    placeholder="./output.mp4",
+                    info="Output video path",
+                )
+            with gr.Column():
+                create_fps = gr.Number(
+                    label="FPS",
+                    value=30,
+                    info="Output video frame rate",
+                )
+                create_codec = gr.Dropdown(
+                    ["libx264", "libx265", "h264_nvenc", "hevc_nvenc"],
+                    value="libx264",
+                    label="Codec",
+                )
+                create_bitrate = gr.Textbox(
+                    label="Bitrate",
+                    value="16M",
+                    info="Video bitrate (e.g., 16M, 25M)",
+                )
+
+        create_btn = gr.Button("Create Video", variant="primary")
+        create_log = gr.Textbox(
+            label="Log",
+            lines=8,
+            max_lines=15,
+            interactive=False,
+        )
+
+        create_btn.click(
+            fn=app.run_create_video,
+            inputs=[
+                create_input,
+                create_output,
+                create_fps,
+                create_codec,
+                create_bitrate,
+            ],
+            outputs=create_log,
+        )
+
+        gr.Markdown("---")
+
+        # Cut Video Section
+        gr.Markdown("#### Cut Video Segment")
+        with gr.Row():
+            with gr.Column():
+                cut_input = gr.Textbox(
+                    label="Input Video",
+                    placeholder="./input.mp4",
+                )
+                cut_output = gr.Textbox(
+                    label="Output Video",
+                    placeholder="./cut_output.mp4",
+                )
+            with gr.Column():
+                cut_start = gr.Textbox(
+                    label="Start Time",
+                    value="00:00:00",
+                    info="Format: HH:MM:SS or seconds",
+                )
+                cut_end = gr.Textbox(
+                    label="End Time",
+                    value="00:00:10",
+                    info="Format: HH:MM:SS or seconds",
+                )
+
+        cut_btn = gr.Button("Cut Video", variant="primary")
+        cut_log = gr.Textbox(
+            label="Log",
+            lines=8,
+            max_lines=15,
+            interactive=False,
+        )
+
+        cut_btn.click(
+            fn=app.run_cut_video,
+            inputs=[cut_input, cut_output, cut_start, cut_end],
+            outputs=cut_log,
+        )
+
+        gr.Markdown("---")
+
+        # Denoise Section
+        gr.Markdown("#### Temporal Denoising")
+        gr.Markdown("Apply temporal denoising to reduce flickering in frame sequences.")
+        with gr.Row():
+            with gr.Column():
+                denoise_input = gr.Textbox(
+                    label="Input Directory",
+                    placeholder="./frames",
+                    info="Directory containing image sequence",
+                )
+                denoise_output = gr.Textbox(
+                    label="Output Directory (optional)",
+                    placeholder="Leave empty for in-place",
+                )
+            with gr.Column():
+                denoise_factor = gr.Slider(
+                    3,
+                    15,
+                    value=7,
+                    step=2,
+                    label="Denoise Factor",
+                    info="Temporal window size (must be odd)",
+                )
+
+        denoise_btn = gr.Button("Apply Denoising", variant="primary")
+        denoise_log = gr.Textbox(
+            label="Log",
+            lines=8,
+            max_lines=15,
+            interactive=False,
+        )
+
+        denoise_btn.click(
+            fn=app.run_denoise_sequence,
+            inputs=[denoise_input, denoise_output, denoise_factor],
+            outputs=denoise_log,
+        )
+
+    return {}
+
+
+def create_faceset_tools_tab(app: GradioApp) -> dict[str, Any]:
+    """Create faceset processing tools tab."""
+    with gr.Tab("Faceset Tools"):
+        gr.Markdown("### Faceset Processing Tools")
+        gr.Markdown("Tools for enhancing and resizing face datasets.")
+
+        # Faceset Enhancer Section
+        gr.Markdown("#### Face Enhancement (GFPGAN)")
+        gr.Markdown("Enhance face quality using GFPGAN restoration.")
+        with gr.Row():
+            with gr.Column():
+                enhance_input = gr.Textbox(
+                    label="Input Directory",
+                    placeholder="./workspace/data_src/aligned",
+                    info="Directory containing face images",
+                )
+                enhance_output = gr.Textbox(
+                    label="Output Directory (optional)",
+                    placeholder="Leave empty for auto-naming",
+                    info="Output directory (default: input_enhanced)",
+                )
+            with gr.Column():
+                enhance_strength = gr.Slider(
+                    0.0,
+                    1.0,
+                    value=0.5,
+                    step=0.1,
+                    label="Enhancement Strength",
+                    info="0 = original, 1 = fully enhanced",
+                )
+                enhance_model = gr.Dropdown(
+                    [1.2, 1.3, 1.4],
+                    value=1.4,
+                    label="GFPGAN Version",
+                )
+
+        enhance_btn = gr.Button("Enhance Faceset", variant="primary")
+        enhance_log = gr.Textbox(
+            label="Log",
+            lines=10,
+            max_lines=20,
+            interactive=False,
+        )
+
+        enhance_btn.click(
+            fn=app.run_enhance_faceset,
+            inputs=[enhance_input, enhance_output, enhance_strength, enhance_model],
+            outputs=enhance_log,
+        )
+
+        gr.Markdown("---")
+
+        # Faceset Resizer Section
+        gr.Markdown("#### Faceset Resizing")
+        gr.Markdown("Resize face images with DFL metadata preservation.")
+        with gr.Row():
+            with gr.Column():
+                resize_input = gr.Textbox(
+                    label="Input Directory",
+                    placeholder="./workspace/data_src/aligned",
+                    info="Directory containing face images",
+                )
+                resize_output = gr.Textbox(
+                    label="Output Directory (optional)",
+                    placeholder="Leave empty for auto-naming",
+                    info="Output directory (default: input_SIZE)",
+                )
+            with gr.Column():
+                resize_size = gr.Slider(
+                    128,
+                    1024,
+                    value=256,
+                    step=64,
+                    label="Target Size",
+                    info="Output image size (width = height)",
+                )
+                resize_face_type = gr.Dropdown(
+                    [
+                        "keep",
+                        "half_face",
+                        "mid_face",
+                        "full_face",
+                        "whole_face",
+                        "head",
+                    ],
+                    value="keep",
+                    label="Face Type",
+                    info="Target face type (keep = preserve original)",
+                )
+                resize_interp = gr.Dropdown(
+                    ["lanczos", "cubic", "linear", "nearest"],
+                    value="lanczos",
+                    label="Interpolation",
+                )
+
+        resize_btn = gr.Button("Resize Faceset", variant="primary")
+        resize_log = gr.Textbox(
+            label="Log",
+            lines=10,
+            max_lines=20,
+            interactive=False,
+        )
+
+        resize_btn.click(
+            fn=app.run_resize_faceset,
+            inputs=[
+                resize_input,
+                resize_output,
+                resize_size,
+                resize_face_type,
+                resize_interp,
+            ],
+            outputs=resize_log,
+        )
+
+    return {}
+
+
 def create_app() -> "gr.Blocks":
     """Create Gradio application."""
     if not GRADIO_AVAILABLE:
@@ -1443,6 +2043,8 @@ def create_app() -> "gr.Blocks":
         create_merge_tab(app_state)
         create_sort_tab(app_state)
         create_export_tab(app_state)
+        create_video_tools_tab(app_state)
+        create_faceset_tools_tab(app_state)
         create_postprocess_tab(app_state)
         create_settings_tab(app_state)
 

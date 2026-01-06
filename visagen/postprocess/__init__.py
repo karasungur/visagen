@@ -10,6 +10,7 @@ Color Transfer:
     - color_transfer_sot (SOT): Sliced Optimal Transfer
     - color_transfer_mkl (MKL): Monge-Kantorovitch Linear mapping
     - color_transfer_idt (IDT): Iterative Distribution Transfer
+    - neural_color_transfer: Deep learning based color transfer
 
 Blending:
     - laplacian_pyramid_blend: Multi-band frequency-based fusion
@@ -43,6 +44,10 @@ from visagen.postprocess.color_transfer import (
     linear_color_transfer,
     reinhard_color_transfer,
 )
+from visagen.postprocess.neural_color import (
+    is_neural_color_available,
+    neural_color_transfer,
+)
 from visagen.postprocess.restore import (
     FaceRestorer,
     RestoreConfig,
@@ -57,6 +62,8 @@ __all__ = [
     "color_transfer_sot",
     "color_transfer_mkl",
     "color_transfer_idt",
+    "neural_color_transfer",
+    "is_neural_color_available",
     "color_transfer",
     "ColorTransferMode",
     # Blending

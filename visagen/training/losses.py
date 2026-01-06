@@ -410,6 +410,200 @@ class EyesMouthLoss(nn.Module):
         return weighted_loss.mean()
 
 
+class GazeLoss(nn.Module):
+    """
+    Gaze direction consistency loss for eyes.
+
+    Ensures eye regions maintain consistent appearance and gaze direction
+    between source and target faces. Uses landmark-based eye extraction
+    and computes similarity in the eye regions.
+
+    Args:
+        eye_size: Size to resize eye patches for comparison. Default: 32.
+        use_perceptual: Use perceptual loss for eyes. Default: False.
+
+    Example:
+        >>> loss_fn = GazeLoss()
+        >>> pred = torch.randn(2, 3, 256, 256)
+        >>> target = torch.randn(2, 3, 256, 256)
+        >>> landmarks = torch.randn(2, 68, 2) * 256  # 68-point landmarks
+        >>> loss = loss_fn(pred, target, landmarks)
+    """
+
+    # 68-point landmark indices for eyes
+    LEFT_EYE_INDICES = list(range(36, 42))  # 36-41
+    RIGHT_EYE_INDICES = list(range(42, 48))  # 42-47
+
+    def __init__(
+        self,
+        eye_size: int = 32,
+        use_perceptual: bool = False,
+    ) -> None:
+        super().__init__()
+        self.eye_size = eye_size
+        self.use_perceptual = use_perceptual
+
+    def _get_eye_bbox(
+        self,
+        landmarks: torch.Tensor,
+        indices: list[int],
+        padding: float = 0.3,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Get bounding box for eye region from landmarks.
+
+        Args:
+            landmarks: (B, 68, 2) landmark coordinates.
+            indices: List of landmark indices for the eye.
+            padding: Padding ratio around eye. Default: 0.3.
+
+        Returns:
+            Tuple of (x1, y1, x2, y2) tensors of shape (B,).
+        """
+        # Extract eye landmarks
+        eye_pts = landmarks[:, indices, :]  # (B, 6, 2)
+
+        # Get bounding box
+        x_min = eye_pts[:, :, 0].min(dim=1).values
+        x_max = eye_pts[:, :, 0].max(dim=1).values
+        y_min = eye_pts[:, :, 1].min(dim=1).values
+        y_max = eye_pts[:, :, 1].max(dim=1).values
+
+        # Add padding
+        width = x_max - x_min
+        height = y_max - y_min
+
+        x1 = x_min - width * padding
+        x2 = x_max + width * padding
+        y1 = y_min - height * padding
+        y2 = y_max + height * padding
+
+        return x1, y1, x2, y2
+
+    def _extract_eye_patch(
+        self,
+        images: torch.Tensor,
+        x1: torch.Tensor,
+        y1: torch.Tensor,
+        x2: torch.Tensor,
+        y2: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Extract and resize eye patches from images using differentiable grid sampling.
+
+        Args:
+            images: (B, C, H, W) input images.
+            x1, y1, x2, y2: Bounding box coordinates (B,).
+
+        Returns:
+            (B, C, eye_size, eye_size) eye patches.
+        """
+        batch_size, channels, height, width = images.shape
+        device = images.device
+
+        # Create sampling grid for each batch item
+        patches = []
+        for b in range(batch_size):
+            # Normalize coordinates to [-1, 1] range for grid_sample
+            # grid_sample expects (x, y) in [-1, 1] where -1 is left/top, 1 is right/bottom
+            bx1 = x1[b].clamp(0, width - 1)
+            by1 = y1[b].clamp(0, height - 1)
+            bx2 = x2[b].clamp(0, width - 1)
+            by2 = y2[b].clamp(0, height - 1)
+
+            # Ensure valid box (at least 1 pixel)
+            if (bx2 - bx1) < 1 or (by2 - by1) < 1:
+                patches.append(
+                    torch.zeros(channels, self.eye_size, self.eye_size, device=device)
+                )
+                continue
+
+            # Create normalized grid
+            # grid values in [-1, 1], where -1 maps to 0 and 1 maps to width-1 or height-1
+            x_norm_start = (bx1 / (width - 1)) * 2 - 1
+            x_norm_end = (bx2 / (width - 1)) * 2 - 1
+            y_norm_start = (by1 / (height - 1)) * 2 - 1
+            y_norm_end = (by2 / (height - 1)) * 2 - 1
+
+            # Create 2D grid
+            y_coords = torch.linspace(
+                y_norm_start.item(),
+                y_norm_end.item(),
+                self.eye_size,
+                device=device,
+            )
+            x_coords = torch.linspace(
+                x_norm_start.item(),
+                x_norm_end.item(),
+                self.eye_size,
+                device=device,
+            )
+
+            # Create meshgrid (H, W, 2) -> (1, H, W, 2)
+            grid_y, grid_x = torch.meshgrid(y_coords, x_coords, indexing="ij")
+            grid = torch.stack([grid_x, grid_y], dim=-1).unsqueeze(0)
+
+            # Sample using grid_sample (preserves gradients)
+            patch = F.grid_sample(
+                images[b : b + 1],
+                grid,
+                mode="bilinear",
+                padding_mode="border",
+                align_corners=True,
+            ).squeeze(0)
+
+            patches.append(patch)
+
+        return torch.stack(patches, dim=0)
+
+    def forward(
+        self,
+        pred: torch.Tensor,
+        target: torch.Tensor,
+        landmarks: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        Compute gaze/eye consistency loss.
+
+        Args:
+            pred: Predicted face (B, C, H, W).
+            target: Target face (B, C, H, W).
+            landmarks: 68-point landmarks (B, 68, 2). Required.
+
+        Returns:
+            Gaze loss value (scalar).
+        """
+        if landmarks is None:
+            # Fall back to simple L1 if no landmarks
+            return F.l1_loss(pred, target)
+
+        # Get eye bounding boxes
+        left_x1, left_y1, left_x2, left_y2 = self._get_eye_bbox(
+            landmarks, self.LEFT_EYE_INDICES
+        )
+        right_x1, right_y1, right_x2, right_y2 = self._get_eye_bbox(
+            landmarks, self.RIGHT_EYE_INDICES
+        )
+
+        # Extract eye patches from pred and target
+        pred_left = self._extract_eye_patch(pred, left_x1, left_y1, left_x2, left_y2)
+        pred_right = self._extract_eye_patch(
+            pred, right_x1, right_y1, right_x2, right_y2
+        )
+        target_left = self._extract_eye_patch(
+            target, left_x1, left_y1, left_x2, left_y2
+        )
+        target_right = self._extract_eye_patch(
+            target, right_x1, right_y1, right_x2, right_y2
+        )
+
+        # Compute loss for both eyes
+        loss_left = F.l1_loss(pred_left, target_left)
+        loss_right = F.l1_loss(pred_right, target_right)
+
+        return (loss_left + loss_right) / 2.0
+
+
 class StyleLoss(nn.Module):
     """
     Gram matrix based style transfer loss.
@@ -470,6 +664,7 @@ class CombinedLoss(nn.Module):
         lpips_weight: Weight for LPIPS loss. Default: 0.0.
         id_weight: Weight for ID loss. Default: 0.0.
         eyes_mouth_weight: Weight for eyes/mouth loss. Default: 0.0.
+        gaze_weight: Weight for gaze/eye loss. Default: 0.0.
         use_multiscale_dssim: Use multi-scale DSSIM. Default: True.
     """
 
@@ -480,6 +675,7 @@ class CombinedLoss(nn.Module):
         lpips_weight: float = 0.0,
         id_weight: float = 0.0,
         eyes_mouth_weight: float = 0.0,
+        gaze_weight: float = 0.0,
         use_multiscale_dssim: bool = True,
     ) -> None:
         super().__init__()
@@ -489,6 +685,7 @@ class CombinedLoss(nn.Module):
         self.lpips_weight = lpips_weight
         self.id_weight = id_weight
         self.eyes_mouth_weight = eyes_mouth_weight
+        self.gaze_weight = gaze_weight
 
         # Initialize loss functions
         if use_multiscale_dssim:
@@ -499,6 +696,7 @@ class CombinedLoss(nn.Module):
         self.lpips = LPIPSLoss() if lpips_weight > 0 else None
         self.id_loss = IDLoss() if id_weight > 0 else None
         self.eyes_mouth = EyesMouthLoss() if eyes_mouth_weight > 0 else None
+        self.gaze_loss = GazeLoss() if gaze_weight > 0 else None
 
     def forward(
         self,
@@ -549,6 +747,12 @@ class CombinedLoss(nn.Module):
             loss_em = self.eyes_mouth(pred, target, landmarks)
             losses["eyes_mouth"] = loss_em
             total = total + self.eyes_mouth_weight * loss_em
+
+        # Gaze/Eye
+        if self.gaze_loss is not None and self.gaze_weight > 0:
+            loss_gaze = self.gaze_loss(pred, target, landmarks)
+            losses["gaze"] = loss_gaze
+            total = total + self.gaze_weight * loss_gaze
 
         losses["total"] = total
         return total, losses

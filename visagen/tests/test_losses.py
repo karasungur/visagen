@@ -13,6 +13,7 @@ from visagen.training.losses import (
     CombinedLoss,
     DSSIMLoss,
     EyesMouthLoss,
+    GazeLoss,
     MultiScaleDSSIMLoss,
     StyleLoss,
 )
@@ -166,6 +167,98 @@ class TestEyesMouthLoss:
         loss.backward()
 
         assert x.grad is not None
+
+
+class TestGazeLoss:
+    """Tests for GazeLoss."""
+
+    @pytest.fixture
+    def gaze_loss(self):
+        """Create GazeLoss instance."""
+        return GazeLoss(eye_size=32)
+
+    def test_without_landmarks_fallback(self, gaze_loss):
+        """Without landmarks, should fall back to L1 loss."""
+        x = torch.rand(2, 3, 64, 64)
+        y = torch.rand(2, 3, 64, 64)
+
+        loss = gaze_loss(x, y, landmarks=None)
+        expected = F.l1_loss(x, y)
+
+        torch.testing.assert_close(loss, expected)
+
+    def test_with_landmarks(self, gaze_loss):
+        """With landmarks, should compute eye-specific loss."""
+        x = torch.rand(2, 3, 64, 64)
+        y = torch.rand(2, 3, 64, 64)
+
+        # Create landmarks with eyes roughly in upper middle region
+        landmarks = torch.zeros(2, 68, 2)
+        # Left eye (indices 36-41): around (20, 20)
+        landmarks[:, 36:42, 0] = torch.tensor([16, 18, 20, 22, 24, 20])
+        landmarks[:, 36:42, 1] = torch.tensor([18, 16, 16, 18, 20, 20])
+        # Right eye (indices 42-47): around (44, 20)
+        landmarks[:, 42:48, 0] = torch.tensor([40, 42, 44, 46, 48, 44])
+        landmarks[:, 42:48, 1] = torch.tensor([18, 16, 16, 18, 20, 20])
+
+        loss = gaze_loss(x, y, landmarks=landmarks)
+
+        assert loss.item() >= 0
+        assert loss.dim() == 0  # Scalar
+
+    def test_identical_images_low_loss(self, gaze_loss):
+        """Identical images should have near-zero loss with landmarks."""
+        x = torch.rand(2, 3, 64, 64)
+
+        # Landmarks with varying y values for valid bounding boxes
+        landmarks = torch.zeros(2, 68, 2)
+        landmarks[:, 36:42, 0] = torch.tensor([16, 18, 20, 22, 24, 20])
+        landmarks[:, 36:42, 1] = torch.tensor([18, 16, 16, 18, 22, 22])
+        landmarks[:, 42:48, 0] = torch.tensor([40, 42, 44, 46, 48, 44])
+        landmarks[:, 42:48, 1] = torch.tensor([18, 16, 16, 18, 22, 22])
+
+        loss = gaze_loss(x, x, landmarks=landmarks)
+
+        assert loss.item() < 1e-6
+
+    def test_output_shape(self, gaze_loss):
+        """Output should be a scalar."""
+        x = torch.rand(2, 3, 64, 64)
+        y = torch.rand(2, 3, 64, 64)
+
+        # Landmarks with valid eye regions (varying y coords)
+        landmarks = torch.zeros(2, 68, 2)
+        landmarks[:, 36:42, 0] = torch.tensor([16, 18, 20, 22, 24, 20])
+        landmarks[:, 36:42, 1] = torch.tensor([18, 16, 16, 18, 22, 22])
+        landmarks[:, 42:48, 0] = torch.tensor([40, 42, 44, 46, 48, 44])
+        landmarks[:, 42:48, 1] = torch.tensor([18, 16, 16, 18, 22, 22])
+
+        loss = gaze_loss(x, y, landmarks=landmarks)
+
+        assert loss.dim() == 0  # Scalar
+
+    def test_gradient_flow(self, gaze_loss):
+        """Gradients should flow through the loss."""
+        x = torch.rand(2, 3, 64, 64, requires_grad=True)
+        y = torch.rand(2, 3, 64, 64)
+
+        # Landmarks need valid eye bounding boxes (y coords must vary for height > 0)
+        landmarks = torch.zeros(2, 68, 2)
+        # Left eye with varying y values
+        landmarks[:, 36:42, 0] = torch.tensor([16, 18, 20, 22, 24, 20])
+        landmarks[:, 36:42, 1] = torch.tensor([18, 16, 16, 18, 22, 22])
+        # Right eye with varying y values
+        landmarks[:, 42:48, 0] = torch.tensor([40, 42, 44, 46, 48, 44])
+        landmarks[:, 42:48, 1] = torch.tensor([18, 16, 16, 18, 22, 22])
+
+        loss = gaze_loss(x, y, landmarks=landmarks)
+
+        # Check that loss is differentiable (gradients should flow through the images)
+        assert loss.requires_grad, f"Loss should require grad but got {loss}"
+        loss.backward()
+
+        assert x.grad is not None
+        assert x.grad.shape == x.shape
 
 
 class TestStyleLoss:
