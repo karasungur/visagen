@@ -18,9 +18,12 @@ Blending:
     - feather_blend: Simple alpha blending with feathered edges
 
 Face Restoration:
-    - FaceRestorer: GFPGAN-based face enhancement
-    - restore_face: One-shot face restoration function
+    - FaceRestorer: GFPGAN/GPEN-based face enhancement
+    - GPENRestorer: GPEN-based face restoration
+    - restore_face: One-shot GFPGAN restoration function
+    - restore_face_gpen: One-shot GPEN restoration function
     - is_gfpgan_available: Check GFPGAN availability
+    - is_gpen_available: Check GPEN availability
 """
 
 from visagen.postprocess.blending import (
@@ -43,6 +46,12 @@ from visagen.postprocess.color_transfer import (
     color_transfer_sot,
     linear_color_transfer,
     reinhard_color_transfer,
+)
+from visagen.postprocess.gpen import (
+    GPENConfig,
+    GPENRestorer,
+    is_gpen_available,
+    restore_face_gpen,
 )
 from visagen.postprocess.neural_color import (
     is_neural_color_available,
@@ -77,9 +86,14 @@ __all__ = [
     "build_laplacian_pyramid",
     "reconstruct_from_laplacian",
     "BlendMode",
-    # Face restoration
+    # Face restoration - GFPGAN
     "FaceRestorer",
     "RestoreConfig",
     "restore_face",
     "is_gfpgan_available",
+    # Face restoration - GPEN
+    "GPENRestorer",
+    "GPENConfig",
+    "restore_face_gpen",
+    "is_gpen_available",
 ]

@@ -513,9 +513,19 @@ class GazeLoss(nn.Module):
 
             # Ensure valid box (at least 1 pixel)
             if (bx2 - bx1) < 1 or (by2 - by1) < 1:
-                patches.append(
-                    torch.zeros(channels, self.eye_size, self.eye_size, device=device)
+                # Invalid bounding box - use center region of image to preserve gradients
+                # Create a default grid sampling from center to maintain differentiability
+                center_grid = torch.zeros(
+                    1, self.eye_size, self.eye_size, 2, device=device
                 )
+                patch = F.grid_sample(
+                    images[b : b + 1],
+                    center_grid,
+                    mode="bilinear",
+                    padding_mode="border",
+                    align_corners=True,
+                ).squeeze(0)
+                patches.append(patch)
                 continue
 
             # Create normalized grid

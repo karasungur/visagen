@@ -6,11 +6,21 @@ This module provides modern computer vision capabilities:
 - 3D landmark extraction via AntelopeV2
 - Face alignment using Umeyama transform
 - Face segmentation via SegFormer
+- Mask export to LabelMe/COCO formats for external editing
 """
 
 from visagen.vision.aligner import FaceAligner
 from visagen.vision.dflimg import DFLImage, FaceMetadata
 from visagen.vision.face_type import FaceType
+from visagen.vision.mask_export import (
+    export_coco,
+    export_labelme,
+    export_masks_batch,
+    import_coco,
+    import_labelme,
+    mask_to_polygons,
+    polygons_to_mask,
+)
 
 # Lazy imports for optional dependencies
 _FaceDetector = None
@@ -45,4 +55,12 @@ __all__ = [
     "FaceSegmenter",
     "DFLImage",
     "FaceMetadata",
+    # Mask export
+    "mask_to_polygons",
+    "polygons_to_mask",
+    "export_labelme",
+    "import_labelme",
+    "export_coco",
+    "import_coco",
+    "export_masks_batch",
 ]

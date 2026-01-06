@@ -73,7 +73,7 @@ def is_gfpgan_available() -> bool:
 
 
 # Restore mode type
-RestoreMode = Literal["gfpgan", "none"]
+RestoreMode = Literal["gfpgan", "gpen", "none"]
 
 
 @dataclass
@@ -83,18 +83,21 @@ class RestoreConfig:
 
     Attributes:
         enabled: Whether restoration is enabled. Default: False.
-        mode: Restoration mode ('gfpgan', 'none'). Default: 'gfpgan'.
+        mode: Restoration mode ('gfpgan', 'gpen', 'none'). Default: 'gfpgan'.
         strength: Restoration strength (0.0-1.0). Default: 0.5.
             0.0 = original face, 1.0 = fully restored.
         upscale: Upscale factor for GFPGAN. Default: 1 (no upscale).
         arch: GFPGAN architecture version ('clean', 'RestoreFormer'). Default: 'clean'.
         model_version: GFPGAN model version (1.2, 1.3, 1.4). Default: 1.4.
         bg_upsampler: Background upsampler ('realesrgan', None). Default: None.
+        gpen_model_size: GPEN model size (256, 512, 1024). Default: 512.
 
     Example:
         >>> config = RestoreConfig(enabled=True, strength=0.7)
         >>> config.strength
         0.7
+        >>> # Use GPEN instead of GFPGAN
+        >>> config = RestoreConfig(enabled=True, mode='gpen', strength=0.6)
     """
 
     enabled: bool = False
@@ -104,14 +107,15 @@ class RestoreConfig:
     arch: str = "clean"
     model_version: float = 1.4
     bg_upsampler: str | None = None
+    gpen_model_size: int = 512
 
 
 class FaceRestorer:
     """
-    Face restoration using GFPGAN.
+    Face restoration using GFPGAN or GPEN.
 
-    Restores and enhances face images using GFPGAN's generative priors.
-    Supports lazy model loading and graceful fallback when GFPGAN is unavailable.
+    Restores and enhances face images using GFPGAN's or GPEN's generative priors.
+    Supports lazy model loading and graceful fallback when models are unavailable.
 
     Args:
         config: Restoration configuration.
@@ -123,8 +127,10 @@ class FaceRestorer:
         >>> restorer = FaceRestorer(config)
         >>> restored_face = restorer.restore(swapped_face)
 
-        >>> # With custom model path
-        >>> restorer = FaceRestorer(config, model_path="GFPGANv1.4.pth")
+        >>> # Use GPEN instead of GFPGAN
+        >>> config = RestoreConfig(enabled=True, mode='gpen', strength=0.6)
+        >>> restorer = FaceRestorer(config)
+        >>> restored_face = restorer.restore(swapped_face)
     """
 
     # Model download URLs (from GFPGAN repo)
@@ -144,8 +150,9 @@ class FaceRestorer:
         self.device = device
         self.model_path = Path(model_path) if model_path else None
 
-        # Lazy-loaded GFPGAN instance
+        # Lazy-loaded instances
         self._gfpgan: GFPGANer | None = None
+        self._gpen = None
         self._initialization_attempted = False
 
     @property
@@ -238,7 +245,7 @@ class FaceRestorer:
         strength: float | None = None,
     ) -> np.ndarray:
         """
-        Restore face image using GFPGAN.
+        Restore face image using GFPGAN or GPEN.
 
         Args:
             face_image: Input face image (H, W, 3) BGR uint8 or float32 [0, 1].
@@ -256,6 +263,40 @@ class FaceRestorer:
         if not self.config.enabled:
             return face_image
 
+        # Route to appropriate restoration method
+        if self.config.mode == "gpen":
+            return self._restore_gpen(face_image, strength)
+        elif self.config.mode == "gfpgan":
+            return self._restore_gfpgan(face_image, strength)
+        else:
+            # mode == "none"
+            return face_image
+
+    def _restore_gpen(
+        self,
+        face_image: np.ndarray,
+        strength: float | None = None,
+    ) -> np.ndarray:
+        """Restore using GPEN."""
+        # Lazy load GPEN
+        if self._gpen is None:
+            from visagen.postprocess.gpen import GPENConfig, GPENRestorer
+
+            gpen_config = GPENConfig(
+                enabled=True,
+                model_size=self.config.gpen_model_size,
+                strength=self.config.strength,
+            )
+            self._gpen = GPENRestorer(gpen_config, device=self.device)
+
+        return self._gpen.restore(face_image, strength)
+
+    def _restore_gfpgan(
+        self,
+        face_image: np.ndarray,
+        strength: float | None = None,
+    ) -> np.ndarray:
+        """Restore using GFPGAN."""
         if self.gfpgan is None:
             return face_image
 
@@ -324,7 +365,17 @@ class FaceRestorer:
         Returns:
             True if restoration can be performed, False otherwise.
         """
-        return self.config.enabled and is_gfpgan_available()
+        if not self.config.enabled:
+            return False
+
+        if self.config.mode == "gpen":
+            from visagen.postprocess.gpen import is_gpen_available
+
+            return is_gpen_available()
+        elif self.config.mode == "gfpgan":
+            return is_gfpgan_available()
+
+        return False
 
 
 def restore_face(
