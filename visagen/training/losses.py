@@ -629,7 +629,26 @@ class StyleLoss(nn.Module):
         self.blur_radius = gaussian_blur_radius
 
     def _gram_matrix(self, x: torch.Tensor) -> torch.Tensor:
-        """Compute Gram matrix."""
+        """Compute Gram matrix with optional blur."""
+        # Apply Gaussian blur if blur_radius > 0
+        if self.blur_radius > 0:
+            # Ensure odd kernel size
+            kernel_size = int(self.blur_radius) * 2 + 1
+            sigma = self.blur_radius / 3.0
+
+            # Use kornia for GPU-accelerated blur
+            try:
+                import kornia.filters
+
+                x = kornia.filters.gaussian_blur2d(
+                    x,
+                    kernel_size=(kernel_size, kernel_size),
+                    sigma=(sigma, sigma),
+                )
+            except ImportError:
+                # Fallback: skip blur if kornia not available
+                pass
+
         b, c, h, w = x.shape
         features = x.view(b, c, h * w)
         gram = torch.bmm(features, features.transpose(1, 2))
@@ -955,8 +974,19 @@ class TemporalConsistencyLoss(nn.Module):
         weight: float = 1.0,
     ) -> None:
         super().__init__()
+        if mode not in ("l1", "l2", "ssim"):
+            raise ValueError(f"Unknown mode: {mode}. Use 'l1', 'l2', or 'ssim'.")
         self.mode = mode
         self.weight = weight
+        # Lazy-loaded DSSIM for SSIM mode
+        self._dssim_loss = None
+
+    @property
+    def dssim_loss(self) -> "DSSIMLoss":
+        """Lazy load DSSIM loss for SSIM mode."""
+        if self._dssim_loss is None:
+            self._dssim_loss = DSSIMLoss()
+        return self._dssim_loss
 
     def forward(self, sequence: torch.Tensor) -> torch.Tensor:
         """
@@ -968,17 +998,24 @@ class TemporalConsistencyLoss(nn.Module):
         Returns:
             Temporal consistency loss (scalar).
         """
-        # Compute frame-to-frame differences
-        # sequence[:, :, 1:] - sequence[:, :, :-1] gives T-1 difference frames
-        diff = sequence[:, :, 1:, :, :] - sequence[:, :, :-1, :, :]
-
-        if self.mode == "l1":
-            loss = diff.abs().mean()
-        elif self.mode == "l2":
-            loss = diff.pow(2).mean()
+        if self.mode == "ssim":
+            # Use DSSIM between consecutive frames
+            B, C, T, H, W = sequence.shape
+            total_dssim = torch.tensor(0.0, device=sequence.device)
+            for t in range(T - 1):
+                frame_t = sequence[:, :, t, :, :]
+                frame_t1 = sequence[:, :, t + 1, :, :]
+                total_dssim = total_dssim + self.dssim_loss(frame_t, frame_t1)
+            loss = total_dssim / max(T - 1, 1)
         else:
-            # Default to L1
-            loss = diff.abs().mean()
+            # Compute frame-to-frame differences
+            # sequence[:, :, 1:] - sequence[:, :, :-1] gives T-1 difference frames
+            diff = sequence[:, :, 1:, :, :] - sequence[:, :, :-1, :, :]
+
+            if self.mode == "l1":
+                loss = diff.abs().mean()
+            else:  # l2
+                loss = diff.pow(2).mean()
 
         return self.weight * loss
 
