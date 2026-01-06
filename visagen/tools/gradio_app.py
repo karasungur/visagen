@@ -179,6 +179,9 @@ class GradioApp:
         gan_power: float,
         precision: str,
         resume_ckpt: str,
+        model_type: str = "standard",
+        texture_weight: float = 0.0,
+        use_pretrained_vae: bool = True,
     ) -> Generator[str, None, None]:
         """
         Start training process with progress updates.
@@ -218,7 +221,16 @@ class GradioApp:
             str(lpips_weight),
             "--precision",
             precision,
+            "--model-type",
+            model_type,
+            "--texture-weight",
+            str(texture_weight),
         ]
+
+        if use_pretrained_vae:
+            cmd.append("--use-pretrained-vae")
+        else:
+            cmd.append("--no-pretrained-vae")
 
         if resume_ckpt and Path(resume_ckpt).exists():
             cmd.extend(["--resume", resume_ckpt])
@@ -1294,6 +1306,30 @@ def create_training_tab(app: GradioApp) -> dict[str, Any]:
                     label="Precision",
                 )
 
+        gr.Markdown("### Experimental Models")
+        with gr.Row():
+            with gr.Column():
+                model_type = gr.Dropdown(
+                    ["standard", "diffusion", "eg3d"],
+                    value="standard",
+                    label="Model Type",
+                    info="standard=ConvNeXt, diffusion=SD VAE hybrid, eg3d=3D-aware",
+                )
+
+            with gr.Column():
+                texture_weight = gr.Slider(
+                    0,
+                    10,
+                    value=0.0,
+                    label="Texture Weight",
+                    info="Texture consistency loss (for diffusion model)",
+                )
+                use_pretrained_vae = gr.Checkbox(
+                    label="Use Pretrained VAE",
+                    value=True,
+                    info="Use SD VAE (requires diffusers package)",
+                )
+
         with gr.Row():
             resume_ckpt = gr.Textbox(
                 label="Resume from Checkpoint (optional)",
@@ -1327,6 +1363,9 @@ def create_training_tab(app: GradioApp) -> dict[str, Any]:
                 gan_power,
                 precision,
                 resume_ckpt,
+                model_type,
+                texture_weight,
+                use_pretrained_vae,
             ],
             outputs=training_log,
         )
