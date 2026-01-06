@@ -13,6 +13,12 @@
 <p><strong>Next-Generation Face Swapping Framework</strong></p>
 <p><em>Powered by ConvNeXt, CBAM Attention & PyTorch Lightning</em></p>
 
+<!-- Language Selector -->
+<p>
+  <a href="README.md">🇺🇸 English</a> |
+  <a href="README_TR.md">🇹🇷 Türkçe</a>
+</p>
+
 <!-- Badges Row 1 -->
 <p>
   <a href="https://github.com/karasungur/visagen/actions"><img src="https://img.shields.io/github/actions/workflow/status/karasungur/visagen/test.yml?branch=main&style=for-the-badge&logo=github&logoColor=white&label=CI" alt="Build Status"/></a>
