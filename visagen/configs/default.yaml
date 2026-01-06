@@ -9,6 +9,9 @@ model:
   in_channels: 3
   out_channels: 3
 
+  # Model type: "standard", "diffusion", "eg3d"
+  type: standard
+
   # Encoder settings (ConvNeXt)
   encoder:
     dims: [64, 128, 256, 512]  # Channel dimensions per stage
@@ -23,7 +26,61 @@ model:
   # Latent space
   latent_dim: 512
 
+# =============================================================================
+# Loss Functions
+# =============================================================================
+losses:
+  dssim_weight: 10.0
+  l1_weight: 10.0
+  lpips_weight: 0.0
+  id_weight: 0.0
+  eyes_mouth_weight: 0.0
+  gaze_weight: 0.0
+  use_multiscale_dssim: true
+
+  # Texture consistency loss (for diffusion model)
+  texture_weight: 0.0
+
+# =============================================================================
+# GAN Training
+# =============================================================================
+gan:
+  enabled: false
+  power: 0.1
+  patch_size: 70
+  mode: vanilla  # vanilla, lsgan, hinge
+  base_channels: 16
+  use_spectral_norm: true
+
+# =============================================================================
+# Temporal Training
+# =============================================================================
+temporal:
+  enabled: false
+  power: 0.1
+  sequence_length: 5
+  consistency_weight: 1.0
+  base_channels: 32
+
+# =============================================================================
+# Experimental Models
+# =============================================================================
+experimental:
+  # Diffusion AutoEncoder settings
+  diffusion:
+    use_pretrained_vae: true
+    texture_weight: 5.0
+
+  # EG3D 3D-aware generation settings
+  eg3d:
+    latent_dim: 512
+    plane_channels: 32
+    plane_resolution: 256
+    render_resolution: 64
+
+# =============================================================================
 # Training
+# =============================================================================
 training:
   batch_size: 8
   learning_rate: 1.0e-4
@@ -42,13 +99,17 @@ training:
   # Mixed precision
   precision: 16-mixed
 
+# =============================================================================
 # Data
+# =============================================================================
 data:
   num_workers: 4
   pin_memory: true
   prefetch_factor: 2
 
+# =============================================================================
 # Logging
+# =============================================================================
 logging:
   log_every_n_steps: 50
   save_top_k: 3
