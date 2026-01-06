@@ -153,13 +153,20 @@ class TestDFLModule:
     def test_training_step(self) -> None:
         """Test training step returns loss."""
         batch_size = 2
-        dataset = RandomNoiseDataset(size=batch_size, image_size=256)
+        image_size = 256
 
-        # Get a batch
-        src, dst = dataset[0]
-        batch = (src.unsqueeze(0), dst.unsqueeze(0))
+        # Create dict-based batch (new format with landmarks)
+        src_dict = {
+            "image": torch.randn(batch_size, 3, image_size, image_size),
+            "landmarks": torch.rand(batch_size, 68, 2),
+        }
+        dst_dict = {
+            "image": torch.randn(batch_size, 3, image_size, image_size),
+            "landmarks": torch.rand(batch_size, 68, 2),
+        }
+        batch = (src_dict, dst_dict)
 
-        module = DFLModule()
+        module = DFLModule(image_size=image_size)
         loss = module.training_step(batch, 0)
 
         assert isinstance(loss, torch.Tensor)
