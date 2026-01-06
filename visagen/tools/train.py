@@ -161,6 +161,50 @@ Examples:
         help="Gaze consistency loss weight (default: 0.0, requires landmarks)",
     )
 
+    # Experimental model arguments
+    parser.add_argument(
+        "--model-type",
+        type=str,
+        default="standard",
+        choices=["standard", "diffusion", "eg3d"],
+        help="Model architecture type (default: standard)",
+    )
+    parser.add_argument(
+        "--texture-weight",
+        type=float,
+        default=0.0,
+        help="Texture consistency loss weight for diffusion model (default: 0.0)",
+    )
+    parser.add_argument(
+        "--use-pretrained-vae",
+        action="store_true",
+        default=True,
+        help="Use pretrained SD VAE for diffusion model (default: True)",
+    )
+    parser.add_argument(
+        "--no-pretrained-vae",
+        action="store_true",
+        help="Use lite encoder instead of pretrained VAE",
+    )
+    parser.add_argument(
+        "--eg3d-latent-dim",
+        type=int,
+        default=512,
+        help="Latent dimension for EG3D model (default: 512)",
+    )
+    parser.add_argument(
+        "--eg3d-plane-channels",
+        type=int,
+        default=32,
+        help="Number of channels per tri-plane for EG3D (default: 32)",
+    )
+    parser.add_argument(
+        "--eg3d-render-resolution",
+        type=int,
+        default=64,
+        help="Neural render resolution for EG3D (default: 64)",
+    )
+
     # Hardware arguments
     parser.add_argument(
         "--devices",
@@ -304,6 +348,7 @@ def main() -> int:
 
     # Create Model
     print("\nModel configuration:")
+    print(f"  Model type: {args.model_type}")
     print(f"  Image size: {args.image_size}")
     print(f"  Encoder dims: {encoder_dims}")
     print(f"  Encoder depths: {encoder_depths}")
@@ -313,6 +358,13 @@ def main() -> int:
     print(f"  LPIPS weight: {args.lpips_weight}")
     print(f"  Eyes/Mouth weight: {args.eyes_mouth_weight}")
     print(f"  Gaze weight: {args.gaze_weight}")
+    if args.model_type == "diffusion":
+        print(f"  Texture weight: {args.texture_weight}")
+        print(f"  Pretrained VAE: {not args.no_pretrained_vae}")
+    elif args.model_type == "eg3d":
+        print(f"  EG3D latent dim: {args.eg3d_latent_dim}")
+        print(f"  EG3D plane channels: {args.eg3d_plane_channels}")
+        print(f"  EG3D render resolution: {args.eg3d_render_resolution}")
 
     if args.pretrain_from is not None:
         # Load pretrained weights for fine-tuning
@@ -350,6 +402,13 @@ def main() -> int:
             lpips_weight=args.lpips_weight,
             eyes_mouth_weight=args.eyes_mouth_weight,
             gaze_weight=args.gaze_weight,
+            # Experimental model parameters
+            model_type=args.model_type,
+            diffusion_texture_weight=args.texture_weight,
+            use_pretrained_vae=not args.no_pretrained_vae,
+            eg3d_latent_dim=args.eg3d_latent_dim,
+            eg3d_plane_channels=args.eg3d_plane_channels,
+            eg3d_render_resolution=args.eg3d_render_resolution,
         )
 
     # Callbacks
