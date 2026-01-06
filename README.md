@@ -65,13 +65,15 @@
 
 ### Advanced Features
 - **Optuna HPO**: Automated hyperparameter optimization
-- **Gradio UI**: Web interface for training & inference
-- **Color Transfer**: RCT, LCT, SOT algorithms
+- **Gradio UI**: Web interface for training & inference (10 tabs)
+- **Color Transfer**: RCT, LCT, SOT, MKL, IDT, and Neural (VGG-based) algorithms
 - **Blending**: Feather, Laplacian, Poisson blending
-- **Face Restoration**: GFPGAN integration for enhanced quality
+- **Face Restoration**: GFPGAN and GPEN for enhanced quality
 - **Hardware Encoding**: NVENC support for fast video encoding
 - **Model Export**: ONNX and TensorRT for production deployment
 - **Dataset Sorting**: 14 methods including blur, face-yaw, histogram
+- **Mask Export**: LabelMe and COCO format export for external editing
+- **Gaze Loss**: Eye region consistency for realistic results
 
 ---
 
@@ -281,6 +283,10 @@ trainer.fit(model, datamodule)
 | `visagen-export` | Export model to ONNX/TensorRT formats |
 | `visagen-sort` | Sort and filter face datasets (14 methods) |
 | `visagen-gui` | Launch Gradio web interface |
+| `visagen-video` | Extract frames from video / create video from frames |
+| `visagen-enhance` | Batch face enhancement using GFPGAN/GPEN |
+| `visagen-resize` | Resize faceset images preserving DFL metadata |
+| `visagen-benchmark` | Run performance benchmarks |
 
 ---
 
@@ -308,9 +314,11 @@ visagen/
 │   ├── batch_processor.py # Parallel processing
 │   └── merger.py       # High-level orchestration
 ├── postprocess/        # Post-processing
-│   ├── color_transfer.py # RCT, LCT, SOT algorithms
+│   ├── color_transfer.py # RCT, LCT, SOT, MKL, IDT algorithms
+│   ├── neural_color.py # VGG-based neural color transfer
 │   ├── blending.py     # Laplacian, Poisson, Feather
-│   └── restore.py      # GFPGAN face restoration
+│   ├── restore.py      # GFPGAN face restoration
+│   └── gpen.py         # GPEN face restoration
 ├── export/             # Model export
 │   ├── onnx_exporter.py # ONNX export
 │   ├── tensorrt_builder.py # TensorRT engine builder
@@ -327,8 +335,18 @@ visagen/
 │   ├── export.py       # Model export
 │   ├── sorter.py       # Dataset sorting
 │   ├── tune.py         # HPO
-│   └── gradio_app.py   # Web UI
-└── tests/              # Unit tests (400+)
+│   ├── video_ed.py     # Video frame tools
+│   ├── faceset_enhancer.py # Batch face enhancement
+│   ├── faceset_resizer.py  # Faceset resizing
+│   ├── benchmark.py    # Performance benchmarks
+│   └── gradio_app.py   # Web UI (10 tabs)
+├── vision/             # Computer vision
+│   ├── detector.py     # InsightFace SCRFD detection
+│   ├── aligner.py      # Face alignment (Umeyama)
+│   ├── segmenter.py    # SegFormer segmentation
+│   ├── dflimg.py       # DFL image metadata
+│   └── mask_export.py  # LabelMe/COCO export
+└── tests/              # Unit tests (580+)
 ```
 
 ---
@@ -340,6 +358,7 @@ visagen/
 | Training Speed | ~50 img/s (RTX 3090) |
 | Memory Usage | ~8GB (512x512, batch=8) |
 | Inference | ~30 FPS (512x512) |
+| Unit Tests | 580+ |
 
 ---
 
@@ -355,6 +374,7 @@ visagen/
 - [x] **Phase 8**: Model export (ONNX, TensorRT)
 - [x] **Phase 9**: Face restoration (GFPGAN)
 - [x] **Phase 10**: Hardware encoding (NVENC)
+- [x] **Phase 11**: Advanced restoration & mask export (GPEN, LabelMe/COCO, Gaze Loss)
 
 ---
 

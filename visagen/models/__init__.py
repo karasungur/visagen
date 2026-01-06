@@ -7,7 +7,7 @@ from visagen.models.discriminators import (
     UNetPatchDiscriminator,
 )
 from visagen.models.encoders import ConvNeXtEncoder
-from visagen.models.layers import AdaINResBlock, AdaptiveInstanceNorm2d, CBAM
+from visagen.models.layers import CBAM, AdaINResBlock, AdaptiveInstanceNorm2d
 
 __all__ = [
     "AdaINResBlock",
