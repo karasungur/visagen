@@ -85,6 +85,16 @@ restore = [
     "facexlib>=0.3.0",
     "realesrgan>=0.3.0",
 ]
+experimental = [
+    # Diffusion AutoEncoder dependencies
+    "diffusers>=0.24.0",
+    "accelerate>=0.25.0",
+    "xformers>=0.0.22; sys_platform == 'linux'",
+    "transformers>=4.35.0",
+    # EG3D dependencies (optional, for advanced 3D features)
+    # "pytorch3d>=0.7.0",  # Requires special installation
+    # "nvdiffrast>=0.3.0",  # NVIDIA differentiable rasterizer
+]
 full = [
     "onnx>=1.14.0",
     "onnxruntime>=1.15.0",
@@ -161,6 +171,7 @@ ignore = [
 "visagen/tools/*.py" = ["F401"]  # Runtime import checks
 "visagen/vision/*.py" = ["F401"]  # Optional dependency imports
 "visagen/benchmark/*.py" = ["F821"]  # Forward references in type hints
+"visagen/models/experimental/*.py" = ["F401"]  # Lazy imports
 
 [tool.ruff.lint.isort]
 known-first-party = ["visagen"]
