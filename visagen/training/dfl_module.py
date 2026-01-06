@@ -51,6 +51,12 @@ class DFLModule(pl.LightningModule):
         temporal_sequence_length: Number of frames per sequence. Default: 5.
         temporal_consistency_weight: Weight for frame-to-frame consistency loss. Default: 1.0.
         temporal_base_ch: Base channels for temporal discriminator. Default: 32.
+        model_type: Model architecture type ("standard", "diffusion", "eg3d"). Default: "standard".
+        diffusion_texture_weight: Texture consistency loss weight for diffusion model. Default: 0.0.
+        use_pretrained_vae: Use pretrained SD VAE for diffusion model. Default: True.
+        eg3d_latent_dim: Latent dimension for EG3D model. Default: 512.
+        eg3d_plane_channels: Number of channels per tri-plane. Default: 32.
+        eg3d_render_resolution: Neural render resolution for EG3D. Default: 64.
 
     Example:
         >>> module = DFLModule()
@@ -101,6 +107,13 @@ class DFLModule(pl.LightningModule):
         temporal_sequence_length: int = 5,
         temporal_consistency_weight: float = 1.0,
         temporal_base_ch: int = 32,
+        # Experimental model parameters
+        model_type: str = "standard",  # "standard", "diffusion", "eg3d"
+        diffusion_texture_weight: float = 0.0,
+        use_pretrained_vae: bool = True,
+        eg3d_latent_dim: int = 512,
+        eg3d_plane_channels: int = 32,
+        eg3d_render_resolution: int = 64,
     ) -> None:
         super().__init__()
 
@@ -129,26 +142,20 @@ class DFLModule(pl.LightningModule):
         self.temporal_power = temporal_power
         self.temporal_sequence_length = temporal_sequence_length
         self.temporal_consistency_weight = temporal_consistency_weight
-
-        # Build encoder
-        self.encoder = ConvNeXtEncoder(
-            in_channels=in_channels,
-            dims=encoder_dims,
-            depths=encoder_depths,
-            drop_path_rate=drop_path_rate,
-        )
+        self.model_type = model_type
 
         # Calculate skip connection dimensions
-        # Skip features are from encoder stages (reversed for decoder)
         skip_dims = encoder_dims[:-1][::-1] + [encoder_dims[0]]
 
-        # Build decoder
-        self.decoder = Decoder(
-            latent_channels=encoder_dims[-1],
-            dims=decoder_dims,
+        # Build model based on type
+        self._build_model(
+            encoder_dims=encoder_dims,
+            encoder_depths=encoder_depths,
+            decoder_dims=decoder_dims,
+            drop_path_rate=drop_path_rate,
+            in_channels=in_channels,
             skip_dims=skip_dims,
-            out_channels=in_channels,
-            use_attention=True,
+            image_size=image_size,
         )
 
         # Build loss functions
@@ -194,6 +201,74 @@ class DFLModule(pl.LightningModule):
             self.temporal_d_loss_fn = None
             self.temporal_consistency_loss = None
 
+    def _build_model(
+        self,
+        encoder_dims: list[int],
+        encoder_depths: list[int],
+        decoder_dims: list[int],
+        drop_path_rate: float,
+        in_channels: int,
+        skip_dims: list[int],
+        image_size: int,
+    ) -> None:
+        """
+        Build encoder/decoder based on model_type.
+
+        Args:
+            encoder_dims: Channel dimensions for encoder stages.
+            encoder_depths: Block depths per encoder stage.
+            decoder_dims: Channel dimensions for decoder stages.
+            drop_path_rate: Stochastic depth rate.
+            in_channels: Number of input channels.
+            skip_dims: Skip connection dimensions.
+            image_size: Input/output image size.
+        """
+        if self.model_type == "diffusion":
+            from visagen.models.experimental.diffusion import DiffusionAutoEncoder
+
+            self.model = DiffusionAutoEncoder(
+                image_size=image_size,
+                structure_dims=encoder_dims,
+                structure_depths=encoder_depths,
+                texture_dim=encoder_dims[-1],  # Match structure latent dim
+                decoder_dims=decoder_dims,
+                use_pretrained_vae=self.hparams.use_pretrained_vae,
+                use_attention=True,
+            )
+            self.encoder = None
+            self.decoder = None
+        elif self.model_type == "eg3d":
+            from visagen.models.experimental.eg3d import EG3DEncoder, EG3DGenerator
+
+            self.encoder = EG3DEncoder(
+                latent_dim=self.hparams.eg3d_latent_dim,
+                backbone_dims=encoder_dims,
+                backbone_depths=encoder_depths,
+            )
+            self.model = EG3DGenerator(
+                latent_dim=self.hparams.eg3d_latent_dim,
+                plane_channels=self.hparams.eg3d_plane_channels,
+                render_resolution=self.hparams.eg3d_render_resolution,
+                output_resolution=image_size,
+            )
+            self.decoder = None
+        else:
+            # Standard encoder-decoder
+            self.encoder = ConvNeXtEncoder(
+                in_channels=in_channels,
+                dims=encoder_dims,
+                depths=encoder_depths,
+                drop_path_rate=drop_path_rate,
+            )
+            self.decoder = Decoder(
+                latent_channels=encoder_dims[-1],
+                dims=decoder_dims,
+                skip_dims=skip_dims,
+                out_channels=in_channels,
+                use_attention=True,
+            )
+            self.model = None
+
     def _init_losses(
         self,
         dssim_weight: float,
@@ -211,6 +286,7 @@ class DFLModule(pl.LightningModule):
         self.id_weight = id_weight
         self.eyes_mouth_weight = eyes_mouth_weight
         self.gaze_weight = gaze_weight
+        self.texture_weight = self.hparams.get("diffusion_texture_weight", 0.0)
 
         # DSSIM loss
         if use_multiscale_dssim:
@@ -229,6 +305,9 @@ class DFLModule(pl.LightningModule):
 
         # Gaze loss (lazy loaded)
         self._gaze_loss = None
+
+        # Texture loss (lazy loaded - for diffusion model)
+        self._texture_loss = None
 
     def _init_gan(
         self,
@@ -325,6 +404,15 @@ class DFLModule(pl.LightningModule):
             self._gaze_loss = GazeLoss()
         return self._gaze_loss
 
+    @property
+    def texture_loss(self):
+        """Lazy load Texture Consistency loss (for diffusion model)."""
+        if self._texture_loss is None and self.texture_weight > 0:
+            from visagen.training.diffusion_losses import TextureConsistencyLoss
+
+            self._texture_loss = TextureConsistencyLoss()
+        return self._texture_loss
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass: encode and decode.
@@ -335,18 +423,26 @@ class DFLModule(pl.LightningModule):
         Returns:
             Reconstructed image tensor of shape (B, C, H, W).
         """
-        # Encode
-        features, latent = self.encoder(x)
+        if self.model_type == "diffusion":
+            # DiffusionAutoEncoder handles both encoding and decoding
+            return self.model(x)
+        elif self.model_type == "eg3d":
+            # EG3D: encode to latent, then generate 3D-aware image
+            z = self.encoder(x)
+            return self.model(z)
+        else:
+            # Standard encoder-decoder
+            features, latent = self.encoder(x)
 
-        # Prepare skip connections (reverse order for decoder)
-        # features: [stage0, stage1, stage2, stage3]
-        # decoder needs: [stage2, stage1, stage0, stage0] (deep to shallow)
-        skip_features = features[:-1][::-1] + [features[0]]
+            # Prepare skip connections (reverse order for decoder)
+            # features: [stage0, stage1, stage2, stage3]
+            # decoder needs: [stage2, stage1, stage0, stage0] (deep to shallow)
+            skip_features = features[:-1][::-1] + [features[0]]
 
-        # Decode
-        output = self.decoder(latent, skip_features)
+            # Decode
+            output = self.decoder(latent, skip_features)
 
-        return output
+            return output
 
     def forward_sequence(self, sequence: torch.Tensor) -> torch.Tensor:
         """
@@ -430,6 +526,12 @@ class DFLModule(pl.LightningModule):
                 loss_gaze = self.gaze_loss_fn(pred, target, landmarks)
                 losses["gaze"] = loss_gaze
                 total = total + self.gaze_weight * loss_gaze
+
+        # Texture consistency loss (for diffusion model)
+        if self.texture_weight > 0 and self.texture_loss is not None:
+            loss_texture = self.texture_loss(pred, target)
+            losses["texture"] = loss_texture
+            total = total + self.texture_weight * loss_texture
 
         losses["total"] = total
         return total, losses
@@ -733,8 +835,15 @@ class DFLModule(pl.LightningModule):
         """
         max_epochs = self.trainer.max_epochs if self.trainer else 100
 
-        # Generator optimizer (encoder + decoder) - always needed
-        g_params = list(self.encoder.parameters()) + list(self.decoder.parameters())
+        # Generator optimizer - model type dependent
+        if self.model_type == "diffusion":
+            g_params = list(self.model.parameters())
+        elif self.model_type == "eg3d":
+            g_params = list(self.encoder.parameters()) + list(self.model.parameters())
+        else:
+            # Standard encoder-decoder
+            g_params = list(self.encoder.parameters()) + list(self.decoder.parameters())
+
         g_optimizer = torch.optim.AdamW(
             g_params,
             lr=self.learning_rate,
