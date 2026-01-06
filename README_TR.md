@@ -1,14 +1,19 @@
 <div align="center">
 
+<!-- Animated Header Wave -->
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:667eea,100:764ba2&height=120&section=header" width="100%"/>
+
 <!-- Logo -->
-<img src="assets/logo.png" alt="Visagen Logo" width="200"/>
+<img src="assets/logo.png" alt="Visagen Logo" width="180"/>
 
-<h1>Visagen</h1>
+<!-- Animated Title -->
+<h1>
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=28&duration=3000&pause=1000&color=667EEA&center=true&vCenter=true&width=500&lines=Visagen;Next-Gen+Face+Swapping;PyTorch+Lightning+Powered" alt="Typing SVG" />
+</h1>
 
-<p><strong>Yeni Nesil Yüz Değiştirme Framework'ü</strong></p>
-<p><em>ConvNeXt, CBAM Attention ve PyTorch Lightning ile Güçlendirildi</em></p>
+<p><em>Modern Face Swapping Framework with ConvNeXt, CBAM & Lightning</em></p>
 
-<!-- Dil Seçici -->
+<!-- Language Selector -->
 <p>
   <a href="README.md">🇺🇸 English</a> |
   <a href="README_TR.md">🇹🇷 Türkçe</a>
@@ -402,10 +407,10 @@ visagen/
 <tr>
 <td align="center">
   <a href="https://github.com/karasungur">
-    <img src="https://github.com/karasungur.png" width="80px;" alt="Mustafa Karasungur"/><br />
+    <img src="https://github.com/karasungur.png" width="60px;" alt="Mustafa Karasungur"/><br />
     <sub><b>Mustafa Karasungur</b></sub>
   </a><br />
-  <sub>🏗️ Proje Lideri & Çekirdek Geliştirici</sub>
+  <sub>🏗️ Proje Lideri</sub>
 </td>
 </tr>
 </table>
@@ -497,5 +502,10 @@ Bu proje MIT Lisansı altında lisanslanmıştır - detaylar için [LICENSE](LIC
 <div align="center">
 
 **[Mustafa Karasungur](https://github.com/karasungur) tarafından ❤️ ile yapıldı**
+
+<br/>
+
+<!-- Animated Footer Wave -->
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:667eea,100:764ba2&height=100&section=footer" width="100%"/>
 
 </div>

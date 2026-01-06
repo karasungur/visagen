@@ -1,12 +1,17 @@
 <div align="center">
 
+<!-- Animated Header Wave -->
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:667eea,100:764ba2&height=120&section=header" width="100%"/>
+
 <!-- Logo -->
-<img src="assets/logo.png" alt="Visagen Logo" width="200"/>
+<img src="assets/logo.png" alt="Visagen Logo" width="180"/>
 
-<h1>Visagen</h1>
+<!-- Animated Title -->
+<h1>
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=28&duration=3000&pause=1000&color=667EEA&center=true&vCenter=true&width=500&lines=Visagen;Next-Gen+Face+Swapping;PyTorch+Lightning+Powered" alt="Typing SVG" />
+</h1>
 
-<p><strong>Next-Generation Face Swapping Framework</strong></p>
-<p><em>Powered by ConvNeXt, CBAM Attention & PyTorch Lightning</em></p>
+<p><em>Modern Face Swapping Framework with ConvNeXt, CBAM & Lightning</em></p>
 
 <!-- Language Selector -->
 <p>
@@ -14,12 +19,12 @@
   <a href="README_TR.md">🇹🇷 Türkçe</a>
 </p>
 
-<!-- Badges -->
+<!-- Tech Stack Badges -->
 <p>
-  <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
-  <img src="https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch"/>
-  <img src="https://img.shields.io/badge/Lightning-2.0%2B-792EE5?style=for-the-badge&logo=lightning&logoColor=white" alt="Lightning"/>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-00C853?style=for-the-badge" alt="License: MIT"/></a>
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
+  <img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch"/>
+  <img src="https://img.shields.io/badge/Lightning-2.0+-792EE5?style=for-the-badge&logo=lightning&logoColor=white" alt="Lightning"/>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-00C853?style=for-the-badge" alt="License: MIT"/></a>
 </p>
 
 <!-- Quick Navigation -->
@@ -402,10 +407,10 @@ visagen/
 <tr>
 <td align="center">
   <a href="https://github.com/karasungur">
-    <img src="https://github.com/karasungur.png" width="80px;" alt="Mustafa Karasungur"/><br />
+    <img src="https://github.com/karasungur.png" width="60px;" alt="Mustafa Karasungur"/><br />
     <sub><b>Mustafa Karasungur</b></sub>
   </a><br />
-  <sub>🏗️ Project Lead & Core Developer</sub>
+  <sub>🏗️ Project Lead</sub>
 </td>
 </tr>
 </table>
@@ -497,5 +502,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 <div align="center">
 
 **Made with ❤️ by [Mustafa Karasungur](https://github.com/karasungur)**
+
+<br/>
+
+<!-- Animated Footer Wave -->
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:667eea,100:764ba2&height=100&section=footer" width="100%"/>
 
 </div>
