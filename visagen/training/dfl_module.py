@@ -3,7 +3,8 @@ DFL Lightning Module for Visagen.
 
 Main training module that combines encoder and decoder,
 manages the training loop, and handles optimization.
-Supports optional GAN training with PatchGAN discriminator.
+Supports optional GAN training with PatchGAN discriminator
+and temporal training with 3D Conv discriminator.
 """
 
 from typing import Any
@@ -45,6 +46,11 @@ class DFLModule(pl.LightningModule):
         gan_mode: GAN loss mode ('vanilla', 'lsgan', 'hinge'). Default: 'vanilla'.
         gan_base_ch: Discriminator base channels. Default: 16.
         use_spectral_norm: Use spectral normalization in discriminator. Default: False.
+        temporal_enabled: Enable temporal training with 3D discriminator. Default: False.
+        temporal_power: Temporal GAN loss weight. Default: 0.1.
+        temporal_sequence_length: Number of frames per sequence. Default: 5.
+        temporal_consistency_weight: Weight for frame-to-frame consistency loss. Default: 1.0.
+        temporal_base_ch: Base channels for temporal discriminator. Default: 32.
 
     Example:
         >>> module = DFLModule()
@@ -55,6 +61,13 @@ class DFLModule(pl.LightningModule):
 
         # With GAN training:
         >>> module = DFLModule(gan_power=0.1, gan_patch_size=70)
+
+        # With temporal training:
+        >>> module = DFLModule(temporal_enabled=True, temporal_power=0.1)
+        >>> seq = torch.randn(2, 3, 5, 256, 256)  # (B, C, T, H, W)
+        >>> out_seq = module.forward_sequence(seq)
+        >>> out_seq.shape
+        torch.Size([2, 3, 5, 256, 256])
     """
 
     def __init__(
@@ -80,6 +93,12 @@ class DFLModule(pl.LightningModule):
         gan_mode: str = "vanilla",
         gan_base_ch: int = 16,
         use_spectral_norm: bool = False,
+        # Temporal parameters
+        temporal_enabled: bool = False,
+        temporal_power: float = 0.1,
+        temporal_sequence_length: int = 5,
+        temporal_consistency_weight: float = 1.0,
+        temporal_base_ch: int = 32,
     ) -> None:
         super().__init__()
 
@@ -100,6 +119,10 @@ class DFLModule(pl.LightningModule):
         self.weight_decay = weight_decay
         self.gan_power = gan_power
         self.gan_mode = gan_mode
+        self.temporal_enabled = temporal_enabled
+        self.temporal_power = temporal_power
+        self.temporal_sequence_length = temporal_sequence_length
+        self.temporal_consistency_weight = temporal_consistency_weight
 
         # Build encoder
         self.encoder = ConvNeXtEncoder(
@@ -146,6 +169,22 @@ class DFLModule(pl.LightningModule):
             self.gan_loss = None
             self.d_loss_fn = None
             self.tv_loss = None
+
+        # Initialize temporal components if enabled
+        if temporal_enabled:
+            self._init_temporal(
+                in_channels=in_channels,
+                sequence_length=temporal_sequence_length,
+                base_ch=temporal_base_ch,
+                use_spectral_norm=use_spectral_norm,
+            )
+            # Manual optimization for temporal training
+            self.automatic_optimization = False
+        else:
+            self.temporal_discriminator = None
+            self.temporal_gan_loss = None
+            self.temporal_d_loss_fn = None
+            self.temporal_consistency_loss = None
 
     def _init_losses(
         self,
@@ -199,6 +238,39 @@ class DFLModule(pl.LightningModule):
         self.d_loss_fn = DiscriminatorLoss(mode=self.gan_mode)
         self.tv_loss = TotalVariationLoss(weight=1e-6)
 
+    def _init_temporal(
+        self,
+        in_channels: int,
+        sequence_length: int,
+        base_ch: int,
+        use_spectral_norm: bool,
+    ) -> None:
+        """Initialize temporal discriminator and losses."""
+        from visagen.models.discriminators import TemporalDiscriminator
+        from visagen.training.losses import (
+            TemporalConsistencyLoss,
+            TemporalDiscriminatorLoss,
+            TemporalGANLoss,
+            TotalVariationLoss,
+        )
+
+        self.temporal_discriminator = TemporalDiscriminator(
+            in_channels=in_channels,
+            base_ch=base_ch,
+            sequence_length=sequence_length,
+            use_spectral_norm=use_spectral_norm,
+        )
+
+        self.temporal_gan_loss = TemporalGANLoss(mode=self.gan_mode)
+        self.temporal_d_loss_fn = TemporalDiscriminatorLoss(mode=self.gan_mode)
+        self.temporal_consistency_loss = TemporalConsistencyLoss(
+            weight=self.temporal_consistency_weight
+        )
+
+        # Also need TV loss for temporal if not already initialized
+        if self.tv_loss is None:
+            self.tv_loss = TotalVariationLoss(weight=1e-6)
+
     @property
     def lpips_loss(self):
         """Lazy load LPIPS loss."""
@@ -237,6 +309,31 @@ class DFLModule(pl.LightningModule):
 
         # Decode
         output = self.decoder(latent, skip_features)
+
+        return output
+
+    def forward_sequence(self, sequence: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for a sequence of frames.
+
+        Processes each frame independently through encoder/decoder.
+
+        Args:
+            sequence: Input sequence tensor of shape (B, C, T, H, W).
+
+        Returns:
+            Reconstructed sequence tensor of shape (B, C, T, H, W).
+        """
+        B, C, T, H, W = sequence.shape
+
+        # Reshape to (B*T, C, H, W) for batch processing
+        frames = sequence.permute(0, 2, 1, 3, 4).reshape(B * T, C, H, W)
+
+        # Process all frames through encoder/decoder
+        output_frames = self(frames)
+
+        # Reshape back to (B, C, T, H, W)
+        output = output_frames.reshape(B, T, C, H, W).permute(0, 2, 1, 3, 4)
 
         return output
 
@@ -289,22 +386,27 @@ class DFLModule(pl.LightningModule):
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor | None:
         """
-        Training step with optional GAN training.
+        Training step with optional GAN or temporal training.
 
-        When GAN is enabled (gan_power > 0):
-        1. Generator step: reconstruction loss + adversarial loss
-        2. Discriminator step: real vs fake classification
+        Training modes (checked in priority order):
+        1. Temporal training (temporal_enabled=True): Uses sequence data (B, C, T, H, W)
+        2. GAN training (gan_power > 0): Uses adversarial loss
+        3. Autoencoder training: Standard reconstruction loss only
 
         Args:
             batch: Tuple of (source, target) tensors.
+                   For temporal: each is (B, C, T, H, W) sequence.
+                   For standard: each is (B, C, H, W) image.
             batch_idx: Batch index.
 
         Returns:
-            Loss value (only when GAN is disabled).
+            Loss value (only when GAN and temporal are disabled).
         """
         src, dst = batch
 
-        if self.gan_power > 0:
+        if self.temporal_enabled:
+            return self._training_step_temporal(src, dst, batch_idx)
+        elif self.gan_power > 0:
             return self._training_step_gan(src, dst, batch_idx)
         else:
             return self._training_step_ae(src, dst, batch_idx)
@@ -387,6 +489,110 @@ class DFLModule(pl.LightningModule):
             prog_bar = name in ["total", "d_loss", "g_adv"]
             self.log(f"train_{name}", value, prog_bar=prog_bar)
 
+    def _training_step_temporal(
+        self, src_seq: torch.Tensor, dst_seq: torch.Tensor, batch_idx: int
+    ) -> None:
+        """
+        Temporal training step with 3D discriminator.
+
+        Trains on frame sequences for temporal consistency.
+
+        Args:
+            src_seq: Source sequence (B, C, T, H, W).
+            dst_seq: Destination sequence (B, C, T, H, W).
+            batch_idx: Batch index.
+        """
+        # Get optimizers based on whether spatial GAN is also enabled
+        if self.gan_power > 0:
+            g_opt, d_opt, t_opt = self.optimizers()
+        else:
+            g_opt, t_opt = self.optimizers()
+
+        B, C, T, H, W = src_seq.shape
+
+        # Forward pass through sequence
+        pred_seq = self.forward_sequence(src_seq)
+
+        # === GENERATOR STEP ===
+        g_opt.zero_grad()
+
+        # Per-frame reconstruction loss
+        # Reshape sequences to (B*T, C, H, W) for loss computation
+        src_flat = src_seq.permute(0, 2, 1, 3, 4).reshape(B * T, C, H, W)
+        pred_flat = pred_seq.permute(0, 2, 1, 3, 4).reshape(B * T, C, H, W)
+
+        total_loss, loss_dict = self.compute_loss(pred_flat, src_flat)
+
+        # Temporal consistency loss
+        temp_cons_loss = self.temporal_consistency_loss(pred_seq)
+        loss_dict["temp_cons"] = temp_cons_loss
+
+        # Temporal adversarial loss
+        t_fake_score = self.temporal_discriminator(pred_seq)
+        t_adv_loss = self.temporal_gan_loss(t_fake_score, target_is_real=True)
+        loss_dict["t_adv"] = t_adv_loss
+
+        # TV loss on predictions
+        tv_loss = self.tv_loss(pred_flat)
+        loss_dict["tv"] = tv_loss
+
+        # Spatial GAN loss if enabled
+        g_adv_loss = torch.tensor(0.0, device=pred_seq.device)
+        if self.gan_power > 0 and self.discriminator is not None:
+            d_fake_center, d_fake_final = self.discriminator(pred_flat)
+            g_adv_loss = self.gan_loss(
+                d_fake_center, target_is_real=True
+            ) + self.gan_loss(d_fake_final, target_is_real=True)
+            loss_dict["g_adv"] = g_adv_loss
+
+        # Combined generator loss
+        g_total = (
+            total_loss
+            + self.temporal_power * t_adv_loss
+            + temp_cons_loss
+            + tv_loss
+            + self.gan_power * g_adv_loss
+        )
+        loss_dict["g_total"] = g_total
+
+        self.manual_backward(g_total)
+        g_opt.step()
+
+        # === SPATIAL DISCRIMINATOR STEP (if enabled) ===
+        if self.gan_power > 0 and self.discriminator is not None:
+            d_opt.zero_grad()
+
+            pred_detached = pred_flat.detach()
+            d_real_center, d_real_final = self.discriminator(src_flat)
+            d_fake_center, d_fake_final = self.discriminator(pred_detached)
+
+            d_loss = (
+                self.d_loss_fn(d_real_center, d_fake_center)
+                + self.d_loss_fn(d_real_final, d_fake_final)
+            ) * 0.5
+
+            self.manual_backward(d_loss)
+            d_opt.step()
+            loss_dict["d_loss"] = d_loss
+
+        # === TEMPORAL DISCRIMINATOR STEP ===
+        t_opt.zero_grad()
+
+        pred_seq_detached = pred_seq.detach()
+        t_real_score = self.temporal_discriminator(src_seq)
+        t_fake_score = self.temporal_discriminator(pred_seq_detached)
+
+        t_d_loss = self.temporal_d_loss_fn(t_real_score, t_fake_score)
+
+        self.manual_backward(t_d_loss)
+        t_opt.step()
+        loss_dict["t_d_loss"] = t_d_loss
+
+        # Log losses
+        for name, value in loss_dict.items():
+            prog_bar = name in ["total", "t_adv", "t_d_loss", "temp_cons"]
+            self.log(f"train_{name}", value, prog_bar=prog_bar)
+
     def validation_step(
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
@@ -395,15 +601,34 @@ class DFLModule(pl.LightningModule):
 
         Args:
             batch: Tuple of (source, target) tensors.
+                   For temporal: each is (B, C, T, H, W) sequence.
+                   For standard: each is (B, C, H, W) image.
             batch_idx: Batch index.
 
         Returns:
             Loss value.
         """
         src, dst = batch
-        pred = self(src)
 
-        total_loss, loss_dict = self.compute_loss(pred, src)
+        if self.temporal_enabled:
+            # Temporal validation
+            B, C, T, H, W = src.shape
+            pred_seq = self.forward_sequence(src)
+
+            # Flatten for loss computation
+            src_flat = src.permute(0, 2, 1, 3, 4).reshape(B * T, C, H, W)
+            pred_flat = pred_seq.permute(0, 2, 1, 3, 4).reshape(B * T, C, H, W)
+
+            total_loss, loss_dict = self.compute_loss(pred_flat, src_flat)
+
+            # Add temporal consistency loss
+            temp_cons_loss = self.temporal_consistency_loss(pred_seq)
+            loss_dict["temp_cons"] = temp_cons_loss
+            total_loss = total_loss + temp_cons_loss
+        else:
+            # Standard validation
+            pred = self(src)
+            total_loss, loss_dict = self.compute_loss(pred, src)
 
         # Log validation losses
         for name, value in loss_dict.items():
@@ -415,36 +640,87 @@ class DFLModule(pl.LightningModule):
         """
         Configure optimizer(s) and scheduler(s).
 
-        When GAN is enabled, returns two optimizers:
-        - Generator optimizer (encoder + decoder)
-        - Discriminator optimizer
+        Training modes and optimizers:
+        - Temporal + GAN: 3 optimizers (generator, spatial discriminator, temporal discriminator)
+        - Temporal only: 2 optimizers (generator, temporal discriminator)
+        - GAN only: 2 optimizers (generator, spatial discriminator)
+        - AE only: 1 optimizer
 
         Returns:
-            Single optimizer dict (AE mode) or tuple of optimizer/scheduler lists (GAN mode).
+            Single optimizer dict (AE mode) or tuple of optimizer/scheduler lists (GAN/temporal mode).
         """
         max_epochs = self.trainer.max_epochs if self.trainer else 100
 
-        if self.gan_power > 0:
-            # Generator optimizer (encoder + decoder)
-            g_params = list(self.encoder.parameters()) + list(self.decoder.parameters())
-            g_optimizer = torch.optim.AdamW(
-                g_params,
-                lr=self.learning_rate,
-                weight_decay=self.weight_decay,
-                betas=(0.9, 0.999),
-            )
+        # Generator optimizer (encoder + decoder) - always needed
+        g_params = list(self.encoder.parameters()) + list(self.decoder.parameters())
+        g_optimizer = torch.optim.AdamW(
+            g_params,
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay,
+            betas=(0.9, 0.999),
+        )
+        g_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            g_optimizer, T_max=max_epochs, eta_min=1e-6
+        )
 
-            # Discriminator optimizer
+        if self.temporal_enabled and self.gan_power > 0:
+            # Temporal + GAN: 3 optimizers
             d_optimizer = torch.optim.AdamW(
                 self.discriminator.parameters(),
                 lr=self.learning_rate,
                 weight_decay=self.weight_decay,
                 betas=(0.9, 0.999),
             )
+            d_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                d_optimizer, T_max=max_epochs, eta_min=1e-6
+            )
 
-            # Schedulers
-            g_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                g_optimizer, T_max=max_epochs, eta_min=1e-6
+            t_optimizer = torch.optim.AdamW(
+                self.temporal_discriminator.parameters(),
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay,
+                betas=(0.9, 0.999),
+            )
+            t_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                t_optimizer, T_max=max_epochs, eta_min=1e-6
+            )
+
+            return (
+                [g_optimizer, d_optimizer, t_optimizer],
+                [
+                    {"scheduler": g_scheduler, "interval": "epoch"},
+                    {"scheduler": d_scheduler, "interval": "epoch"},
+                    {"scheduler": t_scheduler, "interval": "epoch"},
+                ],
+            )
+
+        elif self.temporal_enabled:
+            # Temporal only: 2 optimizers (generator + temporal discriminator)
+            t_optimizer = torch.optim.AdamW(
+                self.temporal_discriminator.parameters(),
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay,
+                betas=(0.9, 0.999),
+            )
+            t_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                t_optimizer, T_max=max_epochs, eta_min=1e-6
+            )
+
+            return (
+                [g_optimizer, t_optimizer],
+                [
+                    {"scheduler": g_scheduler, "interval": "epoch"},
+                    {"scheduler": t_scheduler, "interval": "epoch"},
+                ],
+            )
+
+        elif self.gan_power > 0:
+            # GAN only: 2 optimizers (generator + spatial discriminator)
+            d_optimizer = torch.optim.AdamW(
+                self.discriminator.parameters(),
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay,
+                betas=(0.9, 0.999),
             )
             d_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 d_optimizer, T_max=max_epochs, eta_min=1e-6
@@ -458,22 +734,11 @@ class DFLModule(pl.LightningModule):
                 ],
             )
         else:
-            # Standard single optimizer
-            optimizer = torch.optim.AdamW(
-                self.parameters(),
-                lr=self.learning_rate,
-                weight_decay=self.weight_decay,
-                betas=(0.9, 0.999),
-            )
-
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=max_epochs, eta_min=1e-6
-            )
-
+            # AE only: single optimizer - use the already created g_optimizer
             return {
-                "optimizer": optimizer,
+                "optimizer": g_optimizer,
                 "lr_scheduler": {
-                    "scheduler": scheduler,
+                    "scheduler": g_scheduler,
                     "interval": "epoch",
                 },
             }

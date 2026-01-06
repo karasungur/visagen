@@ -925,3 +925,179 @@ class TotalVariationLoss(nn.Module):
         diff_w = x[:, :, :, 1:] - x[:, :, :, :-1]
 
         return self.weight * (diff_h.pow(2).mean() + diff_w.pow(2).mean())
+
+
+# =============================================================================
+# Temporal Losses for Video Consistency
+# =============================================================================
+
+
+class TemporalConsistencyLoss(nn.Module):
+    """
+    Frame-to-frame consistency loss for temporal smoothness.
+
+    Penalizes large differences between consecutive frames to encourage
+    smooth transitions and reduce flickering artifacts in video.
+
+    Args:
+        mode: Loss mode - 'l1', 'l2', or 'ssim'. Default: 'l1'.
+        weight: Loss weight multiplier. Default: 1.0.
+
+    Example:
+        >>> loss_fn = TemporalConsistencyLoss()
+        >>> sequence = torch.randn(2, 3, 5, 256, 256)  # (B, C, T, H, W)
+        >>> loss = loss_fn(sequence)
+    """
+
+    def __init__(
+        self,
+        mode: str = "l1",
+        weight: float = 1.0,
+    ) -> None:
+        super().__init__()
+        self.mode = mode
+        self.weight = weight
+
+    def forward(self, sequence: torch.Tensor) -> torch.Tensor:
+        """
+        Compute temporal consistency loss.
+
+        Args:
+            sequence: Input sequence (B, C, T, H, W).
+
+        Returns:
+            Temporal consistency loss (scalar).
+        """
+        # Compute frame-to-frame differences
+        # sequence[:, :, 1:] - sequence[:, :, :-1] gives T-1 difference frames
+        diff = sequence[:, :, 1:, :, :] - sequence[:, :, :-1, :, :]
+
+        if self.mode == "l1":
+            loss = diff.abs().mean()
+        elif self.mode == "l2":
+            loss = diff.pow(2).mean()
+        else:
+            # Default to L1
+            loss = diff.abs().mean()
+
+        return self.weight * loss
+
+
+class TemporalGANLoss(nn.Module):
+    """
+    GAN loss for temporal discriminator.
+
+    Same interface as GANLoss but designed for temporal consistency
+    discrimination scores.
+
+    Args:
+        mode: Loss mode - 'vanilla', 'lsgan', or 'hinge'. Default: 'vanilla'.
+        target_real_label: Target label for real sequences. Default: 1.0.
+        target_fake_label: Target label for fake sequences. Default: 0.0.
+
+    Example:
+        >>> loss_fn = TemporalGANLoss(mode='vanilla')
+        >>> temporal_score = torch.randn(2, 1)
+        >>> loss = loss_fn(temporal_score, target_is_real=True)
+    """
+
+    def __init__(
+        self,
+        mode: str = "vanilla",
+        target_real_label: float = 1.0,
+        target_fake_label: float = 0.0,
+    ) -> None:
+        super().__init__()
+
+        self.mode = mode
+        self.register_buffer("real_label", torch.tensor(target_real_label))
+        self.register_buffer("fake_label", torch.tensor(target_fake_label))
+
+        if mode == "vanilla":
+            self.loss_fn = nn.BCEWithLogitsLoss()
+        elif mode == "lsgan":
+            self.loss_fn = nn.MSELoss()
+        elif mode == "hinge":
+            self.loss_fn = None
+        else:
+            raise ValueError(f"Unknown temporal GAN loss mode: {mode}")
+
+    def _get_target_tensor(
+        self, prediction: torch.Tensor, target_is_real: bool
+    ) -> torch.Tensor:
+        """Create target tensor with same shape as prediction."""
+        target_val = self.real_label if target_is_real else self.fake_label
+        return target_val.expand_as(prediction)
+
+    def forward(
+        self,
+        prediction: torch.Tensor,
+        target_is_real: bool,
+    ) -> torch.Tensor:
+        """
+        Compute temporal GAN loss.
+
+        Args:
+            prediction: Temporal discriminator output (B, 1).
+            target_is_real: Whether target should be real (True) or fake (False).
+
+        Returns:
+            Loss value (scalar).
+        """
+        if self.mode == "hinge":
+            if target_is_real:
+                return -prediction.mean()
+            else:
+                return prediction.mean()
+        else:
+            target = self._get_target_tensor(prediction, target_is_real)
+            return self.loss_fn(prediction, target)
+
+
+class TemporalDiscriminatorLoss(nn.Module):
+    """
+    Discriminator loss for temporal training.
+
+    Combines real sequence (from video) vs fake sequence (generated).
+    Computes: (loss_real + loss_fake) / 2
+
+    Args:
+        mode: Loss mode - 'vanilla', 'lsgan', or 'hinge'. Default: 'vanilla'.
+
+    Example:
+        >>> loss_fn = TemporalDiscriminatorLoss(mode='vanilla')
+        >>> d_real = temporal_disc(real_sequence)
+        >>> d_fake = temporal_disc(fake_sequence.detach())
+        >>> loss = loss_fn(d_real, d_fake)
+    """
+
+    def __init__(self, mode: str = "vanilla") -> None:
+        super().__init__()
+
+        self.mode = mode
+        self.gan_loss = TemporalGANLoss(mode=mode)
+
+    def forward(
+        self,
+        d_real: torch.Tensor,
+        d_fake: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute temporal discriminator loss.
+
+        Args:
+            d_real: Discriminator output for real sequences.
+            d_fake: Discriminator output for fake/generated sequences.
+
+        Returns:
+            Combined discriminator loss (scalar).
+        """
+        if self.mode == "hinge":
+            # Hinge loss: max(0, 1 - D(real)) + max(0, 1 + D(fake))
+            loss_real = F.relu(1.0 - d_real).mean()
+            loss_fake = F.relu(1.0 + d_fake).mean()
+        else:
+            loss_real = self.gan_loss(d_real, target_is_real=True)
+            loss_fake = self.gan_loss(d_fake, target_is_real=False)
+
+        return (loss_real + loss_fake) * 0.5

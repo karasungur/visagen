@@ -30,6 +30,11 @@ from visagen.data.pretrain_datamodule import (
     scan_images_flat,
     scan_images_recursive,
 )
+from visagen.data.sequence_dataset import (
+    PairedSequenceDataset,
+    RandomSequenceDataset,
+    SequenceFaceDataset,
+)
 from visagen.data.warp import gen_warp_params, warp_by_params
 
 __all__ = [
@@ -38,6 +43,10 @@ __all__ = [
     "FaceSample",
     "FaceDataset",
     "SimpleFaceDataset",
+    # Sequence datasets (temporal)
+    "SequenceFaceDataset",
+    "PairedSequenceDataset",
+    "RandomSequenceDataset",
     # Augmentations
     "FaceAugmentationPipeline",
     "SimpleAugmentation",
