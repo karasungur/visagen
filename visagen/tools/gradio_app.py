@@ -556,8 +556,12 @@ class GradioApp:
                 )
 
             # Convert RGB to BGR float32 [0, 1]
-            source_bgr = cv2.cvtColor(source, cv2.COLOR_RGB2BGR).astype(np.float32) / 255
-            target_bgr = cv2.cvtColor(target, cv2.COLOR_RGB2BGR).astype(np.float32) / 255
+            source_bgr = (
+                cv2.cvtColor(source, cv2.COLOR_RGB2BGR).astype(np.float32) / 255
+            )
+            target_bgr = (
+                cv2.cvtColor(target, cv2.COLOR_RGB2BGR).astype(np.float32) / 255
+            )
 
             # Apply transfer
             result_bgr = neural_color_transfer(

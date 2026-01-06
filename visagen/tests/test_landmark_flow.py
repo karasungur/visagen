@@ -10,7 +10,6 @@ These tests address the critical bug fixed in FAZ A where landmarks
 were being discarded in PairedFaceDataset.__getitem__().
 """
 
-
 import pytest
 import torch
 
