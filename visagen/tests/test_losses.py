@@ -383,7 +383,11 @@ class TestDFLModuleLossIntegration:
         src = torch.rand(2, 3, 64, 64)
         dst = torch.rand(2, 3, 64, 64)
 
-        loss = module.training_step((src, dst), 0)
+        # training_step expects dict-based batch (src_dict, dst_dict)
+        src_dict = {"image": src, "landmarks": torch.rand(2, 68, 2)}
+        dst_dict = {"image": dst, "landmarks": torch.rand(2, 68, 2)}
+
+        loss = module.training_step((src_dict, dst_dict), 0)
 
         assert loss.item() > 0
         assert loss.requires_grad

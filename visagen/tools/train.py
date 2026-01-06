@@ -148,6 +148,18 @@ Examples:
         default=0.0,
         help="LPIPS loss weight (default: 0.0, requires lpips package)",
     )
+    parser.add_argument(
+        "--eyes-mouth-weight",
+        type=float,
+        default=0.0,
+        help="Eyes/Mouth priority loss weight (default: 0.0, requires landmarks)",
+    )
+    parser.add_argument(
+        "--gaze-weight",
+        type=float,
+        default=0.0,
+        help="Gaze consistency loss weight (default: 0.0, requires landmarks)",
+    )
 
     # Hardware arguments
     parser.add_argument(
@@ -299,6 +311,8 @@ def main() -> int:
     print(f"  DSSIM weight: {args.dssim_weight}")
     print(f"  L1 weight: {args.l1_weight}")
     print(f"  LPIPS weight: {args.lpips_weight}")
+    print(f"  Eyes/Mouth weight: {args.eyes_mouth_weight}")
+    print(f"  Gaze weight: {args.gaze_weight}")
 
     if args.pretrain_from is not None:
         # Load pretrained weights for fine-tuning
@@ -334,6 +348,8 @@ def main() -> int:
             dssim_weight=args.dssim_weight,
             l1_weight=args.l1_weight,
             lpips_weight=args.lpips_weight,
+            eyes_mouth_weight=args.eyes_mouth_weight,
+            gaze_weight=args.gaze_weight,
         )
 
     # Callbacks

@@ -45,7 +45,7 @@ class DFLModule(pl.LightningModule):
         gan_patch_size: Discriminator target receptive field. Default: 70.
         gan_mode: GAN loss mode ('vanilla', 'lsgan', 'hinge'). Default: 'vanilla'.
         gan_base_ch: Discriminator base channels. Default: 16.
-        use_spectral_norm: Use spectral normalization in discriminator. Default: False.
+        use_spectral_norm: Use spectral normalization in discriminator. Default: None (auto-enable for GAN/temporal).
         temporal_enabled: Enable temporal training with 3D discriminator. Default: False.
         temporal_power: Temporal GAN loss weight. Default: 0.1.
         temporal_sequence_length: Number of frames per sequence. Default: 5.
@@ -86,13 +86,15 @@ class DFLModule(pl.LightningModule):
         l1_weight: float = 10.0,
         lpips_weight: float = 0.0,
         id_weight: float = 0.0,
+        eyes_mouth_weight: float = 0.0,
+        gaze_weight: float = 0.0,
         use_multiscale_dssim: bool = True,
         # GAN parameters
         gan_power: float = 0.0,
         gan_patch_size: int = 70,
         gan_mode: str = "vanilla",
         gan_base_ch: int = 16,
-        use_spectral_norm: bool = False,
+        use_spectral_norm: bool | None = None,
         # Temporal parameters
         temporal_enabled: bool = False,
         temporal_power: float = 0.1,
@@ -104,6 +106,10 @@ class DFLModule(pl.LightningModule):
 
         # Save hyperparameters
         self.save_hyperparameters()
+
+        # Auto-enable spectral norm for GAN/Temporal training if not specified
+        if use_spectral_norm is None:
+            use_spectral_norm = (gan_power > 0) or temporal_enabled
 
         # Default dimensions
         if encoder_dims is None:
@@ -151,6 +157,8 @@ class DFLModule(pl.LightningModule):
             l1_weight=l1_weight,
             lpips_weight=lpips_weight,
             id_weight=id_weight,
+            eyes_mouth_weight=eyes_mouth_weight,
+            gaze_weight=gaze_weight,
             use_multiscale_dssim=use_multiscale_dssim,
         )
 
@@ -192,6 +200,8 @@ class DFLModule(pl.LightningModule):
         l1_weight: float,
         lpips_weight: float,
         id_weight: float,
+        eyes_mouth_weight: float,
+        gaze_weight: float,
         use_multiscale_dssim: bool,
     ) -> None:
         """Initialize loss functions."""
@@ -199,6 +209,8 @@ class DFLModule(pl.LightningModule):
         self.l1_weight = l1_weight
         self.lpips_weight = lpips_weight
         self.id_weight = id_weight
+        self.eyes_mouth_weight = eyes_mouth_weight
+        self.gaze_weight = gaze_weight
 
         # DSSIM loss
         if use_multiscale_dssim:
@@ -211,6 +223,12 @@ class DFLModule(pl.LightningModule):
 
         # ID loss (lazy loaded)
         self._id_loss = None
+
+        # Eyes/Mouth loss (lazy loaded)
+        self._eyes_mouth_loss = None
+
+        # Gaze loss (lazy loaded)
+        self._gaze_loss = None
 
     def _init_gan(
         self,
@@ -289,6 +307,24 @@ class DFLModule(pl.LightningModule):
             self._id_loss = IDLoss()
         return self._id_loss
 
+    @property
+    def eyes_mouth_loss(self):
+        """Lazy load Eyes/Mouth loss."""
+        if self._eyes_mouth_loss is None and self.eyes_mouth_weight > 0:
+            from visagen.training.losses import EyesMouthLoss
+
+            self._eyes_mouth_loss = EyesMouthLoss()
+        return self._eyes_mouth_loss
+
+    @property
+    def gaze_loss_fn(self):
+        """Lazy load Gaze loss."""
+        if self._gaze_loss is None and self.gaze_weight > 0:
+            from visagen.training.losses import GazeLoss
+
+            self._gaze_loss = GazeLoss()
+        return self._gaze_loss
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass: encode and decode.
@@ -341,6 +377,7 @@ class DFLModule(pl.LightningModule):
         self,
         pred: torch.Tensor,
         target: torch.Tensor,
+        landmarks: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Compute combined reconstruction loss.
@@ -348,6 +385,7 @@ class DFLModule(pl.LightningModule):
         Args:
             pred: Predicted image (B, C, H, W).
             target: Target image (B, C, H, W).
+            landmarks: Optional facial landmarks (B, 68, 2) for region-based losses.
 
         Returns:
             Tuple of (total_loss, loss_dict).
@@ -379,11 +417,27 @@ class DFLModule(pl.LightningModule):
             losses["id"] = loss_id
             total = total + self.id_weight * loss_id
 
+        # Eyes/Mouth loss (requires landmarks)
+        if self.eyes_mouth_weight > 0 and self.eyes_mouth_loss is not None:
+            if landmarks is not None:
+                loss_em = self.eyes_mouth_loss(pred, target, landmarks)
+                losses["eyes_mouth"] = loss_em
+                total = total + self.eyes_mouth_weight * loss_em
+
+        # Gaze loss (requires landmarks)
+        if self.gaze_weight > 0 and self.gaze_loss_fn is not None:
+            if landmarks is not None:
+                loss_gaze = self.gaze_loss_fn(pred, target, landmarks)
+                losses["gaze"] = loss_gaze
+                total = total + self.gaze_weight * loss_gaze
+
         losses["total"] = total
         return total, losses
 
     def training_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self,
+        batch: tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]],
+        batch_idx: int,
     ) -> torch.Tensor | None:
         """
         Training step with optional GAN or temporal training.
@@ -394,32 +448,42 @@ class DFLModule(pl.LightningModule):
         3. Autoencoder training: Standard reconstruction loss only
 
         Args:
-            batch: Tuple of (source, target) tensors.
-                   For temporal: each is (B, C, T, H, W) sequence.
-                   For standard: each is (B, C, H, W) image.
+            batch: Tuple of (src_dict, dst_dict) each containing:
+                   - 'image': (B, C, H, W) tensor or (B, C, T, H, W) for temporal
+                   - 'landmarks': (B, 68, 2) tensor (optional)
+                   - 'mask': (B, 1, H, W) tensor (optional)
             batch_idx: Batch index.
 
         Returns:
             Loss value (only when GAN and temporal are disabled).
         """
-        src, dst = batch
+        src_dict, dst_dict = batch
+
+        # Extract images and landmarks
+        src = src_dict["image"]
+        dst = dst_dict["image"]
+        src_landmarks = src_dict.get("landmarks")
 
         if self.temporal_enabled:
-            return self._training_step_temporal(src, dst, batch_idx)
+            return self._training_step_temporal(src, dst, src_landmarks, batch_idx)
         elif self.gan_power > 0:
-            return self._training_step_gan(src, dst, batch_idx)
+            return self._training_step_gan(src, dst, src_landmarks, batch_idx)
         else:
-            return self._training_step_ae(src, dst, batch_idx)
+            return self._training_step_ae(src, dst, src_landmarks, batch_idx)
 
     def _training_step_ae(
-        self, src: torch.Tensor, dst: torch.Tensor, batch_idx: int
+        self,
+        src: torch.Tensor,
+        dst: torch.Tensor,
+        landmarks: torch.Tensor | None,
+        batch_idx: int,
     ) -> torch.Tensor:
         """Standard autoencoder training step."""
         # Forward pass (reconstruct source from source)
         pred = self(src)
 
-        # Compute losses
-        total_loss, loss_dict = self.compute_loss(pred, src)
+        # Compute losses (with landmarks for eyes_mouth/gaze losses)
+        total_loss, loss_dict = self.compute_loss(pred, src, landmarks)
 
         # Log all losses
         for name, value in loss_dict.items():
@@ -428,7 +492,11 @@ class DFLModule(pl.LightningModule):
         return total_loss
 
     def _training_step_gan(
-        self, src: torch.Tensor, dst: torch.Tensor, batch_idx: int
+        self,
+        src: torch.Tensor,
+        dst: torch.Tensor,
+        landmarks: torch.Tensor | None,
+        batch_idx: int,
     ) -> None:
         """GAN training step with manual optimization."""
         g_opt, d_opt = self.optimizers()
@@ -439,8 +507,8 @@ class DFLModule(pl.LightningModule):
         # === GENERATOR STEP ===
         g_opt.zero_grad()
 
-        # Reconstruction loss
-        total_loss, loss_dict = self.compute_loss(pred, src)
+        # Reconstruction loss (with landmarks for eyes_mouth/gaze losses)
+        total_loss, loss_dict = self.compute_loss(pred, src, landmarks)
 
         # Adversarial loss for generator
         # Generator wants discriminator to classify fake as real
@@ -490,7 +558,11 @@ class DFLModule(pl.LightningModule):
             self.log(f"train_{name}", value, prog_bar=prog_bar)
 
     def _training_step_temporal(
-        self, src_seq: torch.Tensor, dst_seq: torch.Tensor, batch_idx: int
+        self,
+        src_seq: torch.Tensor,
+        dst_seq: torch.Tensor,
+        landmarks: torch.Tensor | None,
+        batch_idx: int,
     ) -> None:
         """
         Temporal training step with 3D discriminator.
@@ -500,6 +572,7 @@ class DFLModule(pl.LightningModule):
         Args:
             src_seq: Source sequence (B, C, T, H, W).
             dst_seq: Destination sequence (B, C, T, H, W).
+            landmarks: Source landmarks (B, 68, 2) - Note: per-batch, not per-frame.
             batch_idx: Batch index.
         """
         # Get optimizers based on whether spatial GAN is also enabled
@@ -521,7 +594,10 @@ class DFLModule(pl.LightningModule):
         src_flat = src_seq.permute(0, 2, 1, 3, 4).reshape(B * T, C, H, W)
         pred_flat = pred_seq.permute(0, 2, 1, 3, 4).reshape(B * T, C, H, W)
 
-        total_loss, loss_dict = self.compute_loss(pred_flat, src_flat)
+        # Note: landmarks are per-batch, not per-frame, so we don't pass them
+        # for temporal training. Eyes/mouth/gaze losses work best with
+        # standard image training, not sequences.
+        total_loss, loss_dict = self.compute_loss(pred_flat, src_flat, None)
 
         # Temporal consistency loss
         temp_cons_loss = self.temporal_consistency_loss(pred_seq)
@@ -594,21 +670,26 @@ class DFLModule(pl.LightningModule):
             self.log(f"train_{name}", value, prog_bar=prog_bar)
 
     def validation_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self,
+        batch: tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]],
+        batch_idx: int,
     ) -> torch.Tensor:
         """
         Validation step.
 
         Args:
-            batch: Tuple of (source, target) tensors.
-                   For temporal: each is (B, C, T, H, W) sequence.
-                   For standard: each is (B, C, H, W) image.
+            batch: Tuple of (src_dict, dst_dict) each containing:
+                   - 'image': (B, C, H, W) tensor or (B, C, T, H, W) for temporal
+                   - 'landmarks': (B, 68, 2) tensor (optional)
+                   - 'mask': (B, 1, H, W) tensor (optional)
             batch_idx: Batch index.
 
         Returns:
             Loss value.
         """
-        src, dst = batch
+        src_dict, dst_dict = batch
+        src = src_dict["image"]
+        src_landmarks = src_dict.get("landmarks")
 
         if self.temporal_enabled:
             # Temporal validation
@@ -619,7 +700,8 @@ class DFLModule(pl.LightningModule):
             src_flat = src.permute(0, 2, 1, 3, 4).reshape(B * T, C, H, W)
             pred_flat = pred_seq.permute(0, 2, 1, 3, 4).reshape(B * T, C, H, W)
 
-            total_loss, loss_dict = self.compute_loss(pred_flat, src_flat)
+            # Landmarks not used in temporal validation
+            total_loss, loss_dict = self.compute_loss(pred_flat, src_flat, None)
 
             # Add temporal consistency loss
             temp_cons_loss = self.temporal_consistency_loss(pred_seq)
@@ -628,7 +710,7 @@ class DFLModule(pl.LightningModule):
         else:
             # Standard validation
             pred = self(src)
-            total_loss, loss_dict = self.compute_loss(pred, src)
+            total_loss, loss_dict = self.compute_loss(pred, src, src_landmarks)
 
         # Log validation losses
         for name, value in loss_dict.items():

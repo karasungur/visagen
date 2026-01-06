@@ -29,21 +29,27 @@ class PairedFaceDataset(Dataset):
     Args:
         src_dataset: Source person face dataset.
         dst_dataset: Destination person face dataset.
+        return_dict: If True, return full dicts with landmarks/mask.
+                     If False, return only image tensors (legacy). Default: True.
 
     Example:
         >>> src_data = FaceDataset(Path("data_src/aligned"))
         >>> dst_data = FaceDataset(Path("data_dst/aligned"))
         >>> paired = PairedFaceDataset(src_data, dst_data)
-        >>> src_img, dst_img = paired[0]
+        >>> src_dict, dst_dict = paired[0]
+        >>> src_dict["image"].shape, src_dict["landmarks"].shape
+        (torch.Size([3, 256, 256]), torch.Size([68, 2]))
     """
 
     def __init__(
         self,
         src_dataset: Dataset,
         dst_dataset: Dataset,
+        return_dict: bool = True,
     ) -> None:
         self.src_dataset = src_dataset
         self.dst_dataset = dst_dataset
+        self.return_dict = return_dict
 
         # Use larger dataset size, wrap smaller
         self._length = max(len(src_dataset), len(dst_dataset))
@@ -51,7 +57,12 @@ class PairedFaceDataset(Dataset):
     def __len__(self) -> int:
         return self._length
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self, idx: int
+    ) -> (
+        tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]
+        | tuple[torch.Tensor, torch.Tensor]
+    ):
         """
         Get paired sample.
 
@@ -59,7 +70,9 @@ class PairedFaceDataset(Dataset):
             idx: Sample index.
 
         Returns:
-            Tuple of (src_image, dst_image) tensors.
+            If return_dict=True: Tuple of (src_dict, dst_dict) each containing
+                'image', 'landmarks', and optionally 'mask'.
+            If return_dict=False: Tuple of (src_image, dst_image) tensors.
         """
         # Wrap indices for smaller dataset
         src_idx = idx % len(self.src_dataset)
@@ -68,7 +81,11 @@ class PairedFaceDataset(Dataset):
         src_sample = self.src_dataset[src_idx]
         dst_sample = self.dst_dataset[dst_idx]
 
-        return src_sample["image"], dst_sample["image"]
+        if self.return_dict:
+            return src_sample, dst_sample
+        else:
+            # Legacy mode: return only images
+            return src_sample["image"], dst_sample["image"]
 
 
 class TransformWrapper(Dataset):
@@ -76,6 +93,7 @@ class TransformWrapper(Dataset):
     Wrapper to apply transforms to dataset output.
 
     Used to apply augmentation after dataset loading.
+    Supports both dict-based and tensor-based paired datasets.
 
     Args:
         dataset: Base dataset.
@@ -97,12 +115,37 @@ class TransformWrapper(Dataset):
         item = self.dataset[idx]
 
         if self.transform is not None:
-            if isinstance(item, tuple):
-                # Paired dataset returns (src, dst)
+            if isinstance(item, tuple) and len(item) == 2:
                 src, dst = item
-                src, _ = self.transform(src, None)
-                dst, _ = self.transform(dst, None)
-                return src, dst
+
+                # Handle dict-based paired dataset (new format with landmarks)
+                if isinstance(src, dict) and isinstance(dst, dict):
+                    src_image = src["image"]
+                    src_mask = src.get("mask")
+                    dst_image = dst["image"]
+                    dst_mask = dst.get("mask")
+
+                    # Apply transforms to images and masks
+                    src_image, src_mask = self.transform(src_image, src_mask)
+                    dst_image, dst_mask = self.transform(dst_image, dst_mask)
+
+                    # Update dicts with transformed values
+                    src["image"] = src_image
+                    if src_mask is not None:
+                        src["mask"] = src_mask
+
+                    dst["image"] = dst_image
+                    if dst_mask is not None:
+                        dst["mask"] = dst_mask
+
+                    # Landmarks are preserved unchanged (pixel coords don't need transform)
+                    return src, dst
+                else:
+                    # Legacy tensor-only paired dataset
+                    src, _ = self.transform(src, None)
+                    dst, _ = self.transform(dst, None)
+                    return src, dst
+
             elif isinstance(item, dict):
                 # Single dataset returns dict
                 image = item["image"]
