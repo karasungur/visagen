@@ -383,4 +383,42 @@ class TestGradioAppFaceRestoration:
         app = GradioApp()
 
         with pytest.raises(gr.Error, match="provide an image"):
-            app.apply_face_restoration(None, 0.5, 1.4)
+            app.apply_face_restoration(None, 0.5, "gfpgan", 1.4, 512)
+
+
+class TestGradioAppNeuralColorTransfer:
+    """Tests for neural color transfer in GradioApp."""
+
+    def test_neural_color_no_images(self):
+        """Test error when images not provided."""
+        app = GradioApp()
+
+        with pytest.raises(gr.Error, match="provide both"):
+            app.apply_neural_color_transfer(None, None, "histogram", 0.8, True)
+
+    def test_neural_color_no_source(self):
+        """Test error when source not provided."""
+        app = GradioApp()
+        target = np.random.randint(0, 255, (128, 128, 3), dtype=np.uint8)
+
+        with pytest.raises(gr.Error, match="provide both"):
+            app.apply_neural_color_transfer(None, target, "histogram", 0.8, True)
+
+    def test_neural_color_no_target(self):
+        """Test error when target not provided."""
+        app = GradioApp()
+        source = np.random.randint(0, 255, (128, 128, 3), dtype=np.uint8)
+
+        with pytest.raises(gr.Error, match="provide both"):
+            app.apply_neural_color_transfer(source, None, "histogram", 0.8, True)
+
+
+class TestGradioAppMaskExport:
+    """Tests for mask export in GradioApp."""
+
+    def test_mask_export_no_image(self):
+        """Test error when image not provided."""
+        app = GradioApp()
+
+        with pytest.raises(gr.Error, match="provide an image"):
+            app.segment_and_export_mask(None, "labelme", "face")

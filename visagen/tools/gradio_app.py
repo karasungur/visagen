@@ -442,15 +442,19 @@ class GradioApp:
         self,
         image: np.ndarray,
         strength: float,
+        mode: str,
         model_version: float,
+        gpen_model_size: int,
     ) -> np.ndarray:
         """
-        Apply GFPGAN face restoration to image.
+        Apply face restoration to image.
 
         Args:
             image: Input face image (H, W, 3) uint8 RGB.
             strength: Restoration strength (0.0-1.0).
+            mode: Restoration mode ('gfpgan' or 'gpen').
             model_version: GFPGAN version (1.2, 1.3, 1.4).
+            gpen_model_size: GPEN model size (256, 512, 1024).
 
         Returns:
             Restored face image (H, W, 3) uint8 RGB.
@@ -459,24 +463,46 @@ class GradioApp:
             raise gr.Error("Please provide an image.")
 
         try:
-            from visagen.postprocess.restore import is_gfpgan_available, restore_face
-
-            if not is_gfpgan_available():
-                raise gr.Error(
-                    "GFPGAN not installed. Install with: pip install 'visagen[restore]'"
-                )
-
             import cv2
 
-            # Gradio provides RGB, GFPGAN expects BGR
+            # Gradio provides RGB, restoration expects BGR
             image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-            # Apply restoration
-            restored_bgr = restore_face(
-                image_bgr,
-                strength=strength,
-                model_version=model_version,
-            )
+            if mode == "gpen":
+                from visagen.postprocess.gpen import (
+                    is_gpen_available,
+                    restore_face_gpen,
+                )
+
+                if not is_gpen_available():
+                    raise gr.Error(
+                        "GPEN not available. Requires PyTorch. "
+                        "Install with: pip install torch"
+                    )
+
+                restored_bgr = restore_face_gpen(
+                    image_bgr,
+                    strength=strength,
+                    model_size=gpen_model_size,
+                )
+            else:
+                # Default: GFPGAN
+                from visagen.postprocess.restore import (
+                    is_gfpgan_available,
+                    restore_face,
+                )
+
+                if not is_gfpgan_available():
+                    raise gr.Error(
+                        "GFPGAN not installed. "
+                        "Install with: pip install 'visagen[restore]'"
+                    )
+
+                restored_bgr = restore_face(
+                    image_bgr,
+                    strength=strength,
+                    model_version=model_version,
+                )
 
             # Convert back to RGB
             restored_rgb = cv2.cvtColor(restored_bgr, cv2.COLOR_BGR2RGB)
@@ -485,10 +511,147 @@ class GradioApp:
 
         except ImportError:
             raise gr.Error(
-                "Restore module not available. Install with: pip install 'visagen[restore]'"
+                "Restore module not available. "
+                "Install with: pip install 'visagen[restore]'"
             )
         except Exception as e:
             raise gr.Error(f"Face restoration failed: {e}")
+
+    def apply_neural_color_transfer(
+        self,
+        source: np.ndarray,
+        target: np.ndarray,
+        mode: str,
+        strength: float,
+        preserve_luminance: bool,
+    ) -> np.ndarray:
+        """
+        Apply neural color transfer.
+
+        Args:
+            source: Style reference image (H, W, 3) uint8 RGB.
+            target: Target image to modify (H, W, 3) uint8 RGB.
+            mode: Transfer mode ('histogram', 'statistics', 'gram').
+            strength: Transfer strength (0.0-1.0).
+            preserve_luminance: Keep target luminance.
+
+        Returns:
+            Color-transferred image (H, W, 3) uint8 RGB.
+        """
+        if source is None or target is None:
+            raise gr.Error("Please provide both source and target images.")
+
+        try:
+            import cv2
+
+            from visagen.postprocess.neural_color import (
+                is_neural_color_available,
+                neural_color_transfer,
+            )
+
+            if not is_neural_color_available():
+                raise gr.Error(
+                    "Neural color transfer not available. "
+                    "Requires PyTorch. Install with: pip install torch"
+                )
+
+            # Convert RGB to BGR float32 [0, 1]
+            source_bgr = cv2.cvtColor(source, cv2.COLOR_RGB2BGR).astype(np.float32) / 255
+            target_bgr = cv2.cvtColor(target, cv2.COLOR_RGB2BGR).astype(np.float32) / 255
+
+            # Apply transfer
+            result_bgr = neural_color_transfer(
+                target_bgr,
+                source_bgr,
+                mode=mode,
+                strength=strength,
+                preserve_luminance=preserve_luminance,
+            )
+
+            # Convert back to RGB uint8
+            result_rgb = cv2.cvtColor(
+                (result_bgr * 255).clip(0, 255).astype(np.uint8),
+                cv2.COLOR_BGR2RGB,
+            )
+
+            return result_rgb
+
+        except Exception as e:
+            raise gr.Error(f"Neural color transfer failed: {e}")
+
+    def segment_and_export_mask(
+        self,
+        image: np.ndarray,
+        export_format: str,
+        label: str,
+    ) -> tuple[np.ndarray | None, str | None]:
+        """
+        Segment face and export mask to annotation format.
+
+        Args:
+            image: Input image (H, W, 3) uint8 RGB.
+            export_format: Export format ('labelme' or 'coco').
+            label: Label name for the mask.
+
+        Returns:
+            Tuple of (mask visualization, exported file path).
+        """
+        if image is None:
+            raise gr.Error("Please provide an image.")
+
+        try:
+            import tempfile
+
+            import cv2
+
+            from visagen.vision.mask_export import export_coco, export_labelme
+            from visagen.vision.segmenter import FaceSegmenter
+
+            # Convert RGB to BGR
+            image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+            # Segment
+            segmenter = FaceSegmenter()
+            mask = segmenter.segment(image_bgr)
+
+            if mask is None:
+                raise gr.Error("Segmentation failed. No face detected.")
+
+            # Create temp file for export
+            suffix = ".json"
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False, mode="w"
+            ) as f:
+                temp_path = f.name
+
+            # Export based on format
+            from pathlib import Path
+
+            if export_format == "coco":
+                export_coco(
+                    [Path("input.jpg")],
+                    [mask],
+                    Path(temp_path),
+                    categories=[{"id": 1, "name": label}],
+                )
+            else:
+                # Default: labelme
+                export_labelme(
+                    Path("input.jpg"),
+                    mask,
+                    Path(temp_path),
+                    label=label,
+                )
+
+            # Create mask visualization (colorized)
+            mask_vis = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
+            mask_vis[:, :, 1] = 0  # Remove green
+            mask_vis[:, :, 2] = 0  # Remove blue, keep red
+
+            return mask_vis, temp_path
+
+        except Exception as e:
+            raise gr.Error(f"Mask export failed: {e}")
 
     def run_merge(
         self,
@@ -1286,6 +1449,44 @@ def create_extract_tab(app: GradioApp) -> dict[str, Any]:
             outputs=extract_log,
         )
 
+        gr.Markdown("---")
+        gr.Markdown("### Mask Export")
+        gr.Markdown(
+            "Segment faces and export masks to LabelMe/COCO format for external editing."
+        )
+
+        with gr.Row():
+            mask_input = gr.Image(
+                label="Input Image",
+                type="numpy",
+            )
+            mask_preview = gr.Image(
+                label="Segmentation Mask",
+                type="numpy",
+            )
+
+        with gr.Row():
+            mask_format = gr.Dropdown(
+                ["labelme", "coco"],
+                value="labelme",
+                label="Export Format",
+                info="LabelMe=per-image JSON, COCO=dataset-wide JSON",
+            )
+            mask_label = gr.Textbox(
+                value="face",
+                label="Label Name",
+                info="Label for the segmented region",
+            )
+            mask_export_btn = gr.Button("Segment & Export")
+
+        mask_output = gr.File(label="Exported Annotation File")
+
+        mask_export_btn.click(
+            fn=app.segment_and_export_mask,
+            inputs=[mask_input, mask_format, mask_label],
+            outputs=[mask_preview, mask_output],
+        )
+
     return {}
 
 
@@ -1629,7 +1830,7 @@ def create_postprocess_tab(app: GradioApp) -> dict[str, Any]:
 
         gr.Markdown("---")
         gr.Markdown("### Face Restoration Demo")
-        gr.Markdown("Enhance face quality using GFPGAN.")
+        gr.Markdown("Enhance face quality using GFPGAN or GPEN.")
 
         with gr.Row():
             restore_input = gr.Image(
@@ -1642,6 +1843,12 @@ def create_postprocess_tab(app: GradioApp) -> dict[str, Any]:
             )
 
         with gr.Row():
+            restore_mode = gr.Dropdown(
+                ["gfpgan", "gpen"],
+                value="gfpgan",
+                label="Restoration Mode",
+                info="GFPGAN: Best quality, GPEN: Better structure preservation",
+            )
             restore_strength = gr.Slider(
                 0.0,
                 1.0,
@@ -1650,17 +1857,76 @@ def create_postprocess_tab(app: GradioApp) -> dict[str, Any]:
                 label="Restoration Strength",
                 info="0 = original, 1 = fully restored",
             )
+
+        with gr.Row():
             restore_version = gr.Dropdown(
                 [1.2, 1.3, 1.4],
                 value=1.4,
                 label="GFPGAN Version",
+                info="Only used when mode is GFPGAN",
+            )
+            gpen_model_size = gr.Dropdown(
+                [256, 512, 1024],
+                value=512,
+                label="GPEN Model Size",
+                info="Only used when mode is GPEN. Larger = better quality, slower",
             )
             restore_btn = gr.Button("Restore Face")
 
         restore_btn.click(
             fn=app.apply_face_restoration,
-            inputs=[restore_input, restore_strength, restore_version],
+            inputs=[
+                restore_input,
+                restore_strength,
+                restore_mode,
+                restore_version,
+                gpen_model_size,
+            ],
             outputs=restore_result,
+        )
+
+        gr.Markdown("---")
+        gr.Markdown("### Neural Color Transfer")
+        gr.Markdown("VGG-based semantic color matching for more realistic results.")
+
+        with gr.Row():
+            nct_source = gr.Image(
+                label="Style Reference (color source)",
+                type="numpy",
+            )
+            nct_target = gr.Image(
+                label="Target Image (to modify)",
+                type="numpy",
+            )
+            nct_result = gr.Image(
+                label="Result",
+                type="numpy",
+            )
+
+        with gr.Row():
+            nct_mode = gr.Dropdown(
+                ["histogram", "statistics", "gram"],
+                value="histogram",
+                label="Transfer Mode",
+                info="histogram=LAB space, statistics=mean/std, gram=style (requires torchvision)",
+            )
+            nct_strength = gr.Slider(
+                0.0,
+                1.0,
+                value=0.8,
+                step=0.1,
+                label="Transfer Strength",
+            )
+            nct_preserve_lum = gr.Checkbox(
+                value=True,
+                label="Preserve Luminance",
+            )
+            nct_btn = gr.Button("Apply Neural Color")
+
+        nct_btn.click(
+            fn=app.apply_neural_color_transfer,
+            inputs=[nct_source, nct_target, nct_mode, nct_strength, nct_preserve_lum],
+            outputs=nct_result,
         )
 
     return {}
