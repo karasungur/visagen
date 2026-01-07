@@ -28,7 +28,11 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from visagen.data.datamodule import FaceDataModule
-from visagen.training.callbacks import PreviewCallback
+from visagen.training.callbacks import (
+    AutoBackupCallback,
+    PreviewCallback,
+    TargetStepCallback,
+)
 from visagen.training.dfl_module import DFLModule
 
 
@@ -286,6 +290,40 @@ Examples:
         help="Save historical previews (step_*.png)",
     )
 
+    # Auto-backup arguments
+    parser.add_argument(
+        "--backup-interval",
+        type=int,
+        default=0,
+        help="Create backup every N steps (0 = disabled, default: 0)",
+    )
+    parser.add_argument(
+        "--backup-minutes",
+        type=int,
+        default=0,
+        help="Create backup every N minutes (0 = use step interval)",
+    )
+    parser.add_argument(
+        "--max-backups",
+        type=int,
+        default=5,
+        help="Maximum number of rotating backups to keep (default: 5)",
+    )
+
+    # Target stopping arguments
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=0,
+        help="Stop training at this step (0 = unlimited, default: 0)",
+    )
+    parser.add_argument(
+        "--target-loss",
+        type=float,
+        default=None,
+        help="Stop training when loss reaches this value (default: None)",
+    )
+
     return parser.parse_args()
 
 
@@ -460,6 +498,24 @@ def main() -> int:
         )
         callbacks.append(preview_callback)
 
+    # Add auto-backup callback
+    if args.backup_interval > 0 or args.backup_minutes > 0:
+        backup_callback = AutoBackupCallback(
+            backup_dir=args.output_dir / "backups",
+            interval_steps=args.backup_interval if args.backup_interval > 0 else 0,
+            interval_minutes=args.backup_minutes if args.backup_minutes > 0 else None,
+            max_backups=args.max_backups,
+        )
+        callbacks.append(backup_callback)
+
+    # Add target step/loss callback
+    if args.max_steps > 0 or args.target_loss is not None:
+        target_callback = TargetStepCallback(
+            target_step=args.max_steps,
+            target_loss=args.target_loss,
+        )
+        callbacks.append(target_callback)
+
     # Logger
     logger = TensorBoardLogger(
         save_dir=args.output_dir,
@@ -477,6 +533,14 @@ def main() -> int:
     print(f"  Output: {args.output_dir}")
     if not args.no_preview:
         print(f"  Preview interval: {args.preview_interval} steps")
+    if args.backup_interval > 0:
+        print(f"  Backup interval: {args.backup_interval} steps")
+    if args.backup_minutes > 0:
+        print(f"  Backup interval: {args.backup_minutes} minutes")
+    if args.max_steps > 0:
+        print(f"  Target steps: {args.max_steps}")
+    if args.target_loss is not None:
+        print(f"  Target loss: {args.target_loss}")
 
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
