@@ -60,6 +60,9 @@ class GradioApp:
         # Lazy-loaded components
         self._restorer = None
 
+        # Interactive merger instance
+        self._interactive_merger = None
+
     def get_preview_status(self, output_dir: str) -> tuple[str, np.ndarray | None]:
         """
         Get current training preview status.
@@ -78,7 +81,10 @@ class GradioApp:
         latest_json = preview_path / "latest.json"
 
         if not latest_img.exists():
-            return "No preview available yet. Training may not have started or reached first interval.", None
+            return (
+                "No preview available yet. Training may not have started or reached first interval.",
+                None,
+            )
 
         try:
             import cv2
@@ -1273,6 +1279,528 @@ class GradioApp:
         except Exception as e:
             yield f"\n\nError: {e}"
 
+    # ==========================================================================
+    # Interactive Merger Methods
+    # ==========================================================================
+
+    def interactive_load_session(
+        self,
+        checkpoint_path: str,
+        frames_dir: str,
+        output_dir: str,
+    ) -> tuple[str, np.ndarray | None, int, int]:
+        """
+        Load interactive merger session.
+
+        Returns:
+            Tuple of (status_message, preview_image, current_idx, total_frames).
+        """
+        from visagen.merger.interactive import InteractiveMerger
+
+        try:
+            # Create new merger instance
+            self._interactive_merger = InteractiveMerger(
+                checkpoint_path=checkpoint_path if checkpoint_path else None,
+                frames_dir=frames_dir if frames_dir else None,
+                output_dir=output_dir or "./output",
+            )
+
+            # Load session
+            success, message = self._interactive_merger.load_session()
+
+            if not success:
+                return message, None, 0, 0
+
+            # Get first frame preview
+            preview = self._interactive_merger.process_current_frame()
+            info = self._interactive_merger.get_current_frame_info()
+
+            return (
+                f"Loaded: {info['total']} frames from {frames_dir}",
+                preview,
+                info["index"],
+                info["total"],
+            )
+
+        except Exception as e:
+            return f"Error loading session: {e}", None, 0, 0
+
+    def interactive_update_config(
+        self,
+        mode: str,
+        mask_mode: str,
+        color_transfer: str,
+        erode_mask: int,
+        blur_mask: int,
+        face_scale: int,
+        sharpen_mode: str,
+        sharpen_amount: int,
+        hist_match_threshold: int,
+        restore_face: bool,
+        restore_strength: float,
+    ) -> tuple[np.ndarray | None, str]:
+        """
+        Update interactive merger configuration and return preview.
+
+        Returns:
+            Tuple of (preview_image, config_status_string).
+        """
+        if self._interactive_merger is None:
+            return None, "No session loaded"
+
+        try:
+            # Update config
+            preview = self._interactive_merger.update_config(
+                mode=mode,
+                mask_mode=mask_mode,
+                color_transfer=color_transfer,
+                erode_mask=erode_mask,
+                blur_mask=blur_mask,
+                face_scale=face_scale,
+                sharpen_mode=sharpen_mode,
+                sharpen_amount=sharpen_amount,
+                hist_match_threshold=hist_match_threshold,
+                restore_face=restore_face,
+                restore_strength=restore_strength,
+            )
+
+            # Get status string
+            status = self._interactive_merger.session.config.to_status_string()
+
+            return preview, status
+
+        except Exception as e:
+            return None, f"Error: {e}"
+
+    def interactive_navigate(self, delta: int) -> tuple[np.ndarray | None, int, str]:
+        """
+        Navigate to next/previous frame.
+
+        Returns:
+            Tuple of (preview_image, current_idx, frame_info).
+        """
+        if self._interactive_merger is None:
+            return None, 0, "No session loaded"
+
+        try:
+            preview, idx = self._interactive_merger.navigate(delta)
+            info = self._interactive_merger.get_current_frame_info()
+
+            return (
+                preview,
+                idx,
+                f"Frame {info['index'] + 1}/{info['total']}: {info['filename']}",
+            )
+
+        except Exception as e:
+            return None, 0, f"Error: {e}"
+
+    def interactive_go_to_frame(self, idx: int) -> tuple[np.ndarray | None, int, str]:
+        """
+        Go to specific frame.
+
+        Returns:
+            Tuple of (preview_image, actual_idx, frame_info).
+        """
+        if self._interactive_merger is None:
+            return None, 0, "No session loaded"
+
+        try:
+            preview, actual_idx = self._interactive_merger.go_to_frame(int(idx))
+            info = self._interactive_merger.get_current_frame_info()
+
+            return (
+                preview,
+                actual_idx,
+                f"Frame {info['index'] + 1}/{info['total']}: {info['filename']}",
+            )
+
+        except Exception as e:
+            return None, 0, f"Error: {e}"
+
+    def interactive_save_session(self, session_path: str | None = None) -> str:
+        """Save current interactive session."""
+        if self._interactive_merger is None:
+            return "No session loaded"
+
+        try:
+            success, message = self._interactive_merger.save_session(
+                session_path if session_path else None
+            )
+            return message
+
+        except Exception as e:
+            return f"Error saving session: {e}"
+
+    def interactive_export_current(self) -> str:
+        """Export current frame."""
+        if self._interactive_merger is None:
+            return "No session loaded"
+
+        try:
+            idx = self._interactive_merger.session.current_idx
+            success, message = self._interactive_merger.export_frame(idx)
+            return message
+
+        except Exception as e:
+            return f"Error exporting frame: {e}"
+
+    def interactive_export_all(self) -> str:
+        """Export all frames with current configuration."""
+        if self._interactive_merger is None:
+            return "No session loaded"
+
+        try:
+            success, message, count = self._interactive_merger.export_all()
+            return message
+
+        except Exception as e:
+            return f"Error exporting frames: {e}"
+
+    def interactive_get_original(self) -> np.ndarray | None:
+        """Get original (unprocessed) current frame."""
+        if self._interactive_merger is None:
+            return None
+
+        return self._interactive_merger.get_original_frame()
+
+
+def create_interactive_merge_tab(app: GradioApp) -> dict[str, Any]:
+    """Create interactive merger tab with real-time preview."""
+    with gr.Tab("Interactive Merge"):
+        gr.Markdown("### Interactive Face Merge")
+        gr.Markdown(
+            "Real-time preview with adjustable parameters. "
+            "Load a trained model and frame sequence to begin."
+        )
+
+        # Session setup
+        gr.Markdown("#### Session Setup")
+        with gr.Row():
+            with gr.Column():
+                im_checkpoint = gr.Textbox(
+                    label="Model Checkpoint",
+                    placeholder="./workspace/model/checkpoints/last.ckpt",
+                    info="Path to trained model checkpoint",
+                )
+                im_frames_dir = gr.Textbox(
+                    label="Frames Directory",
+                    placeholder="./frames",
+                    info="Directory containing input frame images",
+                )
+                im_output_dir = gr.Textbox(
+                    label="Output Directory",
+                    value="./output",
+                    info="Directory for exported frames",
+                )
+
+            with gr.Column():
+                im_load_btn = gr.Button("Load Session", variant="primary")
+                im_session_status = gr.Textbox(
+                    label="Session Status",
+                    value="No session loaded",
+                    interactive=False,
+                )
+
+        gr.Markdown("---")
+
+        with gr.Row():
+            # Left column: Controls
+            with gr.Column(scale=1):
+                gr.Markdown("#### Merge Settings")
+
+                im_mode = gr.Dropdown(
+                    [
+                        "original",
+                        "overlay",
+                        "hist-match",
+                        "seamless",
+                        "seamless-hist-match",
+                        "raw-rgb",
+                        "raw-predict",
+                    ],
+                    value="overlay",
+                    label="Merge Mode",
+                    info="How to blend swapped face",
+                )
+
+                im_mask_mode = gr.Dropdown(
+                    ["full", "convex_hull", "segmented"],
+                    value="segmented",
+                    label="Mask Mode",
+                    info="Face region segmentation method",
+                )
+
+                im_color_transfer = gr.Dropdown(
+                    ["none", "rct", "lct", "mkl", "idt", "sot"],
+                    value="rct",
+                    label="Color Transfer",
+                    info="Color matching algorithm",
+                )
+
+                gr.Markdown("#### Mask Processing")
+
+                im_erode_mask = gr.Slider(
+                    -100,
+                    100,
+                    value=0,
+                    step=1,
+                    label="Erode Mask",
+                    info="Negative = dilate, Positive = erode",
+                )
+
+                im_blur_mask = gr.Slider(
+                    0,
+                    100,
+                    value=10,
+                    step=1,
+                    label="Blur Mask",
+                    info="Mask edge softness",
+                )
+
+                im_face_scale = gr.Slider(
+                    -50,
+                    50,
+                    value=0,
+                    step=1,
+                    label="Face Scale",
+                    info="Adjust swapped face size",
+                )
+
+                gr.Markdown("#### Sharpening")
+
+                im_sharpen_mode = gr.Dropdown(
+                    ["none", "box", "gaussian"],
+                    value="none",
+                    label="Sharpen Mode",
+                )
+
+                im_sharpen_amount = gr.Slider(
+                    -100,
+                    100,
+                    value=0,
+                    step=1,
+                    label="Sharpen Amount",
+                    info="Negative = blur, Positive = sharpen",
+                )
+
+                gr.Markdown("#### Advanced")
+
+                im_hist_threshold = gr.Slider(
+                    0,
+                    255,
+                    value=238,
+                    step=1,
+                    label="Histogram Match Threshold",
+                )
+
+                im_restore_face = gr.Checkbox(
+                    label="GFPGAN Restoration",
+                    value=False,
+                    info="Enhance face quality",
+                )
+
+                im_restore_strength = gr.Slider(
+                    0.0,
+                    1.0,
+                    value=0.5,
+                    step=0.1,
+                    label="Restoration Strength",
+                )
+
+                # Apply button
+                im_apply_btn = gr.Button("Apply Settings", variant="secondary")
+                im_config_status = gr.Textbox(
+                    label="Current Config",
+                    interactive=False,
+                    value="Mode: overlay | Mask: segmented | Color: rct",
+                )
+
+            # Right column: Preview
+            with gr.Column(scale=2):
+                gr.Markdown("#### Preview")
+
+                with gr.Row():
+                    im_show_original = gr.Checkbox(
+                        label="Show Original",
+                        value=False,
+                    )
+
+                im_preview = gr.Image(
+                    label="Preview",
+                    type="numpy",
+                    height=512,
+                )
+
+                im_frame_info = gr.Textbox(
+                    label="Frame Info",
+                    value="No frame loaded",
+                    interactive=False,
+                )
+
+                # Navigation
+                with gr.Row():
+                    im_prev_btn = gr.Button("◀ Previous")
+                    im_frame_slider = gr.Slider(
+                        0,
+                        100,
+                        value=0,
+                        step=1,
+                        label="Frame",
+                    )
+                    im_next_btn = gr.Button("Next ▶")
+
+                gr.Markdown("---")
+
+                # Export section
+                gr.Markdown("#### Export")
+                with gr.Row():
+                    im_export_current_btn = gr.Button("Export Current Frame")
+                    im_export_all_btn = gr.Button(
+                        "Export All Frames", variant="primary"
+                    )
+                    im_save_session_btn = gr.Button("Save Session")
+
+                im_export_status = gr.Textbox(
+                    label="Export Status",
+                    interactive=False,
+                )
+
+        # ==========================================================================
+        # Event Handlers
+        # ==========================================================================
+
+        def on_load_session(checkpoint, frames_dir, output_dir):
+            """Handle session load."""
+            status, preview, idx, total = app.interactive_load_session(
+                checkpoint, frames_dir, output_dir
+            )
+            # Update slider max value
+            return (
+                status,
+                preview,
+                gr.update(maximum=max(0, total - 1), value=idx),
+                f"Frame {idx + 1}/{total}" if total > 0 else "No frames",
+            )
+
+        im_load_btn.click(
+            fn=on_load_session,
+            inputs=[im_checkpoint, im_frames_dir, im_output_dir],
+            outputs=[im_session_status, im_preview, im_frame_slider, im_frame_info],
+        )
+
+        def on_apply_settings(
+            mode,
+            mask_mode,
+            color_transfer,
+            erode,
+            blur,
+            scale,
+            sharpen_mode,
+            sharpen_amount,
+            hist_threshold,
+            restore_face,
+            restore_strength,
+            show_original,
+        ):
+            """Handle settings update."""
+            if show_original:
+                original = app.interactive_get_original()
+                return original, "Showing original (settings not applied)"
+
+            preview, status = app.interactive_update_config(
+                mode,
+                mask_mode,
+                color_transfer,
+                erode,
+                blur,
+                scale,
+                sharpen_mode,
+                sharpen_amount,
+                hist_threshold,
+                restore_face,
+                restore_strength,
+            )
+            return preview, status
+
+        # Bind all parameter changes to update
+        config_inputs = [
+            im_mode,
+            im_mask_mode,
+            im_color_transfer,
+            im_erode_mask,
+            im_blur_mask,
+            im_face_scale,
+            im_sharpen_mode,
+            im_sharpen_amount,
+            im_hist_threshold,
+            im_restore_face,
+            im_restore_strength,
+            im_show_original,
+        ]
+
+        im_apply_btn.click(
+            fn=on_apply_settings,
+            inputs=config_inputs,
+            outputs=[im_preview, im_config_status],
+        )
+
+        # Also update on show_original change
+        im_show_original.change(
+            fn=on_apply_settings,
+            inputs=config_inputs,
+            outputs=[im_preview, im_config_status],
+        )
+
+        def on_navigate_prev():
+            """Navigate to previous frame."""
+            preview, idx, info = app.interactive_navigate(-1)
+            return preview, idx, info
+
+        def on_navigate_next():
+            """Navigate to next frame."""
+            preview, idx, info = app.interactive_navigate(1)
+            return preview, idx, info
+
+        im_prev_btn.click(
+            fn=on_navigate_prev,
+            outputs=[im_preview, im_frame_slider, im_frame_info],
+        )
+
+        im_next_btn.click(
+            fn=on_navigate_next,
+            outputs=[im_preview, im_frame_slider, im_frame_info],
+        )
+
+        def on_slider_change(idx):
+            """Handle frame slider change."""
+            preview, actual_idx, info = app.interactive_go_to_frame(idx)
+            return preview, info
+
+        im_frame_slider.release(
+            fn=on_slider_change,
+            inputs=[im_frame_slider],
+            outputs=[im_preview, im_frame_info],
+        )
+
+        # Export handlers
+        im_export_current_btn.click(
+            fn=app.interactive_export_current,
+            outputs=im_export_status,
+        )
+
+        im_export_all_btn.click(
+            fn=app.interactive_export_all,
+            outputs=im_export_status,
+        )
+
+        im_save_session_btn.click(
+            fn=app.interactive_save_session,
+            outputs=im_export_status,
+        )
+
+    return {}
+
 
 def create_training_tab(app: GradioApp) -> dict[str, Any]:
     """Create training configuration and execution tab."""
@@ -2431,6 +2959,7 @@ def create_app() -> "gr.Blocks":
         create_inference_tab(app_state)
         create_extract_tab(app_state)
         create_merge_tab(app_state)
+        create_interactive_merge_tab(app_state)
         create_sort_tab(app_state)
         create_export_tab(app_state)
         create_video_tools_tab(app_state)

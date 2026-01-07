@@ -6,6 +6,7 @@ This module provides tools for merging face swaps into videos:
 - FrameProcessor: Single-frame face swap processing
 - FaceMerger: High-level video processing orchestration
 - BatchProcessor: Parallel frame processing
+- InteractiveMerger: Real-time preview with parameter adjustment
 
 Example:
     >>> from visagen.merger import FaceMerger, MergerConfig
@@ -16,6 +17,13 @@ Example:
     ... )
     >>> merger = FaceMerger(config)
     >>> stats = merger.run()
+
+Interactive Example:
+    >>> from visagen.merger import InteractiveMerger
+    >>> merger = InteractiveMerger("model.ckpt", "frames/", "output/")
+    >>> merger.load_session()
+    >>> preview = merger.process_current_frame()
+    >>> merger.update_config(erode_mask=10, blur_mask=20)
 """
 
 from visagen.merger.batch_processor import (
@@ -27,6 +35,15 @@ from visagen.merger.frame_processor import (
     FrameProcessor,
     FrameProcessorConfig,
     ProcessedFrame,
+)
+from visagen.merger.interactive import InteractiveMerger
+from visagen.merger.interactive_config import (
+    COLOR_TRANSFER_MODES,
+    MASK_MODES,
+    MERGE_MODES,
+    SHARPEN_MODES,
+    InteractiveMergerConfig,
+    InteractiveMergerSession,
 )
 from visagen.merger.merger import (
     FaceMerger,
@@ -71,4 +88,12 @@ __all__ = [
     "WorkItem",
     "WorkResult",
     "BatchProcessor",
+    # Interactive merger
+    "InteractiveMerger",
+    "InteractiveMergerConfig",
+    "InteractiveMergerSession",
+    "MERGE_MODES",
+    "MASK_MODES",
+    "COLOR_TRANSFER_MODES",
+    "SHARPEN_MODES",
 ]
