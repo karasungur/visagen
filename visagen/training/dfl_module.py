@@ -933,3 +933,72 @@ class DFLModule(pl.LightningModule):
                     "interval": "epoch",
                 },
             }
+
+    def generate_preview(
+        self,
+        src: torch.Tensor,
+        dst: torch.Tensor,
+        num_samples: int = 4,
+    ) -> torch.Tensor:
+        """
+        Generate preview grid for visualization.
+
+        Creates a 4-row grid showing:
+        - Row 1: Source original images
+        - Row 2: Source reconstructed images
+        - Row 3: Destination original images
+        - Row 4: Destination with swapped face
+
+        Args:
+            src: Source images tensor (B, C, H, W).
+            dst: Destination images tensor (B, C, H, W).
+            num_samples: Number of samples to include in grid.
+
+        Returns:
+            Preview grid tensor (C, H_grid, W_grid).
+
+        Example:
+            >>> model = DFLModule()
+            >>> src = torch.randn(4, 3, 256, 256)
+            >>> dst = torch.randn(4, 3, 256, 256)
+            >>> grid = model.generate_preview(src, dst, num_samples=4)
+            >>> grid.shape
+            torch.Size([3, 1032, 1032])  # Approximate, depends on padding
+        """
+        try:
+            import torchvision.utils as vutils
+        except ImportError:
+            raise ImportError(
+                "torchvision required for preview generation. "
+                "Install with: pip install torchvision"
+            )
+
+        # Limit to num_samples
+        actual_samples = min(src.shape[0], dst.shape[0], num_samples)
+        src = src[:actual_samples]
+        dst = dst[:actual_samples]
+
+        # Store training state and switch to eval
+        was_training = self.training
+        self.eval()
+
+        try:
+            with torch.no_grad():
+                src_pred = self(src)
+                dst_pred = self(dst)
+
+            # Create grid: 4 rows x num_samples cols
+            grid = vutils.make_grid(
+                torch.cat([src, src_pred, dst, dst_pred], dim=0),
+                nrow=actual_samples,
+                normalize=True,
+                value_range=(0, 1),
+                padding=2,
+            )
+
+            return grid
+
+        finally:
+            # Restore training mode
+            if was_training:
+                self.train()

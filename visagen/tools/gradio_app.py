@@ -60,6 +60,53 @@ class GradioApp:
         # Lazy-loaded components
         self._restorer = None
 
+    def get_preview_status(self, output_dir: str) -> tuple[str, np.ndarray | None]:
+        """
+        Get current training preview status.
+
+        Args:
+            output_dir: Training output directory containing previews folder.
+
+        Returns:
+            Tuple of (status_text, preview_image).
+        """
+        if not output_dir:
+            return "No output directory specified", None
+
+        preview_path = Path(output_dir) / "previews"
+        latest_img = preview_path / "latest.png"
+        latest_json = preview_path / "latest.json"
+
+        if not latest_img.exists():
+            return "No preview available yet. Training may not have started or reached first interval.", None
+
+        try:
+            import cv2
+
+            img = cv2.imread(str(latest_img))
+            if img is None:
+                return "Error: Could not read preview image", None
+
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+            status = "Preview available"
+            if latest_json.exists():
+                import json
+
+                with open(latest_json) as f:
+                    meta = json.load(f)
+                loss_val = meta.get("loss")
+                loss_str = f"{loss_val:.4f}" if loss_val is not None else "N/A"
+                status = (
+                    f"Step: {meta.get('step', '?')} | "
+                    f"Epoch: {meta.get('epoch', '?')} | "
+                    f"Loss: {loss_str}"
+                )
+
+            return status, img
+        except Exception as e:
+            return f"Error loading preview: {e}", None
+
     def load_model(self, checkpoint_path: str) -> str:
         """
         Load model from checkpoint.
@@ -1340,6 +1387,40 @@ def create_training_tab(app: GradioApp) -> dict[str, Any]:
             train_btn = gr.Button("Start Training", variant="primary")
             stop_btn = gr.Button("Stop Training", variant="stop")
 
+        gr.Markdown("---")
+        gr.Markdown("### Training Preview")
+        gr.Markdown(
+            "Preview updates automatically during training. "
+            "Shows: Source → Reconstructed | Destination → Swapped"
+        )
+
+        with gr.Row():
+            preview_status = gr.Textbox(
+                label="Preview Status",
+                value="No training in progress",
+                interactive=False,
+            )
+
+        preview_image = gr.Image(
+            label="Preview Grid (4 rows: src, src_pred, dst, dst_pred)",
+            type="numpy",
+            height=400,
+        )
+
+        with gr.Row():
+            refresh_preview_btn = gr.Button("🔄 Refresh Preview")
+
+        # Preview refresh handler
+        def refresh_preview(out_dir):
+            return app.get_preview_status(out_dir)
+
+        refresh_preview_btn.click(
+            fn=refresh_preview,
+            inputs=[output_dir],
+            outputs=[preview_status, preview_image],
+        )
+
+        gr.Markdown("---")
         training_log = gr.Textbox(
             label="Training Log",
             lines=15,

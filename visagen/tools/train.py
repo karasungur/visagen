@@ -28,6 +28,7 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from visagen.data.datamodule import FaceDataModule
+from visagen.training.callbacks import PreviewCallback
 from visagen.training.dfl_module import DFLModule
 
 
@@ -267,6 +268,24 @@ Examples:
         help="Disable warp augmentation",
     )
 
+    # Preview arguments
+    parser.add_argument(
+        "--preview-interval",
+        type=int,
+        default=500,
+        help="Generate preview every N steps (default: 500)",
+    )
+    parser.add_argument(
+        "--no-preview",
+        action="store_true",
+        help="Disable preview generation",
+    )
+    parser.add_argument(
+        "--save-preview-history",
+        action="store_true",
+        help="Save historical previews (step_*.png)",
+    )
+
     return parser.parse_args()
 
 
@@ -431,6 +450,16 @@ def main() -> int:
     except Exception:
         pass  # Rich not available
 
+    # Add preview callback
+    if not args.no_preview:
+        preview_callback = PreviewCallback(
+            preview_dir=args.output_dir / "previews",
+            interval=args.preview_interval,
+            num_samples=4,
+            save_history=args.save_preview_history,
+        )
+        callbacks.append(preview_callback)
+
     # Logger
     logger = TensorBoardLogger(
         save_dir=args.output_dir,
@@ -446,6 +475,8 @@ def main() -> int:
     print(f"  Accelerator: {args.accelerator}")
     print(f"  Devices: {args.devices}")
     print(f"  Output: {args.output_dir}")
+    if not args.no_preview:
+        print(f"  Preview interval: {args.preview_interval} steps")
 
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
