@@ -34,6 +34,10 @@ from visagen.training.callbacks import (
     TargetStepCallback,
 )
 from visagen.training.dfl_module import DFLModule
+from visagen.utils.config import (
+    load_config_with_validation,
+    print_config_summary,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -345,18 +349,63 @@ def main() -> int:
     """Main training entry point."""
     args = parse_args()
 
+    # Default values for CLI > Config priority checking
+    cli_defaults = {
+        "batch_size": 8,
+        "max_epochs": 500,
+        "learning_rate": 1e-4,
+        "image_size": 256,
+        "num_workers": 4,
+        "val_split": 0.1,
+        "dssim_weight": 10.0,
+        "l1_weight": 10.0,
+        "lpips_weight": 0.0,
+        "eyes_mouth_weight": 0.0,
+        "gaze_weight": 0.0,
+        "texture_weight": 0.0,
+        "preview_interval": 500,
+        "backup_interval": 0,
+        "backup_minutes": 0,
+        "max_backups": 5,
+        "max_steps": 0,
+        "devices": 1,
+        "accelerator": "auto",
+        "precision": "32",
+        "model_type": "standard",
+        "encoder_dims": "64,128,256,512",
+        "encoder_depths": "2,2,4,2",
+        "save_top_k": 3,
+        "eg3d_latent_dim": 512,
+        "eg3d_plane_channels": 32,
+        "eg3d_render_resolution": 64,
+    }
+
     # Load YAML config if provided
     if args.config is not None:
         if not args.config.exists():
             print(f"Error: Config file not found: {args.config}")
             return 1
 
-        config = load_config(args.config)
-        # Merge config with args (config takes precedence)
+        config, errors = load_config_with_validation(args.config)
+        if errors:
+            print("Config validation errors:")
+            for error in errors:
+                print(f"  - {error}")
+            return 1
+
+        # Merge: CLI > Config > Defaults
+        # Only use config value if CLI is still at default
         for key, value in config.items():
             key_normalized = key.replace("-", "_")
             if hasattr(args, key_normalized):
-                setattr(args, key_normalized, value)
+                current_value = getattr(args, key_normalized)
+                default_value = cli_defaults.get(key_normalized)
+                # Only apply config if CLI value equals default
+                if current_value == default_value:
+                    setattr(args, key_normalized, value)
+
+        # Print config summary
+        print_config_summary(config)
 
     # Validate directories
     if not args.src_dir.exists():
@@ -564,6 +613,21 @@ def main() -> int:
     print("\nStarting training...")
     if args.resume is not None:
         print(f"Resuming from: {args.resume}")
+
+        # Show checkpoint hyperparameters
+        try:
+            import torch
+
+            ckpt = torch.load(args.resume, map_location="cpu", weights_only=False)
+            if "hyper_parameters" in ckpt:
+                hparams = ckpt["hyper_parameters"]
+                print("\nCheckpoint hyperparameters:")
+                for key, value in sorted(hparams.items()):
+                    print(f"  {key}: {value}")
+                print()
+        except Exception as e:
+            print(f"Note: Could not read checkpoint hyperparameters: {e}")
+
         trainer.fit(model, datamodule, ckpt_path=str(args.resume))
     else:
         trainer.fit(model, datamodule)

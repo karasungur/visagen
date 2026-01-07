@@ -1,0 +1,90 @@
+# Visagen Training Configuration Example
+# Copy this file and modify for your needs
+#
+# Usage:
+#   visagen-train --config config/train_example.yaml
+#
+# Priority: CLI arguments > Config file > Defaults
+# You can override any config value with CLI arguments
+
+# =============================================================================
+# Data Paths (required if not provided via CLI)
+# =============================================================================
+src_dir: ./workspace/data_src/aligned
+dst_dir: ./workspace/data_dst/aligned
+output_dir: ./workspace/model
+
+# =============================================================================
+# Training Parameters
+# =============================================================================
+batch_size: 8                # 1-128, larger = better generalization but more VRAM
+max_epochs: 500              # Maximum training epochs
+learning_rate: 0.0001        # Learning rate (1e-4 is a good starting point)
+image_size: 256              # Training image size (64, 128, 256, 512)
+num_workers: 4               # DataLoader workers (0-32)
+val_split: 0.1               # Validation split ratio (0.0-0.5)
+
+# =============================================================================
+# Model Architecture
+# =============================================================================
+model_type: standard         # standard, diffusion, eg3d
+encoder_dims: "64,128,256,512"   # Encoder channel dimensions
+encoder_depths: "2,2,4,2"        # Encoder block depths
+
+# Diffusion model specific
+texture_weight: 0.0          # Texture consistency loss weight
+use_pretrained_vae: true     # Use pretrained SD VAE (requires diffusers)
+
+# EG3D model specific
+eg3d_latent_dim: 512         # Latent dimension
+eg3d_plane_channels: 32      # Channels per tri-plane
+eg3d_render_resolution: 64   # Neural render resolution
+
+# =============================================================================
+# Loss Weights
+# =============================================================================
+dssim_weight: 10.0           # DSSIM loss weight
+l1_weight: 10.0              # L1 loss weight
+lpips_weight: 0.0            # LPIPS loss weight (requires lpips package)
+eyes_mouth_weight: 0.0       # Eyes/mouth priority loss (requires landmarks)
+gaze_weight: 0.0             # Gaze consistency loss (requires landmarks)
+
+# =============================================================================
+# Augmentation
+# =============================================================================
+no_augmentation: false       # Disable all augmentation (for debugging)
+no_warp: false               # Disable warp augmentation
+
+# =============================================================================
+# Preview Settings
+# =============================================================================
+preview_interval: 500        # Generate preview every N steps
+no_preview: false            # Disable preview generation
+save_preview_history: false  # Save historical previews (step_*.png)
+
+# =============================================================================
+# Auto-Backup Settings
+# =============================================================================
+backup_interval: 5000        # Create backup every N steps (0 = disabled)
+backup_minutes: 0            # Create backup every N minutes (0 = use step interval)
+max_backups: 5               # Maximum rotating backups to keep (1-100)
+
+# =============================================================================
+# Target Stopping Conditions
+# =============================================================================
+max_steps: 0                 # Stop at this step (0 = unlimited)
+target_loss: null            # Stop when loss reaches this value (null = disabled)
+
+# =============================================================================
+# Hardware Configuration
+# =============================================================================
+devices: 1                   # Number of GPUs/devices
+accelerator: auto            # auto, cpu, gpu, cuda, mps
+precision: "32"              # 32, 16-mixed, bf16-mixed
+
+# =============================================================================
+# Checkpoint
+# =============================================================================
+# resume: ./workspace/model/checkpoints/last.ckpt  # Resume from checkpoint
+# pretrain_from: ./pretrained/model.ckpt           # Load pretrained weights
+save_top_k: 3                # Save top-k checkpoints by validation loss
