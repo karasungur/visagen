@@ -6,6 +6,7 @@ fast and accurate face detection, especially for small faces.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -18,6 +19,26 @@ except ImportError:
     INSIGHTFACE_AVAILABLE = False
 
 
+def _get_bundled_models_root() -> str | None:
+    """
+    Get path to bundled models if available.
+
+    InsightFace expects: root/models/model_name/
+    Our structure: project_root/models/antelopev2/
+    So we return: project_root (InsightFace will add /models/)
+
+    Returns:
+        Path to project root directory, or None if models not found.
+    """
+    # Go up from visagen/vision/ to project root
+    project_root = Path(__file__).parent.parent.parent
+    antelopev2_path = project_root / "models" / "antelopev2"
+    required = ["scrfd_10g_bnkps.onnx", "2d106det.onnx"]
+    if antelopev2_path.exists() and all((antelopev2_path / f).exists() for f in required):
+        return str(project_root)
+    return None
+
+
 @dataclass
 class DetectedFace:
     """
@@ -26,13 +47,13 @@ class DetectedFace:
     Attributes:
         bbox: Bounding box as (x1, y1, x2, y2).
         confidence: Detection confidence score (0-1).
-        landmarks: 5-point facial landmarks (eyes, nose, mouth corners).
+        landmarks: Facial landmarks (106-point if available, else 5-point).
         embedding: Face embedding vector (if available).
     """
 
     bbox: np.ndarray  # Shape: (4,) - x1, y1, x2, y2
     confidence: float
-    landmarks: np.ndarray | None = None  # Shape: (5, 2) - 5 keypoints
+    landmarks: np.ndarray | None = None  # Shape: (106, 2) or (5, 2)
     embedding: np.ndarray | None = None  # Shape: (512,) - ArcFace embedding
 
     @property
@@ -76,16 +97,17 @@ class FaceDetector:
     """
     Face detector using InsightFace SCRFD.
 
-    Uses the 'buffalo_l' model pack which includes:
+    Uses the 'antelopev2' model pack which includes:
     - SCRFD face detection
     - 2D106 landmark detection
     - ArcFace recognition (optional)
 
     Args:
-        model_name: InsightFace model pack name. Default: "buffalo_l".
+        model_name: InsightFace model pack name. Default: "antelopev2".
         ctx_id: GPU device ID (-1 for CPU). Default: 0.
         det_thresh: Detection confidence threshold. Default: 0.5.
         det_size: Detection input size. Default: (640, 640).
+        device: Device string (e.g., "cuda:0", "cpu"). Overrides ctx_id.
 
     Example:
         >>> detector = FaceDetector()
@@ -97,10 +119,11 @@ class FaceDetector:
 
     def __init__(
         self,
-        model_name: str = "buffalo_l",
+        model_name: str = "antelopev2",
         ctx_id: int = 0,
         det_thresh: float = 0.5,
         det_size: tuple[int, int] = (640, 640),
+        device: str | None = None,
     ) -> None:
         if not INSIGHTFACE_AVAILABLE:
             raise ImportError(
@@ -108,14 +131,25 @@ class FaceDetector:
                 "Install with: pip install insightface onnxruntime-gpu"
             )
 
+        # Handle device parameter
+        if device is not None:
+            if device == "cpu" or device == "-1":
+                ctx_id = -1
+            elif device.startswith("cuda"):
+                ctx_id = int(device.split(":")[-1]) if ":" in device else 0
+
         self.model_name = model_name
         self.ctx_id = ctx_id
         self.det_thresh = det_thresh
         self.det_size = det_size
 
+        # Use bundled models if available
+        root = _get_bundled_models_root()
+
         # Initialize face analysis
         self._app = FaceAnalysis(
             name=model_name,
+            root=root,
             providers=self._get_providers(ctx_id),
         )
         self._app.prepare(ctx_id=ctx_id, det_thresh=det_thresh, det_size=det_size)
@@ -149,11 +183,18 @@ class FaceDetector:
         # Convert to DetectedFace objects
         detected = []
         for face in faces:
+            # Prefer 106-point landmarks for alignment, fallback to 5-point kps
+            landmarks = None
+            if hasattr(face, "landmark_2d_106") and face.landmark_2d_106 is not None:
+                landmarks = face.landmark_2d_106
+            elif hasattr(face, "kps") and face.kps is not None:
+                landmarks = face.kps
+
             detected.append(
                 DetectedFace(
                     bbox=face.bbox.astype(np.float32),
                     confidence=float(face.det_score),
-                    landmarks=face.kps if hasattr(face, "kps") else None,
+                    landmarks=landmarks,
                     embedding=face.embedding if hasattr(face, "embedding") else None,
                 )
             )

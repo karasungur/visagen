@@ -73,6 +73,7 @@ class FaceExtractor:
         jpeg_quality: int = 95,
         min_confidence: float = 0.5,
         device: str | None = None,
+        model_name: str = "antelopev2",
     ) -> None:
         self.output_size = output_size
         self.face_type = face_type
@@ -80,7 +81,7 @@ class FaceExtractor:
         self.min_confidence = min_confidence
 
         # Initialize vision components
-        self.detector = FaceDetector(device=device)
+        self.detector = FaceDetector(model_name=model_name, device=device)
         self.aligner = FaceAligner()
         self.segmenter: FaceSegmenter | None = None  # Lazy load
 

@@ -93,6 +93,7 @@ dmypy.json
 *.pt
 *.pth
 *.onnx
+!models/**/*.onnx
 *.pb
 *.h5
 *.hdf5
