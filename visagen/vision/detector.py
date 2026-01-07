@@ -34,7 +34,9 @@ def _get_bundled_models_root() -> str | None:
     project_root = Path(__file__).parent.parent.parent
     antelopev2_path = project_root / "models" / "antelopev2"
     required = ["scrfd_10g_bnkps.onnx", "2d106det.onnx"]
-    if antelopev2_path.exists() and all((antelopev2_path / f).exists() for f in required):
+    if antelopev2_path.exists() and all(
+        (antelopev2_path / f).exists() for f in required
+    ):
         return str(project_root)
     return None
 
