@@ -124,16 +124,24 @@ class MultiScaleDSSIMLoss(nn.Module):
     structural similarity across scales.
 
     Args:
-        filter_sizes: List of filter sizes. Default: [11, 23].
+        resolution: Image resolution for dynamic filter size calculation. Default: 256.
+        filter_sizes: List of filter sizes. Default: None (calculated from resolution).
         weights: Weights for each scale. Default: equal weights.
     """
 
     def __init__(
         self,
-        filter_sizes: tuple[int, ...] = (11, 23),
+        resolution: int = 256,
+        filter_sizes: tuple[int, ...] | None = None,
         weights: tuple[float, ...] | None = None,
     ) -> None:
         super().__init__()
+
+        if filter_sizes is None:
+            filter_sizes = (
+                max(3, int(resolution / 11.6)) | 1,
+                max(3, int(resolution / 23.2)) | 1,
+            )
 
         if weights is None:
             weights = tuple(1.0 / len(filter_sizes) for _ in filter_sizes)
@@ -320,7 +328,7 @@ class EyesMouthLoss(nn.Module):
 
     def __init__(
         self,
-        weight_multiplier: float = 30.0,
+        weight_multiplier: float = 300.0,
         use_l1: bool = True,
     ) -> None:
         super().__init__()
