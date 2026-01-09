@@ -108,6 +108,31 @@ Examples:
         help="Learning rate (default: 1e-4)",
     )
     parser.add_argument(
+        "--optimizer-type",
+        type=str,
+        default="adamw",
+        choices=["adamw", "adabelief"],
+        help="Optimizer type (default: adamw)",
+    )
+    parser.add_argument(
+        "--lr-dropout",
+        type=float,
+        default=1.0,
+        help="Learning rate dropout for AdaBelief (default: 1.0)",
+    )
+    parser.add_argument(
+        "--lr-cos-period",
+        type=int,
+        default=0,
+        help="Cosine LR period for AdaBelief (default: 0)",
+    )
+    parser.add_argument(
+        "--clipnorm",
+        type=float,
+        default=0.0,
+        help="Gradient clipping norm for AdaBelief (default: 0.0)",
+    )
+    parser.add_argument(
         "--image-size",
         type=int,
         default=256,
@@ -354,6 +379,10 @@ def main() -> int:
         "batch_size": 8,
         "max_epochs": 500,
         "learning_rate": 1e-4,
+        "optimizer_type": "adamw",
+        "lr_dropout": 1.0,
+        "lr_cos_period": 0,
+        "clipnorm": 0.0,
         "image_size": 256,
         "num_workers": 4,
         "val_split": 0.1,
@@ -494,6 +523,11 @@ def main() -> int:
             dssim_weight=args.dssim_weight,
             l1_weight=args.l1_weight,
             lpips_weight=args.lpips_weight,
+            # Optimizer config
+            optimizer_type=args.optimizer_type,
+            lr_dropout=args.lr_dropout,
+            lr_cos_period=args.lr_cos_period,
+            clipnorm=args.clipnorm,
         )
         print("  Mode: Fine-tuning from pretrained weights (epoch resets to 0)")
     else:
@@ -508,6 +542,11 @@ def main() -> int:
             lpips_weight=args.lpips_weight,
             eyes_mouth_weight=args.eyes_mouth_weight,
             gaze_weight=args.gaze_weight,
+            # Optimizer config
+            optimizer_type=args.optimizer_type,
+            lr_dropout=args.lr_dropout,
+            lr_cos_period=args.lr_cos_period,
+            clipnorm=args.clipnorm,
             # Experimental model parameters
             model_type=args.model_type,
             diffusion_texture_weight=args.texture_weight,
