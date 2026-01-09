@@ -24,6 +24,15 @@ MERGE_MODES = {
 # Available mask modes (simplified for SegFormer)
 MASK_MODES = {
     "full": "Full face mask (1.0 everywhere)",
+    "dst": "Destination mask only",
+    "learned_prd": "Learned predicted mask",
+    "learned_dst": "Learned destination mask",
+    "learned_prd_x_dst": "Learned prd * dst",
+    "learned_prd_plus_dst": "Learned prd + dst",
+    "segformer_prd": "SegFormer predicted face parsing",
+    "segformer_dst": "SegFormer destination face parsing",
+    "segformer_prd_x_dst": "SegFormer prd * dst",
+    "all_combined": "All masks combined",
     "convex_hull": "Convex hull from landmarks",
     "segmented": "SegFormer face segmentation (default)",
 }
