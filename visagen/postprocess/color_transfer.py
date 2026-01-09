@@ -22,7 +22,18 @@ import cv2
 import numpy as np
 from numpy import linalg as npla
 
-ColorTransferMode = Literal["rct", "lct", "sot", "mkl", "idt", "neural"]
+ColorTransferMode = Literal[
+    "none",
+    "rct",
+    "lct",
+    "sot",
+    "mkl",
+    "idt",
+    "neural",
+    "mkl-masked",
+    "idt-masked",
+    "sot-masked",
+]
 
 
 def reinhard_color_transfer(
@@ -47,10 +58,6 @@ def reinhard_color_transfer(
 
     Returns:
         Color-transferred target image (H, W, 3) BGR float32 [0, 1].
-
-    Reference:
-        "Color Transfer between Images" (Reinhard et al., 2001)
-        https://www.cs.tau.ac.il/~turkel/imagepapers/ColorTransfer.pdf
     """
     # Convert to LAB color space
     source_uint8 = np.clip(source * 255, 0, 255).astype(np.uint8)
@@ -59,28 +66,35 @@ def reinhard_color_transfer(
     source_lab = cv2.cvtColor(source_uint8, cv2.COLOR_BGR2LAB).astype(np.float32)
     target_lab = cv2.cvtColor(target_uint8, cv2.COLOR_BGR2LAB).astype(np.float32)
 
-    # Apply masks for statistics computation
-    source_input = source_lab.copy()
-    target_input = target_lab.copy()
-
+    # Get pixels for statistics
     if source_mask is not None:
-        source_mask_2d = source_mask[..., 0] if source_mask.ndim == 3 else source_mask
-        source_input[source_mask_2d < mask_cutoff] = 0
+        s_mask = source_mask.squeeze() > mask_cutoff
+        if s_mask.any():
+            s_pixels = source_lab[s_mask]
+        else:
+            s_pixels = source_lab.reshape(-1, 3)
+    else:
+        s_pixels = source_lab.reshape(-1, 3)
 
     if target_mask is not None:
-        target_mask_2d = target_mask[..., 0] if target_mask.ndim == 3 else target_mask
-        target_input[target_mask_2d < mask_cutoff] = 0
+        t_mask = target_mask.squeeze() > mask_cutoff
+        if t_mask.any():
+            t_pixels = target_lab[t_mask]
+        else:
+            t_pixels = target_lab.reshape(-1, 3)
+    else:
+        t_pixels = target_lab.reshape(-1, 3)
 
     # Compute statistics for each LAB channel
     eps = 1e-6
 
-    src_l_mean, src_l_std = source_input[..., 0].mean(), source_input[..., 0].std()
-    src_a_mean, src_a_std = source_input[..., 1].mean(), source_input[..., 1].std()
-    src_b_mean, src_b_std = source_input[..., 2].mean(), source_input[..., 2].std()
+    src_l_mean, src_l_std = s_pixels[..., 0].mean(), s_pixels[..., 0].std()
+    src_a_mean, src_a_std = s_pixels[..., 1].mean(), s_pixels[..., 1].std()
+    src_b_mean, src_b_std = s_pixels[..., 2].mean(), s_pixels[..., 2].std()
 
-    tgt_l_mean, tgt_l_std = target_input[..., 0].mean(), target_input[..., 0].std()
-    tgt_a_mean, tgt_a_std = target_input[..., 1].mean(), target_input[..., 1].std()
-    tgt_b_mean, tgt_b_std = target_input[..., 2].mean(), target_input[..., 2].std()
+    tgt_l_mean, tgt_l_std = t_pixels[..., 0].mean(), t_pixels[..., 0].std()
+    tgt_a_mean, tgt_a_std = t_pixels[..., 1].mean(), t_pixels[..., 1].std()
+    tgt_b_mean, tgt_b_std = t_pixels[..., 2].mean(), t_pixels[..., 2].std()
 
     # Transfer: scale by standard deviations, shift by means
     result_l = (target_lab[..., 0] - tgt_l_mean) * (
@@ -109,6 +123,9 @@ def linear_color_transfer(
     target: np.ndarray,
     source: np.ndarray,
     mode: Literal["pca", "chol", "sym"] = "pca",
+    target_mask: np.ndarray | None = None,
+    source_mask: np.ndarray | None = None,
+    mask_cutoff: float = 0.5,
     eps: float = 1e-5,
 ) -> np.ndarray:
     """
@@ -121,6 +138,9 @@ def linear_color_transfer(
         target: Target image (H, W, 3) float32 [0, 1].
         source: Source image (H, W, 3) float32 [0, 1].
         mode: Transfer mode - 'pca', 'chol', or 'sym'. Default: 'pca'.
+        target_mask: Optional mask for target statistics.
+        source_mask: Optional mask for source statistics.
+        mask_cutoff: Mask threshold. Default: 0.5.
         eps: Regularization epsilon. Default: 1e-5.
 
     Returns:
@@ -128,23 +148,48 @@ def linear_color_transfer(
     """
     h, w, c = target.shape
 
-    # Compute means
-    mu_t = target.mean(axis=(0, 1))
-    mu_s = source.mean(axis=(0, 1))
+    # Get pixels for statistics
+    if source_mask is not None:
+        s_mask = source_mask.squeeze() > mask_cutoff
+        if s_mask.any():
+            s_pixels = source[s_mask]
+        else:
+            s_pixels = source.reshape(-1, c)
+    else:
+        s_pixels = source.reshape(-1, c)
 
-    # Flatten and center
-    t = (target - mu_t).reshape(-1, c).T
-    s = (source - mu_s).reshape(-1, c).T
+    if target_mask is not None:
+        t_mask = target_mask.squeeze() > mask_cutoff
+        if t_mask.any():
+            t_pixels = target[t_mask]
+        else:
+            t_pixels = target.reshape(-1, c)
+    else:
+        t_pixels = target.reshape(-1, c)
+
+    # Compute means
+    mu_t = t_pixels.mean(axis=0)
+    mu_s = s_pixels.mean(axis=0)
+
+    # Center data
+    t = (t_pixels - mu_t).T
+    s = (s_pixels - mu_s).T
 
     # Compute covariance matrices
     Ct = np.cov(t) + eps * np.eye(c)
     Cs = np.cov(s) + eps * np.eye(c)
 
+    # Compute transform for all target pixels
+    # We apply the transform derived from masked pixels to the whole image
+    # to avoid seams.
+    target_flat = target.reshape(-1, c).T
+    centered_target = target_flat - mu_t[:, None]
+
     if mode == "chol":
         # Cholesky decomposition based transfer
         chol_t = npla.cholesky(Ct)
         chol_s = npla.cholesky(Cs)
-        ts = chol_s @ npla.inv(chol_t) @ t
+        ts = chol_s @ npla.inv(chol_t) @ centered_target
 
     elif mode == "pca":
         # PCA-based transfer (eigenvalue decomposition)
@@ -152,7 +197,7 @@ def linear_color_transfer(
         Qt = eve_t @ np.sqrt(np.diag(eva_t)) @ eve_t.T
         eva_s, eve_s = npla.eigh(Cs)
         Qs = eve_s @ np.sqrt(np.diag(eva_s)) @ eve_s.T
-        ts = Qs @ npla.inv(Qt) @ t
+        ts = Qs @ npla.inv(Qt) @ centered_target
 
     elif mode == "sym":
         # Symmetric transfer
@@ -161,7 +206,7 @@ def linear_color_transfer(
         Qt_Cs_Qt = Qt @ Cs @ Qt
         eva_QtCsQt, eve_QtCsQt = npla.eigh(Qt_Cs_Qt)
         QtCsQt = eve_QtCsQt @ np.sqrt(np.diag(eva_QtCsQt)) @ eve_QtCsQt.T
-        ts = npla.inv(Qt) @ QtCsQt @ npla.inv(Qt) @ t
+        ts = npla.inv(Qt) @ QtCsQt @ npla.inv(Qt) @ centered_target
 
     else:
         raise ValueError(f"Unknown mode: {mode}. Use 'pca', 'chol', or 'sym'.")
@@ -179,6 +224,9 @@ def color_transfer_sot(
     batch_size: int = 5,
     reg_sigma_xy: float = 16.0,
     reg_sigma_v: float = 5.0,
+    target_mask: np.ndarray | None = None,
+    source_mask: np.ndarray | None = None,
+    mask_cutoff: float = 0.5,
 ) -> np.ndarray:
     """
     Color Transfer via Sliced Optimal Transfer.
@@ -193,12 +241,12 @@ def color_transfer_sot(
         batch_size: Number of random projections per step. Default: 5.
         reg_sigma_xy: Bilateral filter spatial sigma (0 to disable). Default: 16.0.
         reg_sigma_v: Bilateral filter value sigma. Default: 5.0.
+        target_mask: Optional mask for target.
+        source_mask: Optional mask for source.
+        mask_cutoff: Mask threshold.
 
     Returns:
         Color-transferred source image (H, W, C) float32.
-
-    Reference:
-        https://github.com/dcoeurjo/OTColorTransfer
     """
     if not np.issubdtype(src.dtype, np.floating):
         raise ValueError("src must be float type")
@@ -212,7 +260,34 @@ def color_transfer_sot(
 
     h, w, c = src.shape
     new_src = src.copy()
-    advect = np.empty((h * w, c), dtype=src.dtype)
+
+    # Determine working pixels
+    # For SOT, we modify pixels in-place. If masks are provided, we only
+    # modify masked pixels and use masked target pixels for distribution matching.
+    if source_mask is not None:
+        s_mask = source_mask.squeeze() > mask_cutoff
+        if not s_mask.any():
+            return src  # No source pixels to modify
+        flat_src = new_src[s_mask]  # (N_s, C)
+    else:
+        flat_src = new_src.reshape(-1, c)
+
+    if target_mask is not None:
+        t_mask = target_mask.squeeze() > mask_cutoff
+        if t_mask.any():
+            flat_trg = trg[t_mask]
+        else:
+            flat_trg = trg.reshape(-1, c)
+    else:
+        flat_trg = trg.reshape(-1, c)
+
+    # If shapes mismatch (due to different mask sizes), we can still run SOT
+    # because it matches distributions via 1D projections (independent of N).
+
+    n_src = flat_src.shape[0]
+    n_trg = flat_trg.shape[0]
+
+    advect = np.empty((n_src, c), dtype=src.dtype)
 
     for _ in range(steps):
         advect.fill(0)
@@ -223,22 +298,48 @@ def color_transfer_sot(
             direction /= npla.norm(direction)
 
             # Project onto random direction
-            proj_source = (new_src * direction).sum(axis=-1).reshape(-1)
-            proj_target = (trg * direction).sum(axis=-1).reshape(-1)
+            proj_source = (flat_src * direction).sum(axis=-1)
+            proj_target = (flat_trg * direction).sum(axis=-1)
 
             # Sort projections
             id_source = np.argsort(proj_source)
             id_target = np.argsort(proj_target)
 
             # Optimal transport in 1D: match sorted values
-            a = proj_target[id_target] - proj_source[id_source]
+            # Handle different number of points by interpolation if needed
+            # But standard SOT assumes matching counts or uses resampling?
+            # Legacy implementation:
+            # a = projtarget[idTarget]-projsource[idSource]
+            # This assumes same size.
+
+            # If sizes differ, we must resample target distribution to match source count
+            if n_src != n_trg:
+                # Interpolate target values to match source count
+                # We want n_src quantiles from target distribution
+                # Sorted proj_target represents the CDF
+                x_trg = np.linspace(0, 1, n_trg)
+                x_src = np.linspace(0, 1, n_src)
+                sorted_trg = proj_target[id_target]
+                matched_trg = np.interp(x_src, x_trg, sorted_trg)
+
+                # Now we have n_src values sorted
+                # proj_source[id_source] is sorted source
+                a = matched_trg - proj_source[id_source]
+            else:
+                a = proj_target[id_target] - proj_source[id_source]
 
             # Accumulate advection
             for i_c in range(c):
                 advect[id_source, i_c] += a * direction[i_c]
 
         # Update source
-        new_src += advect.reshape(h, w, c) / batch_size
+        flat_src += advect / batch_size
+
+    # Put modified pixels back
+    if source_mask is not None:
+        new_src[s_mask] = flat_src
+    else:
+        new_src = flat_src.reshape(h, w, c)
 
     # Optional bilateral filtering for regularization
     if reg_sigma_xy > 0:
@@ -254,6 +355,9 @@ def color_transfer_sot(
 def color_transfer_mkl(
     target: np.ndarray,
     source: np.ndarray,
+    target_mask: np.ndarray | None = None,
+    source_mask: np.ndarray | None = None,
+    mask_cutoff: float = 0.5,
     eps: float = 1e-10,
 ) -> np.ndarray:
     """
@@ -265,17 +369,37 @@ def color_transfer_mkl(
     Args:
         target: Target image (H, W, 3) float32 [0, 1].
         source: Source image (H, W, 3) float32 [0, 1].
+        target_mask: Optional mask for target statistics.
+        source_mask: Optional mask for source statistics.
+        mask_cutoff: Mask threshold.
         eps: Numerical stability epsilon. Default: 1e-10.
 
     Returns:
         Color-transferred target image (H, W, 3) float32 [0, 1].
     """
     h, w, c = target.shape
-    h1, w1, c1 = source.shape
 
-    # Flatten
-    x0 = target.reshape(h * w, c)
-    x1 = source.reshape(h1 * w1, c1)
+    # Get pixels for statistics
+    if source_mask is not None:
+        s_mask = source_mask.squeeze() > mask_cutoff
+        if s_mask.any():
+            s_pixels = source[s_mask]
+        else:
+            s_pixels = source.reshape(-1, c)
+    else:
+        s_pixels = source.reshape(-1, c)
+
+    if target_mask is not None:
+        t_mask = target_mask.squeeze() > mask_cutoff
+        if t_mask.any():
+            t_pixels = target[t_mask]
+        else:
+            t_pixels = target.reshape(-1, c)
+    else:
+        t_pixels = target.reshape(-1, c)
+
+    x0 = t_pixels
+    x1 = s_pixels
 
     # Compute covariance matrices
     a = np.cov(x0.T)
@@ -298,11 +422,14 @@ def color_transfer_mkl(
     # Compute transformation matrix
     T = Ua @ Da_inv @ Uc @ Dc @ Uc.T @ Da_inv @ Ua.T
 
-    # Apply transformation
+    # Apply transformation to ALL pixels
+    # Calculate means from MASKED pixels
     mx0 = x0.mean(axis=0)
     mx1 = x1.mean(axis=0)
 
-    result = (x0 - mx0) @ T.real + mx1
+    # Apply to full target image
+    target_flat = target.reshape(-1, c)
+    result = (target_flat - mx0) @ T.real + mx1
 
     return np.clip(result.reshape(h, w, c).astype(np.float32), 0, 1)
 
@@ -312,6 +439,9 @@ def color_transfer_idt(
     source: np.ndarray,
     bins: int = 256,
     n_rot: int = 20,
+    target_mask: np.ndarray | None = None,
+    source_mask: np.ndarray | None = None,
+    mask_cutoff: float = 0.5,
 ) -> np.ndarray:
     """
     Iterative Distribution Transfer for color matching.
@@ -324,6 +454,9 @@ def color_transfer_idt(
         source: Source image (H, W, 3) float32 [0, 1].
         bins: Number of histogram bins. Default: 256.
         n_rot: Number of random rotations. Default: 20.
+        target_mask: Optional mask for target.
+        source_mask: Optional mask for source.
+        mask_cutoff: Mask threshold.
 
     Returns:
         Color-transferred target image (H, W, 3) float32 [0, 1].
@@ -332,14 +465,27 @@ def color_transfer_idt(
 
     relaxation = 1.0 / n_rot
     h, w, c = target.shape
-    h1, w1, c1 = source.shape
 
-    # Flatten
-    i0 = target.reshape(h * w, c)
-    i1 = source.reshape(h1 * w1, c1)
+    # Get pixels to modify
+    new_target = target.copy()
 
-    d0 = i0.T
-    d1 = i1.T
+    if target_mask is not None:
+        t_mask = target_mask.squeeze() > mask_cutoff
+        if not t_mask.any():
+            return target
+        d0 = new_target[t_mask].T  # (C, N_t)
+    else:
+        d0 = new_target.reshape(-1, c).T  # (C, N_t)
+
+    # Get source distribution
+    if source_mask is not None:
+        s_mask = source_mask.squeeze() > mask_cutoff
+        if s_mask.any():
+            d1 = source[s_mask].T  # (C, N_s)
+        else:
+            d1 = source.reshape(-1, c).T
+    else:
+        d1 = source.reshape(-1, c).T
 
     for _ in range(n_rot):
         # Random orthogonal rotation matrix
@@ -374,7 +520,13 @@ def color_transfer_idt(
         # Inverse rotation and relaxation update
         d0 = relaxation * npla.solve(r, d_r - d0r) + d0
 
-    return np.clip(d0.T.reshape(h, w, c).astype(np.float32), 0, 1)
+    # Put back modified pixels
+    if target_mask is not None:
+        new_target[t_mask] = d0.T
+    else:
+        new_target = d0.T.reshape(h, w, c)
+
+    return np.clip(new_target.astype(np.float32), 0, 1)
 
 
 def color_transfer(
@@ -388,33 +540,40 @@ def color_transfer(
 
     Args:
         mode: Transfer mode ('rct', 'lct', 'sot', 'mkl', 'idt', 'neural').
+              Also supports masked variants ('mkl-masked', etc.).
         target: Target image to modify (H, W, 3) float32 [0, 1].
         source: Source image to match colors from (H, W, 3) float32 [0, 1].
         **kwargs: Additional arguments passed to specific function.
 
     Returns:
         Color-transferred image (H, W, 3) float32 [0, 1].
-
-    Raises:
-        ValueError: If unknown mode is specified.
-
-    Example:
-        >>> result = color_transfer('rct', target_img, source_img)
-        >>> result = color_transfer('lct', target_img, source_img, mode='pca')
-        >>> result = color_transfer('sot', src_img, trg_img, steps=20)
-        >>> result = color_transfer('neural', target_img, source_img, strength=0.8)
     """
-    if mode == "rct":
+    # Handle masked modes
+    if mode.endswith("-masked"):
+        base_mode = mode.replace("-masked", "")
+        # The caller is expected to provide target_mask and source_mask in kwargs
+        # if they want masking. If not provided, it falls back to full image.
+    else:
+        base_mode = mode
+        # If not masked mode, we should suppress masks if they were passed
+        # OR we just let them pass through but set them to None?
+        # Actually, if the user explicitly requests 'rct' but passes masks,
+        # they probably want masking. 'rct' supports masking natively.
+        # But 'mkl' vs 'mkl-masked': 'mkl-masked' forces intention.
+        # Let's use base_mode for dispatch but keep kwargs.
+        pass
+
+    if base_mode == "rct":
         return reinhard_color_transfer(target, source, **kwargs)
-    elif mode == "lct":
+    elif base_mode == "lct":
         return linear_color_transfer(target, source, **kwargs)
-    elif mode == "sot":
+    elif base_mode == "sot":
         return color_transfer_sot(target, source, **kwargs)
-    elif mode == "mkl":
+    elif base_mode == "mkl":
         return color_transfer_mkl(target, source, **kwargs)
-    elif mode == "idt":
+    elif base_mode == "idt":
         return color_transfer_idt(target, source, **kwargs)
-    elif mode == "neural":
+    elif base_mode == "neural":
         from visagen.postprocess.neural_color import neural_color_transfer
 
         return neural_color_transfer(target, source, **kwargs)
