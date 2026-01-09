@@ -87,6 +87,11 @@ class DFLModule(pl.LightningModule):
         learning_rate: float = 1e-4,
         weight_decay: float = 0.01,
         drop_path_rate: float = 0.1,
+        # Optimizer settings
+        optimizer_type: str = "adamw",  # "adamw", "adabelief"
+        lr_dropout: float = 1.0,  # 1.0 = no dropout (for AdaBelief)
+        lr_cos_period: int = 0,  # 0 = disabled (for AdaBelief)
+        clipnorm: float = 0.0,  # 0.0 = disabled (for AdaBelief)
         # Loss weights
         dssim_weight: float = 10.0,
         l1_weight: float = 10.0,
@@ -820,6 +825,28 @@ class DFLModule(pl.LightningModule):
 
         return total_loss
 
+    def _get_optimizer(self, params) -> torch.optim.Optimizer:
+        """Helper to create optimizer based on config."""
+        if self.hparams.optimizer_type == "adabelief":
+            from visagen.training.optimizers.adabelief import AdaBelief
+
+            return AdaBelief(
+                params,
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay,
+                betas=(0.9, 0.999),
+                lr_dropout=self.hparams.lr_dropout,
+                lr_cos_period=self.hparams.lr_cos_period,
+                clipnorm=self.hparams.clipnorm,
+            )
+        else:
+            return torch.optim.AdamW(
+                params,
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay,
+                betas=(0.9, 0.999),
+            )
+
     def configure_optimizers(self) -> dict[str, Any] | tuple[list, list]:
         """
         Configure optimizer(s) and scheduler(s).
@@ -833,7 +860,10 @@ class DFLModule(pl.LightningModule):
         Returns:
             Single optimizer dict (AE mode) or tuple of optimizer/scheduler lists (GAN/temporal mode).
         """
-        max_epochs = self.trainer.max_epochs if self.trainer else 100
+        try:
+            max_epochs = self.trainer.max_epochs
+        except RuntimeError:
+            max_epochs = 100
 
         # Generator optimizer - model type dependent
         if self.model_type == "diffusion":
@@ -844,34 +874,19 @@ class DFLModule(pl.LightningModule):
             # Standard encoder-decoder
             g_params = list(self.encoder.parameters()) + list(self.decoder.parameters())
 
-        g_optimizer = torch.optim.AdamW(
-            g_params,
-            lr=self.learning_rate,
-            weight_decay=self.weight_decay,
-            betas=(0.9, 0.999),
-        )
+        g_optimizer = self._get_optimizer(g_params)
         g_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             g_optimizer, T_max=max_epochs, eta_min=1e-6
         )
 
         if self.temporal_enabled and self.gan_power > 0:
             # Temporal + GAN: 3 optimizers
-            d_optimizer = torch.optim.AdamW(
-                self.discriminator.parameters(),
-                lr=self.learning_rate,
-                weight_decay=self.weight_decay,
-                betas=(0.9, 0.999),
-            )
+            d_optimizer = self._get_optimizer(self.discriminator.parameters())
             d_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 d_optimizer, T_max=max_epochs, eta_min=1e-6
             )
 
-            t_optimizer = torch.optim.AdamW(
-                self.temporal_discriminator.parameters(),
-                lr=self.learning_rate,
-                weight_decay=self.weight_decay,
-                betas=(0.9, 0.999),
-            )
+            t_optimizer = self._get_optimizer(self.temporal_discriminator.parameters())
             t_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 t_optimizer, T_max=max_epochs, eta_min=1e-6
             )
@@ -887,12 +902,7 @@ class DFLModule(pl.LightningModule):
 
         elif self.temporal_enabled:
             # Temporal only: 2 optimizers (generator + temporal discriminator)
-            t_optimizer = torch.optim.AdamW(
-                self.temporal_discriminator.parameters(),
-                lr=self.learning_rate,
-                weight_decay=self.weight_decay,
-                betas=(0.9, 0.999),
-            )
+            t_optimizer = self._get_optimizer(self.temporal_discriminator.parameters())
             t_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 t_optimizer, T_max=max_epochs, eta_min=1e-6
             )
@@ -907,12 +917,7 @@ class DFLModule(pl.LightningModule):
 
         elif self.gan_power > 0:
             # GAN only: 2 optimizers (generator + spatial discriminator)
-            d_optimizer = torch.optim.AdamW(
-                self.discriminator.parameters(),
-                lr=self.learning_rate,
-                weight_decay=self.weight_decay,
-                betas=(0.9, 0.999),
-            )
+            d_optimizer = self._get_optimizer(self.discriminator.parameters())
             d_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 d_optimizer, T_max=max_epochs, eta_min=1e-6
             )
