@@ -100,6 +100,13 @@ class DFLModule(pl.LightningModule):
         eyes_mouth_weight: float = 0.0,
         gaze_weight: float = 0.0,
         use_multiscale_dssim: bool = True,
+        # Style loss weights (DeepFaceLab legacy)
+        face_style_weight: float = 0.0,
+        bg_style_weight: float = 0.0,
+        # Augmentation options
+        blur_out_mask: bool = False,
+        # true_face_power for identity preservation
+        true_face_power: float = 0.0,
         # GAN parameters
         gan_power: float = 0.0,
         gan_patch_size: int = 70,
@@ -148,6 +155,13 @@ class DFLModule(pl.LightningModule):
         self.temporal_sequence_length = temporal_sequence_length
         self.temporal_consistency_weight = temporal_consistency_weight
         self.model_type = model_type
+        self.image_size = image_size
+
+        # Store new feature flags
+        self.blur_out_mask_enabled = blur_out_mask
+        self.true_face_power = true_face_power
+        self.face_style_weight = face_style_weight
+        self.bg_style_weight = bg_style_weight
 
         # Calculate skip connection dimensions
         skip_dims = encoder_dims[:-1][::-1] + [encoder_dims[0]]
@@ -205,6 +219,20 @@ class DFLModule(pl.LightningModule):
             self.temporal_gan_loss = None
             self.temporal_d_loss_fn = None
             self.temporal_consistency_loss = None
+
+        # Initialize CodeDiscriminator for true_face_power
+        if true_face_power > 0:
+            from visagen.models.discriminators import CodeDiscriminator
+
+            self.code_discriminator = CodeDiscriminator(
+                in_ch=encoder_dims[-1],
+                hidden_ch=encoder_dims[-1],
+            )
+            # Enable manual optimization if not already enabled
+            if self.automatic_optimization:
+                self.automatic_optimization = False
+        else:
+            self.code_discriminator = None
 
     def _build_model(
         self,
@@ -479,6 +507,7 @@ class DFLModule(pl.LightningModule):
         pred: torch.Tensor,
         target: torch.Tensor,
         landmarks: torch.Tensor | None = None,
+        mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Compute combined reconstruction loss.
@@ -487,6 +516,7 @@ class DFLModule(pl.LightningModule):
             pred: Predicted image (B, C, H, W).
             target: Target image (B, C, H, W).
             landmarks: Optional facial landmarks (B, 68, 2) for region-based losses.
+            mask: Optional face mask (B, 1, H, W) for style losses.
 
         Returns:
             Tuple of (total_loss, loss_dict).
@@ -538,6 +568,26 @@ class DFLModule(pl.LightningModule):
             losses["texture"] = loss_texture
             total = total + self.texture_weight * loss_texture
 
+        # Face style loss (requires mask)
+        if self.face_style_weight > 0 and mask is not None:
+            from visagen.training.losses import face_style_loss
+
+            loss_face_style = face_style_loss(
+                pred, target, mask, mask, blur_radius=self.image_size // 8
+            )
+            losses["face_style"] = loss_face_style
+            total = total + self.face_style_weight * loss_face_style
+
+        # Background style loss (requires mask)
+        if self.bg_style_weight > 0 and mask is not None:
+            from visagen.training.losses import bg_style_loss
+
+            loss_bg_style = bg_style_loss(
+                pred, target, mask, resolution=self.image_size
+            )
+            losses["bg_style"] = loss_bg_style
+            total = total + self.bg_style_weight * loss_bg_style
+
         losses["total"] = total
         return total, losses
 
@@ -566,31 +616,44 @@ class DFLModule(pl.LightningModule):
         """
         src_dict, dst_dict = batch
 
-        # Extract images and landmarks
+        # Extract images, landmarks, and masks
         src = src_dict["image"]
         dst = dst_dict["image"]
         src_landmarks = src_dict.get("landmarks")
+        src_mask = src_dict.get("mask")
+        dst_mask = dst_dict.get("mask")
+
+        # Apply blur_out_mask augmentation if enabled
+        if self.blur_out_mask_enabled and src_mask is not None:
+            from visagen.data.augmentations import blur_out_mask
+
+            src = blur_out_mask(src, src_mask, resolution=self.image_size)
 
         if self.temporal_enabled:
-            return self._training_step_temporal(src, dst, src_landmarks, batch_idx)
-        elif self.gan_power > 0:
-            return self._training_step_gan(src, dst, src_landmarks, batch_idx)
+            return self._training_step_temporal(
+                src, dst, src_landmarks, src_mask, dst_mask, batch_idx
+            )
+        elif self.gan_power > 0 or self.true_face_power > 0:
+            return self._training_step_gan(
+                src, dst, src_landmarks, src_mask, dst_mask, batch_idx
+            )
         else:
-            return self._training_step_ae(src, dst, src_landmarks, batch_idx)
+            return self._training_step_ae(src, dst, src_landmarks, src_mask, batch_idx)
 
     def _training_step_ae(
         self,
         src: torch.Tensor,
         dst: torch.Tensor,
         landmarks: torch.Tensor | None,
+        mask: torch.Tensor | None,
         batch_idx: int,
     ) -> torch.Tensor:
         """Standard autoencoder training step."""
         # Forward pass (reconstruct source from source)
         pred = self(src)
 
-        # Compute losses (with landmarks for eyes_mouth/gaze losses)
-        total_loss, loss_dict = self.compute_loss(pred, src, landmarks)
+        # Compute losses (with landmarks for eyes_mouth/gaze losses, mask for style losses)
+        total_loss, loss_dict = self.compute_loss(pred, src, landmarks, mask)
 
         # Log all losses
         for name, value in loss_dict.items():
@@ -603,10 +666,21 @@ class DFLModule(pl.LightningModule):
         src: torch.Tensor,
         dst: torch.Tensor,
         landmarks: torch.Tensor | None,
+        src_mask: torch.Tensor | None,
+        dst_mask: torch.Tensor | None,
         batch_idx: int,
     ) -> None:
         """GAN training step with manual optimization."""
-        g_opt, d_opt = self.optimizers()
+        # Get optimizers based on what's enabled
+        optimizers = self.optimizers()
+        if self.true_face_power > 0 and self.code_discriminator is not None:
+            if self.gan_power > 0:
+                g_opt, d_opt, code_opt = optimizers
+            else:
+                g_opt, code_opt = optimizers
+                d_opt = None
+        else:
+            g_opt, d_opt = optimizers
 
         # Forward pass
         pred = self(src)
@@ -614,50 +688,99 @@ class DFLModule(pl.LightningModule):
         # === GENERATOR STEP ===
         g_opt.zero_grad()
 
-        # Reconstruction loss (with landmarks for eyes_mouth/gaze losses)
-        total_loss, loss_dict = self.compute_loss(pred, src, landmarks)
+        # Reconstruction loss (with landmarks for eyes_mouth/gaze losses, mask for style)
+        total_loss, loss_dict = self.compute_loss(pred, src, landmarks, src_mask)
 
-        # Adversarial loss for generator
-        # Generator wants discriminator to classify fake as real
-        d_fake_center, d_fake_final = self.discriminator(pred)
+        # Adversarial loss for generator (if GAN enabled)
+        g_adv_loss = torch.tensor(0.0, device=pred.device)
+        if self.gan_power > 0 and self.discriminator is not None:
+            # Generator wants discriminator to classify fake as real
+            d_fake_center, d_fake_final = self.discriminator(pred)
 
-        g_adv_loss = self.gan_loss(d_fake_center, target_is_real=True) + self.gan_loss(
-            d_fake_final, target_is_real=True
-        )
+            g_adv_loss = self.gan_loss(
+                d_fake_center, target_is_real=True
+            ) + self.gan_loss(d_fake_final, target_is_real=True)
+            loss_dict["g_adv"] = g_adv_loss
 
         # Total variation to suppress artifacts
-        tv_loss = self.tv_loss(pred)
+        tv_loss = torch.tensor(0.0, device=pred.device)
+        if self.tv_loss is not None:
+            tv_loss = self.tv_loss(pred)
+            loss_dict["tv"] = tv_loss
+
+        # CodeDiscriminator loss for generator (true_face_power)
+        g_code_loss = torch.tensor(0.0, device=pred.device)
+        if self.true_face_power > 0 and self.code_discriminator is not None:
+            # Get latent codes from encoder
+            _, src_code = self.encoder(src)
+            # Generator wants src_code to look like real (dst) codes
+            src_code_pred = self.code_discriminator(src_code)
+            g_code_loss = F.binary_cross_entropy_with_logits(
+                src_code_pred, torch.ones_like(src_code_pred)
+            )
+            loss_dict["g_code"] = g_code_loss
 
         # Combined generator loss
-        g_total = total_loss + self.gan_power * g_adv_loss + tv_loss
+        g_total = (
+            total_loss
+            + self.gan_power * g_adv_loss
+            + tv_loss
+            + self.true_face_power * g_code_loss
+        )
 
         self.manual_backward(g_total)
         g_opt.step()
 
-        loss_dict["g_adv"] = g_adv_loss
-        loss_dict["tv"] = tv_loss
         loss_dict["g_total"] = g_total
 
-        # === DISCRIMINATOR STEP ===
-        d_opt.zero_grad()
+        # === DISCRIMINATOR STEP (if GAN enabled) ===
+        if self.gan_power > 0 and d_opt is not None and self.discriminator is not None:
+            d_opt.zero_grad()
 
-        # Detach generated images to avoid backprop through generator
-        pred_detached = pred.detach()
+            # Detach generated images to avoid backprop through generator
+            pred_detached = pred.detach()
 
-        # Discriminator outputs for real and fake
-        d_real_center, d_real_final = self.discriminator(src)
-        d_fake_center, d_fake_final = self.discriminator(pred_detached)
+            # Discriminator outputs for real and fake
+            d_real_center, d_real_final = self.discriminator(src)
+            d_fake_center, d_fake_final = self.discriminator(pred_detached)
 
-        # Discriminator loss (real=1, fake=0)
-        d_loss = (
-            self.d_loss_fn(d_real_center, d_fake_center)
-            + self.d_loss_fn(d_real_final, d_fake_final)
-        ) * 0.5
+            # Discriminator loss (real=1, fake=0)
+            d_loss = (
+                self.d_loss_fn(d_real_center, d_fake_center)
+                + self.d_loss_fn(d_real_final, d_fake_final)
+            ) * 0.5
 
-        self.manual_backward(d_loss)
-        d_opt.step()
+            self.manual_backward(d_loss)
+            d_opt.step()
 
-        loss_dict["d_loss"] = d_loss
+            loss_dict["d_loss"] = d_loss
+
+        # === CODE DISCRIMINATOR STEP (if true_face_power enabled) ===
+        if self.true_face_power > 0 and self.code_discriminator is not None:
+            code_opt.zero_grad()
+
+            # Get latent codes (detached)
+            with torch.no_grad():
+                _, src_code = self.encoder(src)
+                _, dst_code = self.encoder(dst)
+
+            # Code discriminator: dst is real, src is fake
+            dst_code_pred = self.code_discriminator(dst_code)
+            src_code_pred = self.code_discriminator(src_code)
+
+            code_d_loss = 0.5 * (
+                F.binary_cross_entropy_with_logits(
+                    dst_code_pred, torch.ones_like(dst_code_pred)
+                )
+                + F.binary_cross_entropy_with_logits(
+                    src_code_pred, torch.zeros_like(src_code_pred)
+                )
+            )
+
+            self.manual_backward(code_d_loss)
+            code_opt.step()
+
+            loss_dict["code_d"] = code_d_loss
 
         # Log losses
         for name, value in loss_dict.items():
@@ -669,6 +792,8 @@ class DFLModule(pl.LightningModule):
         src_seq: torch.Tensor,
         dst_seq: torch.Tensor,
         landmarks: torch.Tensor | None,
+        src_mask: torch.Tensor | None,
+        dst_mask: torch.Tensor | None,
         batch_idx: int,
     ) -> None:
         """
@@ -680,6 +805,8 @@ class DFLModule(pl.LightningModule):
             src_seq: Source sequence (B, C, T, H, W).
             dst_seq: Destination sequence (B, C, T, H, W).
             landmarks: Source landmarks (B, 68, 2) - Note: per-batch, not per-frame.
+            src_mask: Source mask (B, 1, H, W) - optional.
+            dst_mask: Destination mask (B, 1, H, W) - optional.
             batch_idx: Batch index.
         """
         # Get optimizers based on whether spatial GAN is also enabled
@@ -852,9 +979,11 @@ class DFLModule(pl.LightningModule):
         Configure optimizer(s) and scheduler(s).
 
         Training modes and optimizers:
-        - Temporal + GAN: 3 optimizers (generator, spatial discriminator, temporal discriminator)
-        - Temporal only: 2 optimizers (generator, temporal discriminator)
-        - GAN only: 2 optimizers (generator, spatial discriminator)
+        - Temporal + GAN: 3+ optimizers (generator, spatial discriminator, temporal discriminator, [code_discriminator])
+        - Temporal only: 2+ optimizers (generator, temporal discriminator, [code_discriminator])
+        - GAN only: 2+ optimizers (generator, spatial discriminator, [code_discriminator])
+        - GAN + true_face: 3 optimizers (generator, spatial discriminator, code_discriminator)
+        - true_face only: 2 optimizers (generator, code_discriminator)
         - AE only: 1 optimizer
 
         Returns:
@@ -879,8 +1008,17 @@ class DFLModule(pl.LightningModule):
             g_optimizer, T_max=max_epochs, eta_min=1e-6
         )
 
+        # Code discriminator optimizer (if true_face_power enabled)
+        code_optimizer = None
+        code_scheduler = None
+        if self.true_face_power > 0 and self.code_discriminator is not None:
+            code_optimizer = self._get_optimizer(self.code_discriminator.parameters())
+            code_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                code_optimizer, T_max=max_epochs, eta_min=1e-6
+            )
+
         if self.temporal_enabled and self.gan_power > 0:
-            # Temporal + GAN: 3 optimizers
+            # Temporal + GAN: 3+ optimizers
             d_optimizer = self._get_optimizer(self.discriminator.parameters())
             d_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 d_optimizer, T_max=max_epochs, eta_min=1e-6
@@ -891,44 +1029,67 @@ class DFLModule(pl.LightningModule):
                 t_optimizer, T_max=max_epochs, eta_min=1e-6
             )
 
-            return (
-                [g_optimizer, d_optimizer, t_optimizer],
-                [
-                    {"scheduler": g_scheduler, "interval": "epoch"},
-                    {"scheduler": d_scheduler, "interval": "epoch"},
-                    {"scheduler": t_scheduler, "interval": "epoch"},
-                ],
-            )
+            optimizers = [g_optimizer, d_optimizer, t_optimizer]
+            schedulers = [
+                {"scheduler": g_scheduler, "interval": "epoch"},
+                {"scheduler": d_scheduler, "interval": "epoch"},
+                {"scheduler": t_scheduler, "interval": "epoch"},
+            ]
+
+            if code_optimizer is not None:
+                optimizers.append(code_optimizer)
+                schedulers.append({"scheduler": code_scheduler, "interval": "epoch"})
+
+            return (optimizers, schedulers)
 
         elif self.temporal_enabled:
-            # Temporal only: 2 optimizers (generator + temporal discriminator)
+            # Temporal only: 2+ optimizers (generator + temporal discriminator)
             t_optimizer = self._get_optimizer(self.temporal_discriminator.parameters())
             t_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 t_optimizer, T_max=max_epochs, eta_min=1e-6
             )
 
-            return (
-                [g_optimizer, t_optimizer],
-                [
-                    {"scheduler": g_scheduler, "interval": "epoch"},
-                    {"scheduler": t_scheduler, "interval": "epoch"},
-                ],
-            )
+            optimizers = [g_optimizer, t_optimizer]
+            schedulers = [
+                {"scheduler": g_scheduler, "interval": "epoch"},
+                {"scheduler": t_scheduler, "interval": "epoch"},
+            ]
+
+            if code_optimizer is not None:
+                optimizers.append(code_optimizer)
+                schedulers.append({"scheduler": code_scheduler, "interval": "epoch"})
+
+            return (optimizers, schedulers)
 
         elif self.gan_power > 0:
-            # GAN only: 2 optimizers (generator + spatial discriminator)
+            # GAN only: 2+ optimizers (generator + spatial discriminator)
             d_optimizer = self._get_optimizer(self.discriminator.parameters())
             d_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 d_optimizer, T_max=max_epochs, eta_min=1e-6
             )
 
+            optimizers = [g_optimizer, d_optimizer]
+            schedulers = [
+                {"scheduler": g_scheduler, "interval": "epoch"},
+                {"scheduler": d_scheduler, "interval": "epoch"},
+            ]
+
+            if code_optimizer is not None:
+                optimizers.append(code_optimizer)
+                schedulers.append({"scheduler": code_scheduler, "interval": "epoch"})
+
+            return (optimizers, schedulers)
+
+        elif self.true_face_power > 0 and code_optimizer is not None:
+            # true_face only: 2 optimizers (generator + code_discriminator)
             return (
-                [g_optimizer, d_optimizer],
+                [g_optimizer, code_optimizer],
                 [
                     {"scheduler": g_scheduler, "interval": "epoch"},
-                    {"scheduler": d_scheduler, "interval": "epoch"},
+                    {"scheduler": code_scheduler, "interval": "epoch"},
                 ],
             )
+
         else:
             # AE only: single optimizer - use the already created g_optimizer
             return {
