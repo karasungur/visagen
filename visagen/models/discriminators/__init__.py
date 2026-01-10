@@ -7,8 +7,13 @@ Provides PatchGAN discriminators for adversarial training:
 - MultiScaleDiscriminator: Multiple discriminators at different scales
 - TemporalDiscriminator: 3D Conv for temporal consistency
 - TemporalPatchDiscriminator: Combined temporal + spatial
+- CodeDiscriminator: Latent code discriminator for true_face_power
 """
 
+from visagen.models.discriminators.code_discriminator import (
+    CodeDiscriminator,
+    code_discriminator_loss,
+)
 from visagen.models.discriminators.patch_discriminator import (
     MultiScaleDiscriminator,
     PatchDiscriminator,
@@ -31,4 +36,6 @@ __all__ = [
     "TemporalPatchDiscriminator",
     "LightweightTemporalDiscriminator",
     "ResidualBlock3D",
+    "CodeDiscriminator",
+    "code_discriminator_loss",
 ]
