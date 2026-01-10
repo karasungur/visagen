@@ -773,7 +773,7 @@ def run_pip_install(
     print(f"\n{SYM['package']} {message}")
     print("-" * 50)
 
-    cmd = [str(pip), "install", "--no-cache-dir"] + args
+    cmd = [str(pip), "install", "--no-cache-dir", "--progress-bar=on"] + args
 
     logger.info(f"Running: {' '.join(cmd)}")
 
@@ -786,17 +786,75 @@ def run_pip_install(
             bufsize=1,
         )
 
+        last_package = ""
+        building_shown = False
+
         for line in process.stdout:
             line = line.strip()
-            if any(
-                kw in line
-                for kw in ["Collecting", "Downloading", "Installing", "Building"]
+            logger.debug(line)
+
+            # Skip empty lines
+            if not line:
+                continue
+
+            # Package collection - show package name
+            if line.startswith("Collecting "):
+                package = (
+                    line.split()[1]
+                    .split("[")[0]
+                    .split(">")[0]
+                    .split("<")[0]
+                    .split("=")[0]
+                )
+                print(f"  {Colors.CYAN}>{Colors.RESET} {line}")
+                last_package = package
+                building_shown = False
+
+            # Downloading with size info
+            elif "Downloading" in line and (
+                "MB" in line or "kB" in line or "KB" in line
             ):
-                print(f"  {line}")
-            elif "Successfully" in line:
+                print(f"  {Colors.DIM}  {line}{Colors.RESET}")
+
+            # Building/compiling - show once per package
+            elif any(
+                kw in line
+                for kw in ["Building wheel", "building wheel", "Preparing metadata"]
+            ):
+                if not building_shown:
+                    pkg_display = last_package if last_package else "package"
+                    print(
+                        f"  {Colors.YELLOW}[*]{Colors.RESET} Building {pkg_display}... (bu biraz zaman alabilir)"
+                    )
+                    building_shown = True
+
+            # Backend dependencies - show progress
+            elif "backend dependencies" in line.lower():
+                if "still running" not in line:
+                    print(f"  {Colors.DIM}  {line}{Colors.RESET}")
+                # "still running" mesajlarını atla - spinner göster
+                elif not building_shown:
+                    pkg_display = last_package if last_package else "package"
+                    print(
+                        f"  {Colors.YELLOW}[*]{Colors.RESET} Building {pkg_display}... (C extension derleniyor)"
+                    )
+                    building_shown = True
+
+            # Installation success
+            elif "Successfully installed" in line:
                 print(f"  {Colors.GREEN}{SYM['check']}{Colors.RESET} {line}")
 
-            logger.debug(line)
+            # Using cached
+            elif "Using cached" in line:
+                print(f"  {Colors.DIM}  (cached){Colors.RESET}")
+
+            # Requirement already satisfied
+            elif "Requirement already satisfied" in line:
+                pass  # Skip - too verbose
+
+            # Error messages
+            elif "error" in line.lower() or "Error" in line:
+                print(f"  {Colors.RED}{SYM['cross']}{Colors.RESET} {line}")
 
         process.wait()
         print("-" * 50)
