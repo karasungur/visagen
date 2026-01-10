@@ -284,7 +284,7 @@ def setup_logging() -> logging.Logger:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SPINNER CLASS
+# SPINNER CLASSES
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -318,6 +318,108 @@ class Spinner:
         color = Colors.GREEN if success else Colors.RED
         sys.stdout.write(f"\r  {color}{symbol}{Colors.RESET} {self.message}   \n")
         sys.stdout.flush()
+
+
+class LiveSpinner:
+    """Spinner with elapsed time display for long operations."""
+
+    def __init__(self, message: str = "Processing") -> None:
+        self.frames = SYM["spinner"]
+        self.message = message
+        self.running = False
+        self.thread: threading.Thread | None = None
+        self._cycle = itertools.cycle(self.frames)
+        self.start_time: float = 0
+
+    def _format_elapsed(self) -> str:
+        """Format elapsed time as MM:SS or SS s."""
+        elapsed = int(time.time() - self.start_time)
+        if elapsed >= 60:
+            mins, secs = divmod(elapsed, 60)
+            return f"{mins}m {secs:02d}s"
+        return f"{elapsed}s"
+
+    def _spin(self) -> None:
+        while self.running:
+            frame = next(self._cycle)
+            elapsed = self._format_elapsed()
+            # Overwrite line with spinner + message + elapsed time
+            sys.stdout.write(f"\r  {frame} {self.message}... [{elapsed}]   ")
+            sys.stdout.flush()
+            time.sleep(0.1)
+
+    def start(self) -> None:
+        self.start_time = time.time()
+        self.running = True
+        self.thread = threading.Thread(target=self._spin, daemon=True)
+        self.thread.start()
+
+    def update_message(self, message: str) -> None:
+        """Update spinner message without stopping."""
+        self.message = message
+
+    def stop(self, success: bool = True) -> None:
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=0.5)
+
+        elapsed = self._format_elapsed()
+        symbol = SYM["check"] if success else SYM["cross"]
+        color = Colors.GREEN if success else Colors.RED
+
+        # Clear line and print final status
+        sys.stdout.write(
+            f"\r  {color}{symbol}{Colors.RESET} {self.message} [{elapsed}]   \n"
+        )
+        sys.stdout.flush()
+
+
+class InstallProgress:
+    """Track overall installation progress with elapsed time."""
+
+    def __init__(self, total_steps: int, lang: str = "en") -> None:
+        self.total = total_steps
+        self.current = 0
+        self.lang = lang
+        self.start_time = time.time()
+
+    def _format_elapsed(self) -> str:
+        """Format elapsed time."""
+        elapsed = int(time.time() - self.start_time)
+        mins, secs = divmod(elapsed, 60)
+        return f"{mins}m {secs:02d}s"
+
+    def next_step(self, name: str, estimate_seconds: int = 0) -> None:
+        """Move to next step and display header."""
+        self.current += 1
+        elapsed = self._format_elapsed()
+
+        # Format estimate
+        if estimate_seconds >= 60:
+            est_str = f" (~{estimate_seconds // 60}m)"
+        elif estimate_seconds > 0:
+            est_str = f" (~{estimate_seconds}s)"
+        else:
+            est_str = ""
+
+        print(
+            f"\n{Colors.BOLD}[{self.current}/{self.total}] {name}{est_str}{Colors.RESET}"
+        )
+        print(f"{Colors.DIM}Elapsed: {elapsed}{Colors.RESET}")
+        print("-" * 50)
+
+    def step_done(self, name: str) -> None:
+        """Mark current step as done."""
+        print(f"{Colors.GREEN}{SYM['success']} {name}{Colors.RESET}")
+
+    def complete(self) -> None:
+        """Show completion message with total time."""
+        elapsed = self._format_elapsed()
+        msg = MESSAGES[self.lang]
+        print(f"\n{'=' * 60}")
+        print(
+            f"\n{Colors.GREEN}{SYM['party']} {msg['done']} (Total: {elapsed}){Colors.RESET}\n"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -769,11 +871,11 @@ def run_pip_install(
     message: str,
     logger: logging.Logger,
 ) -> bool:
-    """Run pip install with real-time output."""
+    """Run pip install with real-time output and live spinner for builds."""
     print(f"\n{SYM['package']} {message}")
     print("-" * 50)
 
-    cmd = [str(pip), "install", "--no-cache-dir", "--progress-bar=on"] + args
+    cmd = [str(pip), "install", "--no-cache-dir"] + args
 
     logger.info(f"Running: {' '.join(cmd)}")
 
@@ -786,8 +888,15 @@ def run_pip_install(
             bufsize=1,
         )
 
-        last_package = ""
-        building_shown = False
+        packages_collected = 0
+        current_package = ""
+        spinner: LiveSpinner | None = None
+
+        def stop_spinner(success: bool = True) -> None:
+            nonlocal spinner
+            if spinner and spinner.running:
+                spinner.stop(success)
+                spinner = None
 
         for line in process.stdout:
             line = line.strip()
@@ -797,64 +906,76 @@ def run_pip_install(
             if not line:
                 continue
 
-            # Package collection - show package name
+            # Package collection - show package name with count
             if line.startswith("Collecting "):
-                package = (
+                stop_spinner(True)
+                packages_collected += 1
+                current_package = (
                     line.split()[1]
                     .split("[")[0]
                     .split(">")[0]
                     .split("<")[0]
                     .split("=")[0]
                 )
-                print(f"  {Colors.CYAN}>{Colors.RESET} {line}")
-                last_package = package
-                building_shown = False
+                print(f"  {Colors.CYAN}>{Colors.RESET} [{packages_collected}] {line}")
 
             # Downloading with size info
             elif "Downloading" in line and (
-                "MB" in line or "kB" in line or "KB" in line
+                "MB" in line or "kB" in line or "KB" in line or "GB" in line
             ):
-                print(f"  {Colors.DIM}  {line}{Colors.RESET}")
+                print(f"  {Colors.DIM}    {line}{Colors.RESET}")
 
-            # Building/compiling - show once per package
+            # Building/compiling - start live spinner
             elif any(
                 kw in line
-                for kw in ["Building wheel", "building wheel", "Preparing metadata"]
+                for kw in [
+                    "Building wheel",
+                    "building wheel",
+                    "Preparing metadata",
+                    "Running setup.py",
+                    "running build",
+                ]
             ):
-                if not building_shown:
-                    pkg_display = last_package if last_package else "package"
-                    print(
-                        f"  {Colors.YELLOW}[*]{Colors.RESET} Building {pkg_display}... (bu biraz zaman alabilir)"
-                    )
-                    building_shown = True
+                if spinner is None or not spinner.running:
+                    pkg = current_package or "package"
+                    spinner = LiveSpinner(f"Building {pkg}")
+                    spinner.start()
 
-            # Backend dependencies - show progress
+            # Backend dependencies - start spinner if not already running
             elif "backend dependencies" in line.lower():
-                if "still running" not in line:
-                    print(f"  {Colors.DIM}  {line}{Colors.RESET}")
-                # "still running" mesajlarını atla - spinner göster
-                elif not building_shown:
-                    pkg_display = last_package if last_package else "package"
-                    print(
-                        f"  {Colors.YELLOW}[*]{Colors.RESET} Building {pkg_display}... (C extension derleniyor)"
-                    )
-                    building_shown = True
+                if "still running" in line.lower():
+                    # Don't print, spinner is already showing progress
+                    pass
+                elif spinner is None or not spinner.running:
+                    pkg = current_package or "package"
+                    spinner = LiveSpinner(f"Building {pkg}")
+                    spinner.start()
 
             # Installation success
             elif "Successfully installed" in line:
-                print(f"  {Colors.GREEN}{SYM['check']}{Colors.RESET} {line}")
+                stop_spinner(True)
+                # Count installed packages
+                parts = line.replace("Successfully installed ", "").split()
+                count = len(parts)
+                print(
+                    f"  {Colors.GREEN}{SYM['check']}{Colors.RESET} {count} paket kuruldu"
+                )
 
             # Using cached
             elif "Using cached" in line:
-                print(f"  {Colors.DIM}  (cached){Colors.RESET}")
+                pass  # Skip - too verbose
 
             # Requirement already satisfied
             elif "Requirement already satisfied" in line:
                 pass  # Skip - too verbose
 
             # Error messages
-            elif "error" in line.lower() or "Error" in line:
+            elif "error" in line.lower() and "warning" not in line.lower():
+                stop_spinner(False)
                 print(f"  {Colors.RED}{SYM['cross']}{Colors.RESET} {line}")
+
+        # Ensure spinner is stopped
+        stop_spinner(True)
 
         process.wait()
         print("-" * 50)
@@ -867,6 +988,8 @@ def run_pip_install(
             return False
 
     except Exception as e:
+        if spinner and spinner.running:
+            spinner.stop(False)
         print_error(str(e))
         logger.error(f"pip install error: {e}")
         return False
@@ -1043,9 +1166,12 @@ def show_next_steps(venv_path: Path, lang: str) -> None:
 
 
 def main() -> int:
-    """Main installation flow."""
+    """Main installation flow with progress tracking."""
     logger = setup_logging()
     logger.info("Installation started")
+
+    # Initialize progress tracker (6 steps total)
+    progress: InstallProgress | None = None
 
     try:
         # 1. Language selection
@@ -1055,9 +1181,11 @@ def main() -> int:
         # 2. Print banner
         print_banner(lang)
 
+        # Initialize progress tracker after language selection
+        progress = InstallProgress(total_steps=6, lang=lang)
+
         # 3. System checks
-        print(f"\n{Colors.BOLD}{msg['step_system']}{Colors.RESET}")
-        print("-" * 40)
+        progress.next_step(msg["step_system"], estimate_seconds=5)
 
         if not check_python_version(lang, logger):
             return 1
@@ -1076,24 +1204,21 @@ def main() -> int:
 
         missing_deps = check_system_dependencies(logger)
 
-        print_step_done(msg["step_system"])
+        progress.step_done(msg["step_system"])
 
         # 4. CUDA selection
+        progress.next_step(msg["step_cuda"])
         cuda = select_cuda(lang, detected_cuda)
         cuda_label = f"CUDA {cuda}" if cuda != "cpu" else "CPU"
-        print_step_done(f"{cuda_label}")
+        progress.step_done(cuda_label)
 
         # 5. Profile selection
+        progress.next_step(msg["step_profile"])
         profile = select_profile(lang)
-        print_step_done(f"{profile}")
+        progress.step_done(profile)
 
         # 6. Create venv
-        print_step_header(
-            4,
-            6,
-            msg["step_venv"],
-            format_estimate(STEP_ESTIMATES["venv"], lang),
-        )
+        progress.next_step(msg["step_venv"], estimate_seconds=STEP_ESTIMATES["venv"])
 
         venv_path = Path(".venv")
 
@@ -1103,16 +1228,11 @@ def main() -> int:
         if not upgrade_pip(venv_path, lang, logger):
             return 1
 
-        print_step_done(msg["step_venv"])
+        progress.step_done(msg["step_venv"])
 
         # 7. Install packages
         total_time = STEP_ESTIMATES["pytorch"] + STEP_ESTIMATES["visagen"]
-        print_step_header(
-            5,
-            6,
-            msg["step_packages"],
-            format_estimate(total_time, lang),
-        )
+        progress.next_step(msg["step_packages"], estimate_seconds=total_time)
 
         if not install_pytorch(venv_path, cuda, lang, logger):
             return 1
@@ -1120,26 +1240,39 @@ def main() -> int:
         if not install_visagen(venv_path, profile, lang, logger):
             return 1
 
-        print_step_done(msg["step_packages"])
+        progress.step_done(msg["step_packages"])
 
         # 8. Verification
-        print_step_header(
-            6,
-            6,
-            msg["step_verify"],
-            format_estimate(STEP_ESTIMATES["verify"], lang),
+        progress.next_step(
+            msg["step_verify"], estimate_seconds=STEP_ESTIMATES["verify"]
         )
 
         if not verify_installation(venv_path, lang, logger):
             return 1
 
-        print_step_done(msg["step_verify"])
+        progress.step_done(msg["step_verify"])
 
         # 9. Post-install
         if missing_deps:
             show_system_deps_warning(missing_deps, lang)
 
-        show_next_steps(venv_path, lang)
+        # Show completion with total time
+        progress.complete()
+
+        # Show next steps
+        print(f"{msg['activate_hint']}")
+        if sys.platform == "win32":
+            print(f"  {Colors.CYAN}.venv\\Scripts\\activate{Colors.RESET}")
+        else:
+            print(f"  {Colors.CYAN}source .venv/bin/activate{Colors.RESET}")
+
+        print(f"\n{msg['train_hint']}")
+        print(f"  {Colors.CYAN}visagen-train --help{Colors.RESET}")
+
+        print(f"\n{msg['test_hint']}")
+        print(f"  {Colors.CYAN}pytest visagen/tests/ -v{Colors.RESET}")
+
+        print(f"\n{'=' * 60}\n")
 
         logger.info("Installation completed successfully")
         return 0
