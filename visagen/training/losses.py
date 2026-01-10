@@ -1146,3 +1146,135 @@ class TemporalDiscriminatorLoss(nn.Module):
             loss_fake = self.gan_loss(d_fake, target_is_real=False)
 
         return (loss_real + loss_fake) * 0.5
+
+
+# =============================================================================
+# Style Losses for Face/Background (DeepFaceLab Legacy)
+# =============================================================================
+
+
+def gram_matrix(x: torch.Tensor) -> torch.Tensor:
+    """
+    Compute Gram matrix for style loss.
+
+    The Gram matrix captures feature correlations and is used
+    to measure style similarity between images.
+
+    Args:
+        x: Feature tensor (B, C, H, W).
+
+    Returns:
+        Gram matrix (B, C, C) normalized by spatial dimensions.
+    """
+    b, c, h, w = x.shape
+    features = x.view(b, c, -1)
+    gram = torch.bmm(features, features.transpose(1, 2))
+    return gram / (c * h * w)
+
+
+def face_style_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    pred_mask: torch.Tensor,
+    target_mask: torch.Tensor,
+    blur_radius: int = 32,
+    weight: float = 1.0,
+) -> torch.Tensor:
+    """
+    Face region style loss using Gram matrices.
+
+    Port of DeepFaceLab's face_style_power from Model_SAEHD.
+    Computes style similarity between predicted swapped face
+    and target destination face using Gram matrices.
+
+    Args:
+        pred: Predicted swapped face (B, C, H, W).
+        target: Target destination face (B, C, H, W).
+        pred_mask: Mask for predicted face (B, 1, H, W).
+        target_mask: Mask for target face (B, 1, H, W).
+        blur_radius: Gaussian blur radius before Gram computation. Default: 32.
+        weight: Loss weight multiplier. Default: 1.0.
+
+    Returns:
+        Face style loss (scalar).
+
+    Example:
+        >>> pred = torch.randn(2, 3, 256, 256)
+        >>> target = torch.randn(2, 3, 256, 256)
+        >>> mask = torch.ones(2, 1, 256, 256)
+        >>> loss = face_style_loss(pred, target, mask, mask)
+    """
+    # Apply masks
+    pred_masked = pred * pred_mask
+    target_masked = target * target_mask
+
+    # Optional blur for smoother style matching
+    if blur_radius > 0:
+        try:
+            from kornia.filters import gaussian_blur2d
+
+            kernel_size = blur_radius * 2 + 1
+            sigma = blur_radius / 3.0
+            pred_masked = gaussian_blur2d(
+                pred_masked, (kernel_size, kernel_size), (sigma, sigma)
+            )
+            target_masked = gaussian_blur2d(
+                target_masked, (kernel_size, kernel_size), (sigma, sigma)
+            )
+        except ImportError:
+            pass  # Skip blur if kornia not available
+
+    # Compute Gram matrices
+    gram_pred = gram_matrix(pred_masked)
+    gram_target = gram_matrix(target_masked.detach())
+
+    return weight * F.mse_loss(gram_pred, gram_target)
+
+
+def bg_style_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
+    weight: float = 1.0,
+    resolution: int = 256,
+) -> torch.Tensor:
+    """
+    Background region style loss using DSSIM + L2.
+
+    Port of DeepFaceLab's bg_style_power from Model_SAEHD.
+    Computes style similarity for background (non-face) regions
+    using a combination of DSSIM and L2 loss.
+
+    Args:
+        pred: Predicted image (B, C, H, W).
+        target: Target image (B, C, H, W).
+        mask: Face mask (B, 1, H, W). 1=face, 0=background.
+        weight: Loss weight multiplier. Default: 1.0.
+        resolution: Image resolution for DSSIM filter size. Default: 256.
+
+    Returns:
+        Background style loss (scalar).
+
+    Example:
+        >>> pred = torch.randn(2, 3, 256, 256)
+        >>> target = torch.randn(2, 3, 256, 256)
+        >>> mask = torch.ones(2, 1, 256, 256)
+        >>> mask[:, :, 128:, :] = 0  # Bottom half is background
+        >>> loss = bg_style_loss(pred, target, mask)
+    """
+    # Get background regions
+    anti_mask = 1.0 - mask
+    pred_bg = pred * anti_mask
+    target_bg = target.detach() * anti_mask
+
+    # DSSIM component
+    # Filter size ~22 for 256 resolution (legacy formula)
+    filter_size = max(3, int(resolution / 11.6)) | 1  # Ensure odd
+    dssim_fn = DSSIMLoss(filter_size=filter_size)
+    dssim = dssim_fn(pred_bg, target_bg)
+
+    # L2 component
+    l2 = F.mse_loss(pred_bg, target_bg)
+
+    # Combined loss with legacy weight multiplier
+    return weight * 10.0 * (dssim + l2)
