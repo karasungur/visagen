@@ -375,3 +375,75 @@ class SimpleAugmentation:
                 mask = mask.squeeze(0)
 
         return image, mask
+
+
+def blur_out_mask(
+    image: torch.Tensor,
+    mask: torch.Tensor,
+    resolution: int | None = None,
+) -> torch.Tensor:
+    """
+    Blur regions outside the face mask.
+
+    This augmentation blurs the background (non-face) regions during training
+    to prevent the model from focusing on background details and force it to
+    learn face-specific features.
+
+    Port of DeepFaceLab's blur_out_mask from Model_SAEHD.
+
+    Args:
+        image: Image tensor (B, C, H, W) in [0, 1] range.
+        mask: Face mask tensor (B, 1, H, W) in [0, 1] range.
+            1 = face region (kept sharp), 0 = background (blurred).
+        resolution: Image resolution for sigma calculation. If None, uses H.
+
+    Returns:
+        Image with blurred background and sharp foreground.
+
+    Example:
+        >>> image = torch.randn(2, 3, 256, 256)
+        >>> mask = torch.ones(2, 1, 256, 256)
+        >>> mask[:, :, 128:, :] = 0  # Bottom half is background
+        >>> result = blur_out_mask(image, mask)
+        >>> result.shape
+        torch.Size([2, 3, 256, 256])
+    """
+    # Import here to avoid circular imports and make kornia optional
+    try:
+        from kornia.filters import gaussian_blur2d
+    except ImportError:
+        # Fallback: return image unchanged if kornia not available
+        return image
+
+    # Get resolution from image if not specified
+    if resolution is None:
+        resolution = image.shape[-1]
+
+    # Calculate sigma based on resolution (legacy formula)
+    sigma = resolution / 128.0
+    # Kernel size must be odd and at least 3
+    kernel_size = max(3, int(sigma * 6) | 1)
+
+    # Anti-mask (background region)
+    anti_mask = 1.0 - mask
+
+    # Gaussian blur of background-masked image
+    blurred_bg = gaussian_blur2d(
+        image * anti_mask,
+        (kernel_size, kernel_size),
+        (sigma, sigma),
+    )
+
+    # Normalization factor to compensate for mask in blur
+    blur_norm = 1.0 - gaussian_blur2d(
+        mask,
+        (kernel_size, kernel_size),
+        (sigma, sigma),
+    )
+    # Avoid division by zero
+    blur_norm = torch.clamp(blur_norm, min=1e-6)
+
+    # Combine: sharp foreground + normalized blurred background
+    result = image * mask + (blurred_bg / blur_norm) * anti_mask
+
+    return result
