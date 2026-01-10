@@ -30,6 +30,9 @@ class FaceDataset(Dataset):
         face_type_filter: Only load faces of this type. Default: None (all).
         with_mask: Load segmentation masks if available. Default: True.
         preload_metadata: Load all metadata on init. Default: True.
+        uniform_yaw: Enable uniform yaw sampling for balanced pose distribution.
+            Default: False.
+        yaw_bins: Number of yaw bins for uniform sampling. Default: 10.
 
     Example:
         >>> dataset = FaceDataset(Path("aligned_faces/"))
@@ -46,6 +49,8 @@ class FaceDataset(Dataset):
         face_type_filter: FaceType | None = None,
         with_mask: bool = True,
         preload_metadata: bool = True,
+        uniform_yaw: bool = False,
+        yaw_bins: int = 10,
     ) -> None:
         super().__init__()
         self.root_dir = Path(root_dir)
@@ -53,6 +58,8 @@ class FaceDataset(Dataset):
         self.target_size = target_size
         self.face_type_filter = face_type_filter
         self.with_mask = with_mask
+        self.uniform_yaw = uniform_yaw
+        self.yaw_bins = yaw_bins
 
         # Scan directory for image files
         self.image_paths = self.scan_directory(self.root_dir)
@@ -75,6 +82,11 @@ class FaceDataset(Dataset):
                 )
                 for path in self.image_paths
             ]
+
+        # Build yaw bins for uniform sampling
+        self._yaw_bins_indices: list[list[int]] | None = None
+        if self.uniform_yaw and preload_metadata:
+            self._build_yaw_bins()
 
     def __len__(self) -> int:
         """Return number of samples."""
@@ -177,6 +189,57 @@ class FaceDataset(Dataset):
                 f"No valid DFL images found in {self.root_dir}. "
                 "Make sure images have embedded DFL metadata."
             )
+
+    def _build_yaw_bins(self) -> None:
+        """
+        Build yaw bin indices for uniform sampling.
+
+        Divides samples into bins based on yaw angle for balanced pose distribution.
+        """
+        import math
+
+        # Initialize bins
+        self._yaw_bins_indices = [[] for _ in range(self.yaw_bins)]
+
+        # Yaw range: -pi/2 to pi/2 (left to right profile)
+        yaw_min = -math.pi / 2
+        yaw_max = math.pi / 2
+        bin_width = (yaw_max - yaw_min) / self.yaw_bins
+
+        for idx, sample in enumerate(self.samples):
+            try:
+                _, yaw, _ = sample.get_pitch_yaw_roll()
+                # Clamp yaw to valid range
+                yaw = max(yaw_min, min(yaw_max - 1e-6, yaw))
+                bin_idx = int((yaw - yaw_min) / bin_width)
+                bin_idx = max(0, min(self.yaw_bins - 1, bin_idx))
+                self._yaw_bins_indices[bin_idx].append(idx)
+            except Exception:
+                # If pose estimation fails, add to middle bin
+                middle_bin = self.yaw_bins // 2
+                self._yaw_bins_indices[middle_bin].append(idx)
+
+        # Remove empty bins
+        self._yaw_bins_indices = [b for b in self._yaw_bins_indices if len(b) > 0]
+
+    def sample_uniform_yaw(self) -> int:
+        """
+        Sample an index with uniform yaw distribution.
+
+        First selects a random yaw bin, then selects a random sample from that bin.
+        This ensures balanced representation of different head poses.
+
+        Returns:
+            Sample index.
+        """
+        if self._yaw_bins_indices is None or len(self._yaw_bins_indices) == 0:
+            return np.random.randint(len(self.samples))
+
+        # Select random bin
+        bin_idx = np.random.randint(len(self._yaw_bins_indices))
+        # Select random sample from bin
+        sample_idx = np.random.choice(self._yaw_bins_indices[bin_idx])
+        return sample_idx
 
     @staticmethod
     def scan_directory(root_dir: Path) -> list[Path]:
