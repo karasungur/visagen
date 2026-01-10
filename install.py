@@ -11,13 +11,18 @@ Features:
 - Installation profiles (minimal/full/dev/all)
 - Real-time progress indicators
 - Post-install verification
+- Non-interactive mode for CI/CD
+- Automatic retry on network failures
+- GPU detection with recommendations
 
 Usage:
-    python install.py
+    python install.py                                    # Interactive mode
+    python install.py -y --cuda 12.4 --profile full     # Non-interactive mode
 """
 
 from __future__ import annotations
 
+import argparse
 import itertools
 import logging
 import os
@@ -28,6 +33,8 @@ import sys
 import threading
 import time
 import venv
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -37,6 +44,8 @@ from pathlib import Path
 MIN_PYTHON = (3, 10)
 MAX_PYTHON = (3, 12)
 MIN_DISK_GB = 5
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MESSAGES (TR/EN)
@@ -93,6 +102,15 @@ MESSAGES = {
         "estimate": "~{0}",
         "minutes": "dakika",
         "seconds": "saniye",
+        "retry": "Yeniden deneniyor ({0}/{1})...",
+        "gpu_name": "GPU",
+        "gpu_memory": "GPU bellegi",
+        "recommended_settings": "Onerilen egitim ayarlari",
+        "resolution": "Cozunurluk",
+        "batch_size": "Batch boyutu",
+        "summary": "Kurulum Ozeti",
+        "non_interactive": "Non-interactive mod",
+        "using_defaults": "Varsayilan ayarlar kullaniliyor",
     },
     "en": {
         "welcome": "Visagen Installation Wizard",
@@ -144,6 +162,15 @@ MESSAGES = {
         "estimate": "~{0}",
         "minutes": "min",
         "seconds": "sec",
+        "retry": "Retrying ({0}/{1})...",
+        "gpu_name": "GPU",
+        "gpu_memory": "GPU memory",
+        "recommended_settings": "Recommended training settings",
+        "resolution": "Resolution",
+        "batch_size": "Batch size",
+        "summary": "Installation Summary",
+        "non_interactive": "Non-interactive mode",
+        "using_defaults": "Using default settings",
     },
 }
 
@@ -423,6 +450,126 @@ class InstallProgress:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# INSTALL SUMMARY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class InstallSummary:
+    """Track and display installation summary."""
+
+    cuda_version: str = ""
+    profile: str = ""
+    torch_version: str = ""
+    cuda_available: bool = False
+    gpu_name: str = ""
+    gpu_memory_gb: int = 0
+    total_time: float = 0
+    warnings: list[str] = field(default_factory=list)
+
+    def show(self, lang: str) -> None:
+        """Display summary report."""
+        msg = MESSAGES[lang]
+
+        print(f"\n{'=' * 60}")
+        print(f"{Colors.BOLD}  {msg['summary'].upper()}{Colors.RESET}")
+        print(f"{'=' * 60}\n")
+
+        # Configuration
+        print(f"  {Colors.GREEN}{SYM['check']}{Colors.RESET} Profile: {self.profile}")
+        cuda_label = (
+            f"CUDA {self.cuda_version}" if self.cuda_version != "cpu" else "CPU"
+        )
+        print(f"  {Colors.GREEN}{SYM['check']}{Colors.RESET} CUDA: {cuda_label}")
+
+        if self.torch_version:
+            print(
+                f"  {Colors.GREEN}{SYM['check']}{Colors.RESET} PyTorch: {self.torch_version}"
+            )
+
+        gpu_status = "Yes" if self.cuda_available else "No"
+        print(
+            f"  {Colors.GREEN}{SYM['check']}{Colors.RESET} GPU Available: {gpu_status}"
+        )
+
+        # GPU info
+        if self.gpu_name:
+            print(
+                f"  {Colors.GREEN}{SYM['check']}{Colors.RESET} {msg['gpu_name']}: {self.gpu_name} ({self.gpu_memory_gb} GB)"
+            )
+
+            # Recommendations
+            settings = get_recommended_settings(self.gpu_memory_gb)
+            print(
+                f"\n  {Colors.CYAN}{SYM['info']}{Colors.RESET} {msg['recommended_settings']}:"
+            )
+            print(f"      {msg['resolution']}: {settings['resolution']}")
+            print(f"      {msg['batch_size']}: {settings['batch_size']}")
+
+        # Warnings
+        if self.warnings:
+            print(f"\n  {Colors.YELLOW}{SYM['warning']} Warnings:{Colors.RESET}")
+            for w in self.warnings:
+                print(f"    - {w}")
+
+        # Time
+        mins, secs = divmod(int(self.total_time), 60)
+        print(f"\n  Total time: {mins}m {secs:02d}s")
+        print(f"{'=' * 60}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CLI ARGUMENTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Visagen Cross-Platform Installation Script",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python install.py                                    # Interactive mode
+  python install.py -y --cuda 12.4 --profile full     # Non-interactive
+  python install.py -y --cuda cpu --profile minimal   # CPU-only minimal
+        """,
+    )
+
+    parser.add_argument(
+        "-y",
+        "--non-interactive",
+        action="store_true",
+        help="Run without prompts (use defaults or specified options)",
+    )
+    parser.add_argument(
+        "--cuda",
+        choices=["12.4", "12.1", "11.8", "cpu"],
+        default=None,
+        help="CUDA version (auto-detect if not specified)",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=["minimal", "full", "dev", "all"],
+        default="full",
+        help="Installation profile (default: full)",
+    )
+    parser.add_argument(
+        "--lang",
+        choices=["tr", "en"],
+        default="en",
+        help="Language (default: en)",
+    )
+    parser.add_argument(
+        "--no-venv",
+        action="store_true",
+        help="Skip virtual environment creation (install to current env)",
+    )
+
+    return parser.parse_args()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # PRINT HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -661,6 +808,50 @@ def detect_cuda_version(logger: logging.Logger) -> str | None:
     except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError) as e:
         logger.debug(f"nvidia-smi failed: {e}")
         return None
+
+
+def detect_gpu_info(logger: logging.Logger) -> tuple[str, int]:
+    """Detect GPU name and memory in GB."""
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if result.returncode == 0:
+            line = result.stdout.strip().split("\n")[0]
+            parts = line.split(", ")
+            if len(parts) >= 2:
+                name = parts[0].strip()
+                memory_mb = int(parts[1].strip())
+                memory_gb = memory_mb // 1024
+
+                logger.info(f"GPU: {name}, Memory: {memory_gb} GB")
+                return name, memory_gb
+
+        return "", 0
+
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError) as e:
+        logger.debug(f"GPU detection failed: {e}")
+        return "", 0
+
+
+def get_recommended_settings(gpu_memory_gb: int) -> dict:
+    """Get recommended training settings based on GPU memory."""
+    if gpu_memory_gb >= 24:  # RTX 3090, 4090
+        return {"resolution": 512, "batch_size": 8, "note": "High-end GPU"}
+    elif gpu_memory_gb >= 12:  # RTX 3080, 4070
+        return {"resolution": 512, "batch_size": 4, "note": "Mid-range GPU"}
+    elif gpu_memory_gb >= 8:  # RTX 3060, 4060
+        return {"resolution": 256, "batch_size": 4, "note": "Entry-level GPU"}
+    else:
+        return {"resolution": 128, "batch_size": 2, "note": "Limited VRAM"}
 
 
 def check_system_dependencies(logger: logging.Logger) -> list[str]:
@@ -995,6 +1186,49 @@ def run_pip_install(
         return False
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# RETRY MECHANISM
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def run_with_retry(
+    func: Callable[[], bool],
+    max_retries: int = MAX_RETRIES,
+    delay: int = RETRY_DELAY,
+    lang: str = "en",
+    logger: logging.Logger | None = None,
+) -> bool:
+    """Run function with retry on failure.
+
+    Args:
+        func: Function to run (should return bool)
+        max_retries: Maximum number of retry attempts
+        delay: Delay between retries in seconds
+        lang: Language code for messages
+        logger: Logger instance
+
+    Returns:
+        True if successful, False if all retries failed
+    """
+    msg = MESSAGES[lang]
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            if func():
+                return True
+        except Exception as e:
+            if logger:
+                logger.warning(f"Attempt {attempt}/{max_retries} failed: {e}")
+
+        if attempt < max_retries:
+            print(
+                f"  {Colors.YELLOW}{SYM['warning']} {msg['retry'].format(attempt, max_retries)}{Colors.RESET}"
+            )
+            time.sleep(delay)
+
+    return False
+
+
 def install_pytorch(
     venv_path: Path,
     cuda_version: str,
@@ -1017,7 +1251,14 @@ def install_pytorch(
         cuda_url,
     ]
 
-    return run_pip_install(pip, args, message, logger)
+    # Use retry mechanism for PyTorch installation
+    return run_with_retry(
+        lambda: run_pip_install(pip, args, message, logger),
+        max_retries=MAX_RETRIES,
+        delay=RETRY_DELAY,
+        lang=lang,
+        logger=logger,
+    )
 
 
 def install_visagen(
@@ -1035,7 +1276,14 @@ def install_visagen(
 
     args = ["-e", f".{profile_str}"]
 
-    return run_pip_install(pip, args, message, logger)
+    # Use retry mechanism for Visagen installation
+    return run_with_retry(
+        lambda: run_pip_install(pip, args, message, logger),
+        max_retries=MAX_RETRIES,
+        delay=RETRY_DELAY,
+        lang=lang,
+        logger=logger,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1167,15 +1415,32 @@ def show_next_steps(venv_path: Path, lang: str) -> None:
 
 def main() -> int:
     """Main installation flow with progress tracking."""
+    # Parse command line arguments
+    args = parse_args()
+
     logger = setup_logging()
     logger.info("Installation started")
+    logger.info(
+        f"Args: non_interactive={args.non_interactive}, cuda={args.cuda}, profile={args.profile}, lang={args.lang}"
+    )
+
+    # Initialize summary tracker
+    summary = InstallSummary()
+    start_time = time.time()
 
     # Initialize progress tracker (6 steps total)
     progress: InstallProgress | None = None
 
     try:
         # 1. Language selection
-        lang = select_language()
+        if args.non_interactive:
+            lang = args.lang
+            print(
+                f"\n{Colors.CYAN}{SYM['info']}{Colors.RESET} {MESSAGES[lang]['non_interactive']}"
+            )
+        else:
+            lang = select_language()
+
         msg = MESSAGES[lang]
 
         # 2. Print banner
@@ -1202,19 +1467,53 @@ def main() -> int:
         if detected_cuda:
             print_info(f"{msg['cuda_detected']}: {detected_cuda}")
 
+        # GPU detection
+        gpu_name, gpu_memory = detect_gpu_info(logger)
+        if gpu_name:
+            print_info(f"{msg['gpu_name']}: {gpu_name} ({gpu_memory} GB)")
+            summary.gpu_name = gpu_name
+            summary.gpu_memory_gb = gpu_memory
+
+            # Show recommendations
+            settings = get_recommended_settings(gpu_memory)
+            print_info(
+                f"{msg['recommended_settings']}: {settings['resolution']}px, batch={settings['batch_size']}"
+            )
+
         missing_deps = check_system_dependencies(logger)
+        if missing_deps:
+            summary.warnings.extend([f"Missing: {dep}" for dep in missing_deps])
 
         progress.step_done(msg["step_system"])
 
         # 4. CUDA selection
         progress.next_step(msg["step_cuda"])
-        cuda = select_cuda(lang, detected_cuda)
+
+        if args.non_interactive:
+            if args.cuda:
+                cuda = args.cuda
+            elif detected_cuda:
+                cuda = detected_cuda
+            else:
+                cuda = "cpu"
+            print_info(f"{msg['using_defaults']}: {cuda}")
+        else:
+            cuda = select_cuda(lang, detected_cuda)
+
         cuda_label = f"CUDA {cuda}" if cuda != "cpu" else "CPU"
+        summary.cuda_version = cuda
         progress.step_done(cuda_label)
 
         # 5. Profile selection
         progress.next_step(msg["step_profile"])
-        profile = select_profile(lang)
+
+        if args.non_interactive:
+            profile = args.profile
+            print_info(f"{msg['using_defaults']}: {profile}")
+        else:
+            profile = select_profile(lang)
+
+        summary.profile = profile
         progress.step_done(profile)
 
         # 6. Create venv
@@ -1222,11 +1521,18 @@ def main() -> int:
 
         venv_path = Path(".venv")
 
-        if not create_venv(venv_path, lang, logger):
-            return 1
+        if not args.no_venv:
+            if args.non_interactive and venv_path.exists():
+                # In non-interactive mode, reuse existing venv
+                print_info("Using existing .venv")
+            elif not create_venv(venv_path, lang, logger):
+                return 1
 
-        if not upgrade_pip(venv_path, lang, logger):
-            return 1
+            if not upgrade_pip(venv_path, lang, logger):
+                return 1
+        else:
+            print_info("Skipping venv creation (--no-venv)")
+            venv_path = Path(sys.prefix)
 
         progress.step_done(msg["step_venv"])
 
@@ -1250,17 +1556,42 @@ def main() -> int:
         if not verify_installation(venv_path, lang, logger):
             return 1
 
+        # Get torch version for summary
+        python = get_python_path(venv_path)
+        try:
+            result = subprocess.run(
+                [str(python), "-c", "import torch; print(torch.__version__)"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                summary.torch_version = result.stdout.strip()
+
+            result = subprocess.run(
+                [str(python), "-c", "import torch; print(torch.cuda.is_available())"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            summary.cuda_available = result.stdout.strip() == "True"
+        except Exception:
+            pass
+
         progress.step_done(msg["step_verify"])
 
         # 9. Post-install
         if missing_deps:
             show_system_deps_warning(missing_deps, lang)
 
-        # Show completion with total time
-        progress.complete()
+        # Calculate total time
+        summary.total_time = time.time() - start_time
+
+        # Show summary
+        summary.show(lang)
 
         # Show next steps
-        print(f"{msg['activate_hint']}")
+        print(f"\n{msg['activate_hint']}")
         if sys.platform == "win32":
             print(f"  {Colors.CYAN}.venv\\Scripts\\activate{Colors.RESET}")
         else:
