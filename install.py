@@ -728,7 +728,15 @@ def upgrade_pip(
 
     try:
         result = subprocess.run(
-            [str(pip), "install", "--upgrade", "pip", "setuptools", "wheel"],
+            [
+                str(pip),
+                "install",
+                "--upgrade",
+                "--no-cache-dir",
+                "pip",
+                "setuptools",
+                "wheel",
+            ],
             capture_output=True,
             text=True,
             timeout=120,
@@ -765,7 +773,7 @@ def run_pip_install(
     print(f"\n{SYM['package']} {message}")
     print("-" * 50)
 
-    cmd = [str(pip), "install"] + args
+    cmd = [str(pip), "install", "--no-cache-dir"] + args
 
     logger.info(f"Running: {' '.join(cmd)}")
 
