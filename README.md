@@ -61,6 +61,30 @@
 
 ---
 
+## 🎬 Demo
+
+<div align="center">
+  <img src="https://via.placeholder.com/600x300/667eea/ffffff?text=Demo+Coming+Soon" alt="Demo Coming Soon" width="600"/>
+  <p><em>Face swap demo video coming soon!</em></p>
+</div>
+
+---
+
+## 🤔 Why Visagen?
+
+| Feature | DeepFaceLab | Visagen |
+|---------|-------------|---------|
+| **Framework** | TensorFlow 1.x | PyTorch 2.0 + Lightning |
+| **Python** | 3.7 | 3.10+ with type hints |
+| **Training** | Manual scripts | CLI + Gradio UI |
+| **Code Quality** | No tests | 861 unit tests |
+| **GPU Pipeline** | CPU-bound I/O | NVIDIA DALI |
+| **Export** | Limited | ONNX + TensorRT |
+| **Segmentation** | XSeg (train yourself) | SegFormer (pretrained) |
+| **Face Detection** | S3FD/RetinaFace | InsightFace SCRFD |
+
+---
+
 ## ✨ Features
 
 <table>
@@ -69,8 +93,8 @@
 
 ### 🧠 Modern Architecture
 - **ConvNeXt V2** encoder with GRN layers
-- **4 DeepFaceLab architectures**: DF, LIAE, AMP, Quick96
-- **CBAM** attention (Channel & Spatial)
+- **4 architectures**: DF, LIAE, AMP, Quick96
+- **CBAM** attention + **Swish** activation
 - Skip connections for detail preservation
 
 </td>
@@ -79,8 +103,8 @@
 ### 🎯 Advanced Training
 - Multi-loss: DSSIM, L1, LPIPS, ID, GAN, Style
 - **AdaBelief** optimizer with lr_dropout
-- **true_face_power** for identity preservation
-- Eyes/Mouth, Gaze, Face/BG style losses
+- Mixed precision (FP16/BF16) training
+- **true_face_power** identity preservation
 
 </td>
 </tr>
@@ -495,9 +519,75 @@ For detailed guidelines, see our [**Contributing Guide**](CONTRIBUTING.md).
 
 ---
 
+## ❓ FAQ
+
+<details>
+<summary><b>🔴 CUDA out of memory error</b></summary>
+
+Reduce batch size or resolution:
+```bash
+visagen-train --batch-size 4 --resolution 256
+```
+</details>
+
+<details>
+<summary><b>🟡 Poor swap quality</b></summary>
+
+- Train for more epochs (500+)
+- Use more training images (1000+ per person)
+- Enable `--true-face-power 0.1` for better identity
+- Try different architectures: `--architecture liae`
+</details>
+
+<details>
+<summary><b>🟢 How to speed up training?</b></summary>
+
+- Enable DALI: `pip install -e ".[dali]"`
+- Use mixed precision: `--precision 16`
+- Reduce resolution: `--resolution 256`
+</details>
+
+<details>
+<summary><b>🔵 Model export fails</b></summary>
+
+Ensure ONNX dependencies are installed:
+```bash
+pip install -e ".[export]"
+```
+</details>
+
+---
+
+## 📰 What's New
+
+| Version | Date | Highlights |
+|---------|------|------------|
+| **v0.2.0** | 2026-01 | DF, LIAE, AMP, Quick96 architectures; CodeDiscriminator |
+| **v0.1.5** | 2025-12 | AdaBelief optimizer; face/bg style losses |
+| **v0.1.0** | 2025-11 | Initial release with ConvNeXt encoder |
+
+See [CHANGELOG.md](CHANGELOG.md) for full history.
+
+---
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 📝 Citation
+
+If you use Visagen in your research, please cite:
+
+```bibtex
+@software{visagen2025,
+  author = {Karasungur, Mustafa},
+  title = {Visagen: Modern Face Swapping Framework},
+  year = {2025},
+  url = {https://github.com/karasungur/visagen}
+}
+```
 
 ---
 

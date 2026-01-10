@@ -61,6 +61,30 @@
 
 ---
 
+## 🎬 Demo
+
+<div align="center">
+  <img src="https://via.placeholder.com/600x300/667eea/ffffff?text=Demo+Yakinda" alt="Demo Yakında" width="600"/>
+  <p><em>Yüz değiştirme demo videosu yakında!</em></p>
+</div>
+
+---
+
+## 🤔 Neden Visagen?
+
+| Özellik | DeepFaceLab | Visagen |
+|---------|-------------|---------|
+| **Framework** | TensorFlow 1.x | PyTorch 2.0 + Lightning |
+| **Python** | 3.7 | 3.10+ tip ipuçları ile |
+| **Eğitim** | Manuel scriptler | CLI + Gradio UI |
+| **Kod Kalitesi** | Test yok | 861 birim test |
+| **GPU Pipeline** | CPU-bağımlı I/O | NVIDIA DALI |
+| **Dışa Aktarım** | Sınırlı | ONNX + TensorRT |
+| **Segmentasyon** | XSeg (kendin eğit) | SegFormer (önceden eğitilmiş) |
+| **Yüz Algılama** | S3FD/RetinaFace | InsightFace SCRFD |
+
+---
+
 ## ✨ Özellikler
 
 <table>
@@ -69,8 +93,8 @@
 
 ### 🧠 Modern Mimari
 - GRN katmanlı **ConvNeXt V2** encoder
-- **4 DeepFaceLab mimarisi**: DF, LIAE, AMP, Quick96
-- **CBAM** attention (Kanal & Uzamsal)
+- **4 mimari**: DF, LIAE, AMP, Quick96
+- **CBAM** attention + **Swish** aktivasyon
 - Detay koruma için skip bağlantıları
 
 </td>
@@ -79,8 +103,8 @@
 ### 🎯 Gelişmiş Eğitim
 - Çoklu kayıp: DSSIM, L1, LPIPS, ID, GAN, Stil
 - **AdaBelief** optimizer (lr_dropout ile)
+- Karma hassasiyet (FP16/BF16) eğitim
 - **true_face_power** kimlik koruma
-- Göz/Ağız, Bakış, Yüz/Arka plan stil kayıpları
 
 </td>
 </tr>
@@ -495,9 +519,75 @@ Detaylı kurallar için [**Katkıda Bulunma Rehberi**](CONTRIBUTING_TR.md)'ne ba
 
 ---
 
+## ❓ SSS (Sıkça Sorulan Sorular)
+
+<details>
+<summary><b>🔴 CUDA bellek yetersiz hatası</b></summary>
+
+Batch boyutunu veya çözünürlüğü azaltın:
+```bash
+visagen-train --batch-size 4 --resolution 256
+```
+</details>
+
+<details>
+<summary><b>🟡 Düşük değiştirme kalitesi</b></summary>
+
+- Daha fazla epoch eğitin (500+)
+- Daha fazla eğitim görseli kullanın (kişi başına 1000+)
+- Daha iyi kimlik için `--true-face-power 0.1` etkinleştirin
+- Farklı mimariler deneyin: `--architecture liae`
+</details>
+
+<details>
+<summary><b>🟢 Eğitimi nasıl hızlandırırım?</b></summary>
+
+- DALI'yi etkinleştirin: `pip install -e ".[dali]"`
+- Karma hassasiyet kullanın: `--precision 16`
+- Çözünürlüğü azaltın: `--resolution 256`
+</details>
+
+<details>
+<summary><b>🔵 Model dışa aktarım başarısız</b></summary>
+
+ONNX bağımlılıklarının kurulu olduğundan emin olun:
+```bash
+pip install -e ".[export]"
+```
+</details>
+
+---
+
+## 📰 Yenilikler
+
+| Sürüm | Tarih | Öne Çıkanlar |
+|-------|-------|--------------|
+| **v0.2.0** | 2026-01 | DF, LIAE, AMP, Quick96 mimarileri; CodeDiscriminator |
+| **v0.1.5** | 2025-12 | AdaBelief optimizer; yüz/arka plan stil kayıpları |
+| **v0.1.0** | 2025-11 | ConvNeXt encoder ile ilk sürüm |
+
+Tam geçmiş için [CHANGELOG.md](CHANGELOG.md) dosyasına bakın.
+
+---
+
 ## 📄 Lisans
 
 Bu proje MIT Lisansı altında lisanslanmıştır - detaylar için [LICENSE](LICENSE) dosyasına bakın.
+
+---
+
+## 📝 Atıf
+
+Araştırmanızda Visagen kullanıyorsanız, lütfen alıntı yapın:
+
+```bibtex
+@software{visagen2025,
+  author = {Karasungur, Mustafa},
+  title = {Visagen: Modern Face Swapping Framework},
+  year = {2025},
+  url = {https://github.com/karasungur/visagen}
+}
+```
 
 ---
 
