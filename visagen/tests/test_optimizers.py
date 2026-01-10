@@ -1,4 +1,3 @@
-
 import pytest
 import torch
 
@@ -9,12 +8,12 @@ class TestAdaBelief:
     def test_init_defaults(self):
         params = [torch.tensor([1.0], requires_grad=True)]
         opt = AdaBelief(params)
-        assert opt.defaults['lr'] == 1e-3
-        assert opt.defaults['betas'] == (0.9, 0.999)
-        assert opt.defaults['eps'] == 1e-16
-        assert opt.defaults['lr_dropout'] == 1.0
-        assert opt.defaults['lr_cos_period'] == 0
-        assert opt.defaults['clipnorm'] == 0.0
+        assert opt.defaults["lr"] == 1e-3
+        assert opt.defaults["betas"] == (0.9, 0.999)
+        assert opt.defaults["eps"] == 1e-16
+        assert opt.defaults["lr_dropout"] == 1.0
+        assert opt.defaults["lr_cos_period"] == 0
+        assert opt.defaults["clipnorm"] == 0.0
 
     def test_step_updates_params(self):
         # Simple quadratic function: y = x^2, dy/dx = 2x
@@ -23,7 +22,7 @@ class TestAdaBelief:
         opt = AdaBelief([x], lr=0.1)
 
         # Calculate gradients
-        loss = x ** 2
+        loss = x**2
         loss.backward()
 
         # Initial state
@@ -42,7 +41,7 @@ class TestAdaBelief:
         x = torch.tensor([1.0], requires_grad=True)
         opt = AdaBelief([x], lr=0.1, lr_dropout=0.0)
 
-        loss = x ** 2
+        loss = x**2
         loss.backward()
 
         opt.step()
@@ -58,7 +57,7 @@ class TestAdaBelief:
         x = torch.ones(shape, requires_grad=True)
         opt = AdaBelief([x], lr=0.1, lr_dropout=0.5)
 
-        loss = (x ** 2).sum()
+        loss = (x**2).sum()
         loss.backward()
 
         opt.step()
@@ -99,13 +98,13 @@ class TestAdaBelief:
         # Let's check step 3 (t=2) where LR multiplier should be 0.
 
         x.grad = torch.ones_like(x)
-        opt.step() # Step 2
+        opt.step()  # Step 2
 
         # Step 3: Should be 0 update if cos factor works perfectly
         # cos(2 * 2pi/4) = cos(pi) = -1. (1 + -1)/2 = 0.
         current_val = x.item()
         x.grad = torch.ones_like(x)
-        opt.step() # Step 3
+        opt.step()  # Step 3
 
         # Check no change
         assert x.item() == pytest.approx(current_val)
@@ -141,7 +140,7 @@ class TestAdaBelief:
 
         for _ in range(100):
             opt.zero_grad()
-            loss = x ** 2
+            loss = x**2
             loss.backward()
             opt.step()
 

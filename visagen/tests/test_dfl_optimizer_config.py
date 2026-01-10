@@ -1,4 +1,3 @@
-
 import torch
 
 from visagen.training.dfl_module import DFLModule
@@ -41,7 +40,7 @@ class TestDFLOptimizerConfig:
             learning_rate=2e-4,
             lr_dropout=0.5,
             lr_cos_period=1000,
-            clipnorm=1.0
+            clipnorm=1.0,
         )
         optimizers = model.configure_optimizers()
 
@@ -58,11 +57,7 @@ class TestDFLOptimizerConfig:
 
     def test_gan_mode_optimizers(self):
         # Test that all optimizers respect the type in GAN mode
-        model = DFLModule(
-            optimizer_type="adabelief",
-            gan_power=0.1,
-            gan_mode="vanilla"
-        )
+        model = DFLModule(optimizer_type="adabelief", gan_power=0.1, gan_mode="vanilla")
         # Initialize necessary components manually since we are not running full init
         # actually init calls _init_gan so they should be there.
 
@@ -70,7 +65,7 @@ class TestDFLOptimizerConfig:
         assert isinstance(optimizers_tuple, tuple)
 
         optimizer_list = optimizers_tuple[0]
-        assert len(optimizer_list) == 2 # G and D
+        assert len(optimizer_list) == 2  # G and D
 
         g_opt = optimizer_list[0]
         d_opt = optimizer_list[1]
@@ -84,14 +79,14 @@ class TestDFLOptimizerConfig:
             optimizer_type="adabelief",
             gan_power=0.1,
             temporal_enabled=True,
-            temporal_power=0.1
+            temporal_power=0.1,
         )
 
         optimizers_tuple = model.configure_optimizers()
         assert isinstance(optimizers_tuple, tuple)
 
         optimizer_list = optimizers_tuple[0]
-        assert len(optimizer_list) == 3 # G, D, T
+        assert len(optimizer_list) == 3  # G, D, T
 
         for opt in optimizer_list:
             assert isinstance(opt, AdaBelief)

@@ -179,15 +179,11 @@ class PreviewCallback(Callback):
 
             # Save history if enabled
             if self.save_history:
-                step_path = (
-                    self.preview_dir / f"step_{trainer.global_step:08d}.png"
-                )
+                step_path = self.preview_dir / f"step_{trainer.global_step:08d}.png"
                 vutils.save_image(grid, step_path)
 
             # Save metadata
-            current_loss = (
-                self.loss_history[-1]["loss"] if self.loss_history else None
-            )
+            current_loss = self.loss_history[-1]["loss"] if self.loss_history else None
             metadata = {
                 "step": trainer.global_step,
                 "epoch": trainer.current_epoch,
@@ -398,9 +394,7 @@ class TargetStepCallback(Callback):
 
         # Check target step
         if self.target_step > 0 and trainer.global_step >= self.target_step:
-            print(
-                f"\nTarget step {self.target_step} reached. Stopping training."
-            )
+            print(f"\nTarget step {self.target_step} reached. Stopping training.")
             trainer.should_stop = True
             return
 
@@ -430,4 +424,3 @@ class TargetStepCallback(Callback):
             return float(outputs)
 
         return None
-
