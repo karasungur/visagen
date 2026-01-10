@@ -1,8 +1,17 @@
 """Tests for blur_out_mask augmentation."""
 
+import pytest
 import torch
 
 from visagen.data.augmentations import blur_out_mask
+
+# Check if kornia is available
+try:
+    import kornia  # noqa: F401
+
+    HAS_KORNIA = True
+except ImportError:
+    HAS_KORNIA = False
 
 
 class TestBlurOutMask:
@@ -25,6 +34,8 @@ class TestBlurOutMask:
 
     def test_zero_mask_blurs_everything(self) -> None:
         """Test that zero mask blurs the entire image."""
+        if not HAS_KORNIA:
+            pytest.skip("kornia not installed")
         image = torch.randn(2, 3, 256, 256)
         mask = torch.zeros(2, 1, 256, 256)  # All background
         result = blur_out_mask(image, mask)
@@ -33,6 +44,8 @@ class TestBlurOutMask:
 
     def test_partial_mask(self) -> None:
         """Test with partial mask (half face, half background)."""
+        if not HAS_KORNIA:
+            pytest.skip("kornia not installed")
         image = torch.randn(2, 3, 256, 256)
         mask = torch.zeros(2, 1, 256, 256)
         mask[:, :, :128, :] = 1.0  # Top half is face
@@ -57,6 +70,8 @@ class TestBlurOutMask:
 
     def test_explicit_resolution_parameter(self) -> None:
         """Test with explicit resolution parameter."""
+        if not HAS_KORNIA:
+            pytest.skip("kornia not installed")
         image = torch.randn(2, 3, 256, 256)
         mask = torch.ones(2, 1, 256, 256)
         mask[:, :, 128:, :] = 0
@@ -71,6 +86,8 @@ class TestBlurOutMask:
 
     def test_gradient_flow(self) -> None:
         """Test that gradients flow through the function."""
+        if not HAS_KORNIA:
+            pytest.skip("kornia not installed")
         image = torch.randn(1, 3, 128, 128, requires_grad=True)
         mask = torch.ones(1, 1, 128, 128)
         mask[:, :, 64:, :] = 0
@@ -94,6 +111,8 @@ class TestBlurOutMask:
 
     def test_soft_mask(self) -> None:
         """Test with soft (non-binary) mask values."""
+        if not HAS_KORNIA:
+            pytest.skip("kornia not installed")
         image = torch.randn(2, 3, 256, 256)
         # Gradient mask from 0 to 1
         mask = torch.linspace(0, 1, 256).view(1, 1, 256, 1).expand(2, 1, 256, 256)
