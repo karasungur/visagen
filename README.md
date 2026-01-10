@@ -69,18 +69,18 @@
 
 ### 🧠 Modern Architecture
 - **ConvNeXt V2** encoder with GRN layers
+- **4 DeepFaceLab architectures**: DF, LIAE, AMP, Quick96
 - **CBAM** attention (Channel & Spatial)
-- **Swish** activation for smooth gradients
 - Skip connections for detail preservation
 
 </td>
 <td width="50%">
 
 ### 🎯 Advanced Training
-- Multi-loss: DSSIM, L1, LPIPS, ID, GAN
-- Mixed precision (FP16/BF16)
-- Gradient clipping & LR scheduling
-- Eyes/Mouth & Gaze consistency loss
+- Multi-loss: DSSIM, L1, LPIPS, ID, GAN, Style
+- **AdaBelief** optimizer with lr_dropout
+- **true_face_power** for identity preservation
+- Eyes/Mouth, Gaze, Face/BG style losses
 
 </td>
 </tr>
@@ -264,6 +264,15 @@ visagen-gui --port 7860
 
 ## 🏗️ Architecture
 
+### Supported Architectures
+
+| Architecture | Resolution | Use Case |
+|--------------|------------|----------|
+| **DF** (Direct Face) | 128-512 | High quality, separate decoders |
+| **LIAE** | 128-512 | Memory efficient, shared decoder |
+| **AMP** | 128-512 | Morph-based blending |
+| **Quick96** | 96 | Fast inference, mobile |
+
 ### Model Architecture
 
 ```
@@ -323,14 +332,16 @@ visagen/
 │   ├── dali_pipeline.py   # NVIDIA DALI GPU pipeline
 │   └── augmentations.py
 ├── 📂 models/             # Neural network architectures
+│   ├── 📂 architectures/   # DF, LIAE, AMP, Quick96
+│   ├── 📂 discriminators/  # Patch, Temporal, Code discriminators
 │   ├── encoder.py         # ConvNeXt encoder
 │   ├── decoder.py         # Swish decoder
-│   ├── attention.py       # CBAM attention
-│   └── discriminator.py
+│   └── attention.py       # CBAM attention
 ├── 📂 training/           # Training logic
 │   ├── dfl_module.py      # PyTorch Lightning module
 │   ├── pretrain_module.py # Pretraining module
-│   └── losses.py          # Loss functions
+│   ├── losses.py          # Loss functions (DSSIM, Style, etc.)
+│   └── 📂 optimizers/      # AdaBelief, AdamW
 ├── 📂 merger/             # Video processing pipeline
 │   ├── video_io.py        # FFmpeg video I/O with NVENC
 │   ├── frame_processor.py # Single-frame processing
@@ -369,7 +380,7 @@ visagen/
 │   ├── segmenter.py       # SegFormer segmentation
 │   ├── dflimg.py          # DFL image metadata
 │   └── mask_export.py     # LabelMe/COCO export
-└── 📂 tests/              # Unit tests (636+)
+└── 📂 tests/              # Unit tests (861)
 ```
 
 </details>
@@ -393,7 +404,7 @@ visagen/
 <sub>Inference Speed</sub>
 </td>
 <td align="center">
-<h3>✅ 636+</h3>
+<h3>✅ 861</h3>
 <sub>Unit Tests</sub>
 </td>
 </tr>

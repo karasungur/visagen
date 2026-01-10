@@ -69,18 +69,18 @@
 
 ### 🧠 Modern Mimari
 - GRN katmanlı **ConvNeXt V2** encoder
+- **4 DeepFaceLab mimarisi**: DF, LIAE, AMP, Quick96
 - **CBAM** attention (Kanal & Uzamsal)
-- Yumuşak gradyanlar için **Swish** aktivasyon
 - Detay koruma için skip bağlantıları
 
 </td>
 <td width="50%">
 
 ### 🎯 Gelişmiş Eğitim
-- Çoklu kayıp: DSSIM, L1, LPIPS, ID, GAN
-- Karışık hassasiyet (FP16/BF16)
-- Gradyan kırpma & LR zamanlama
-- Göz/Ağız & Bakış tutarlılık kaybı
+- Çoklu kayıp: DSSIM, L1, LPIPS, ID, GAN, Stil
+- **AdaBelief** optimizer (lr_dropout ile)
+- **true_face_power** kimlik koruma
+- Göz/Ağız, Bakış, Yüz/Arka plan stil kayıpları
 
 </td>
 </tr>
@@ -264,6 +264,15 @@ visagen-gui --port 7860
 
 ## 🏗️ Mimari
 
+### Desteklenen Mimariler
+
+| Mimari | Çözünürlük | Kullanım Alanı |
+|--------|------------|----------------|
+| **DF** (Direct Face) | 128-512 | Yüksek kalite, ayrı decoder'lar |
+| **LIAE** | 128-512 | Bellek verimli, paylaşılan decoder |
+| **AMP** | 128-512 | Morph tabanlı harmanlama |
+| **Quick96** | 96 | Hızlı çıkarım, mobil |
+
 ### Model Mimarisi
 
 ```
@@ -323,14 +332,16 @@ visagen/
 │   ├── dali_pipeline.py   # NVIDIA DALI GPU pipeline
 │   └── augmentations.py
 ├── 📂 models/             # Sinir ağı mimarileri
+│   ├── 📂 architectures/   # DF, LIAE, AMP, Quick96
+│   ├── 📂 discriminators/  # Patch, Temporal, Code discriminator
 │   ├── encoder.py         # ConvNeXt encoder
 │   ├── decoder.py         # Swish decoder
-│   ├── attention.py       # CBAM attention
-│   └── discriminator.py
+│   └── attention.py       # CBAM attention
 ├── 📂 training/           # Eğitim mantığı
 │   ├── dfl_module.py      # PyTorch Lightning modülü
 │   ├── pretrain_module.py # Ön-eğitim modülü
-│   └── losses.py          # Kayıp fonksiyonları
+│   ├── losses.py          # Kayıp fonksiyonları (DSSIM, Stil, vb.)
+│   └── 📂 optimizers/      # AdaBelief, AdamW
 ├── 📂 merger/             # Video işleme pipeline
 │   ├── video_io.py        # NVENC ile FFmpeg video I/O
 │   ├── frame_processor.py # Tek-kare işleme
@@ -369,7 +380,7 @@ visagen/
 │   ├── segmenter.py       # SegFormer segmentasyon
 │   ├── dflimg.py          # DFL görsel metadata
 │   └── mask_export.py     # LabelMe/COCO dışa aktarım
-└── 📂 tests/              # Birim testleri (636+)
+└── 📂 tests/              # Birim testleri (861)
 ```
 
 </details>
@@ -393,7 +404,7 @@ visagen/
 <sub>Çıkarım Hızı</sub>
 </td>
 <td align="center">
-<h3>✅ 636+</h3>
+<h3>✅ 861</h3>
 <sub>Birim Test</sub>
 </td>
 </tr>
