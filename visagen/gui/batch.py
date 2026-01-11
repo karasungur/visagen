@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import threading
 import uuid
@@ -10,6 +11,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     pass
@@ -261,11 +264,12 @@ class BatchQueue:
                     try:
                         item.process.terminate()
                         item.process.wait(timeout=5)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Process terminate failed, trying kill: {e}")
                         try:
                             item.process.kill()
-                        except Exception:
-                            pass
+                        except Exception as kill_err:
+                            logger.warning(f"Failed to kill process: {kill_err}")
                     item.status = BatchStatus.CANCELLED
 
         # Wait for worker thread to finish
@@ -282,13 +286,15 @@ class BatchQueue:
             item = self._get_next_pending()
             if item is None:
                 # No more items, stop
-                self._running = False
+                with self._lock:
+                    self._running = False
                 if on_complete:
                     on_complete()
                 break
 
             try:
-                item.status = BatchStatus.RUNNING
+                with self._lock:
+                    item.status = BatchStatus.RUNNING
                 process_fn(item)
                 if item.status == BatchStatus.RUNNING:
                     item.status = BatchStatus.COMPLETED
