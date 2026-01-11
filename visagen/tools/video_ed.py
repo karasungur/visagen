@@ -43,16 +43,30 @@ class VideoInfo:
 def get_ffmpeg_path() -> Path:
     """Get FFmpeg executable path.
 
+    Tries imageio_ffmpeg bundled binary first, then falls back to system PATH.
+
     Returns:
         Path to FFmpeg executable
 
     Raises:
         RuntimeError: If FFmpeg is not found
     """
+    # Try imageio_ffmpeg bundled binary first
+    try:
+        import imageio_ffmpeg
+
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        if ffmpeg:
+            return Path(ffmpeg)
+    except ImportError:
+        pass
+
+    # Fallback to system PATH
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         raise RuntimeError(
-            "FFmpeg not found. Please install FFmpeg and ensure it's in PATH."
+            "FFmpeg not found. Install via: pip install imageio-ffmpeg "
+            "or install FFmpeg system-wide and ensure it's in PATH."
         )
     return Path(ffmpeg)
 
@@ -60,16 +74,38 @@ def get_ffmpeg_path() -> Path:
 def get_ffprobe_path() -> Path:
     """Get FFprobe executable path.
 
+    Tries imageio_ffmpeg bundled binary directory first, then falls back to system PATH.
+
     Returns:
         Path to FFprobe executable
 
     Raises:
         RuntimeError: If FFprobe is not found
     """
+    # Try to find ffprobe next to imageio_ffmpeg's ffmpeg
+    try:
+        import imageio_ffmpeg
+
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        if ffmpeg:
+            ffprobe = Path(ffmpeg).parent / "ffprobe"
+            if ffprobe.exists():
+                return ffprobe
+            # Some platforms have ffprobe with same naming pattern
+            ffprobe_pattern = Path(ffmpeg).with_name(
+                Path(ffmpeg).name.replace("ffmpeg", "ffprobe")
+            )
+            if ffprobe_pattern.exists():
+                return ffprobe_pattern
+    except ImportError:
+        pass
+
+    # Fallback to system PATH
     ffprobe = shutil.which("ffprobe")
     if ffprobe is None:
         raise RuntimeError(
-            "FFprobe not found. Please install FFmpeg and ensure it's in PATH."
+            "FFprobe not found. Install FFmpeg system-wide for full functionality, "
+            "or use imageio-ffmpeg (ffprobe may have limited availability)."
         )
     return Path(ffprobe)
 
