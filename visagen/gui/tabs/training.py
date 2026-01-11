@@ -1,0 +1,556 @@
+"""Training tab implementation."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from collections.abc import Generator
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import gradio as gr
+import numpy as np
+
+from visagen.gui.components import (
+    DropdownConfig,
+    DropdownInput,
+    ImagePreview,
+    ImagePreviewConfig,
+    LogOutput,
+    LogOutputConfig,
+    PathInput,
+    PathInputConfig,
+    ProcessControl,
+    SliderConfig,
+    SliderInput,
+)
+from visagen.gui.presets import PresetManager, TrainingPreset
+from visagen.gui.tabs.base import BaseTab
+
+if TYPE_CHECKING:
+    from visagen.gui.i18n import I18n
+    from visagen.gui.state.app_state import AppState
+
+
+class TrainingTab(BaseTab):
+    """Training configuration and execution tab."""
+
+    def __init__(self, app_state: AppState, i18n: I18n) -> None:
+        """Initialize training tab with preset manager."""
+        super().__init__(app_state, i18n)
+        self.preset_manager = PresetManager()
+
+    @property
+    def id(self) -> str:
+        return "training"
+
+    def _build_content(self) -> dict[str, Any]:
+        """Build training tab UI."""
+        components = {}
+
+        gr.Markdown(f"### {self.t('title')}")
+
+        # Preset section
+        with gr.Row():
+            with gr.Column(scale=3):
+                components["preset_dropdown"] = gr.Dropdown(
+                    label=self.t("preset.label"),
+                    choices=self.preset_manager.list_presets(),
+                    value=None,
+                    interactive=True,
+                )
+            with gr.Column(scale=1):
+                components["load_preset_btn"] = gr.Button(
+                    self.t("preset.load"),
+                    size="sm",
+                )
+            with gr.Column(scale=1):
+                components["save_preset_btn"] = gr.Button(
+                    self.t("preset.save"),
+                    size="sm",
+                    variant="secondary",
+                )
+
+        with gr.Row(visible=False) as save_preset_row:
+            components["preset_name_input"] = gr.Textbox(
+                label=self.t("preset.name_input"),
+                placeholder="My Custom Preset",
+            )
+            components["confirm_save_btn"] = gr.Button(
+                self.t("preset.confirm_save"),
+                variant="primary",
+            )
+            components["cancel_save_btn"] = gr.Button(self.i18n.t("common.cancel"))
+        components["save_preset_row"] = save_preset_row
+
+        with gr.Row():
+            with gr.Column():
+                # Source directory input
+                components["src_dir"] = PathInput(
+                    PathInputConfig(
+                        key="training.src_dir",
+                        path_type="directory",
+                        must_exist=True,
+                    ),
+                    self.i18n,
+                ).build()
+
+                # Destination directory input
+                components["dst_dir"] = PathInput(
+                    PathInputConfig(
+                        key="training.dst_dir",
+                        path_type="directory",
+                        must_exist=True,
+                    ),
+                    self.i18n,
+                ).build()
+
+                # Output directory
+                components["output_dir"] = PathInput(
+                    PathInputConfig(
+                        key="training.output_dir",
+                        default="./workspace/model",
+                        path_type="directory",
+                    ),
+                    self.i18n,
+                ).build()
+
+            with gr.Column():
+                # Batch size slider
+                components["batch_size"] = SliderInput(
+                    SliderConfig(
+                        key="training.batch_size",
+                        minimum=1,
+                        maximum=32,
+                        step=1,
+                        default=8,
+                    ),
+                    self.i18n,
+                ).build()
+
+                # Max epochs slider
+                components["max_epochs"] = SliderInput(
+                    SliderConfig(
+                        key="training.max_epochs",
+                        minimum=10,
+                        maximum=2000,
+                        step=10,
+                        default=500,
+                    ),
+                    self.i18n,
+                ).build()
+
+                # Learning rate
+                components["learning_rate"] = gr.Number(
+                    value=1e-4,
+                    label=self.t("learning_rate.label"),
+                )
+
+        # Loss weights section
+        with gr.Row():
+            with gr.Column():
+                components["dssim_weight"] = SliderInput(
+                    SliderConfig(
+                        key="training.dssim_weight", minimum=0, maximum=30, default=10.0
+                    ),
+                    self.i18n,
+                ).build()
+                components["l1_weight"] = SliderInput(
+                    SliderConfig(
+                        key="training.l1_weight", minimum=0, maximum=30, default=10.0
+                    ),
+                    self.i18n,
+                ).build()
+                components["lpips_weight"] = SliderInput(
+                    SliderConfig(
+                        key="training.lpips_weight", minimum=0, maximum=10, default=0.0
+                    ),
+                    self.i18n,
+                ).build()
+
+            with gr.Column():
+                components["gan_power"] = SliderInput(
+                    SliderConfig(
+                        key="training.gan_power", minimum=0, maximum=1.0, default=0.0
+                    ),
+                    self.i18n,
+                ).build()
+                components["precision"] = DropdownInput(
+                    DropdownConfig(
+                        key="training.precision",
+                        choices=["32", "16-mixed", "bf16-mixed"],
+                        default="32",
+                    ),
+                    self.i18n,
+                ).build()
+
+        gr.Markdown("### Experimental Models")
+        with gr.Row():
+            with gr.Column():
+                components["model_type"] = DropdownInput(
+                    DropdownConfig(
+                        key="training.model_type",
+                        choices=["standard", "diffusion", "eg3d"],
+                        default="standard",
+                    ),
+                    self.i18n,
+                ).build()
+
+            with gr.Column():
+                components["texture_weight"] = SliderInput(
+                    SliderConfig(
+                        key="training.texture_weight",
+                        minimum=0,
+                        maximum=10,
+                        default=0.0,
+                    ),
+                    self.i18n,
+                ).build()
+                components["use_pretrained_vae"] = gr.Checkbox(
+                    label=self.t("use_pretrained_vae.label"),
+                    value=True,
+                    info=self.t("use_pretrained_vae.info"),
+                )
+
+        # Resume checkpoint
+        components["resume_ckpt"] = PathInput(
+            PathInputConfig(
+                key="training.resume_ckpt",
+                path_type="file",
+            ),
+            self.i18n,
+        ).build()
+
+        # Start/Stop buttons
+        with gr.Row():
+            process_ctrl = ProcessControl("training", self.i18n)
+            components["train_btn"], components["stop_btn"] = process_ctrl.build()
+
+        gr.Markdown("---")
+        gr.Markdown(f"### {self.t('preview.title')}")
+
+        with gr.Row():
+            components["preview_status"] = gr.Textbox(
+                label=self.t("preview.status.label"),
+                value=self.i18n.t("status.no_training"),
+                interactive=False,
+            )
+
+        components["preview_image"] = ImagePreview(
+            ImagePreviewConfig(key="training.preview.image", height=400),
+            self.i18n,
+        ).build()
+
+        with gr.Row():
+            components["refresh_btn"] = gr.Button(self.t("refresh_preview"))
+
+        gr.Markdown("---")
+        # Log output
+        components["log"] = LogOutput(
+            LogOutputConfig(key="training.log", lines=15, max_lines=30),
+            self.i18n,
+        ).build()
+
+        return components
+
+    def _setup_events(self, c: dict[str, Any]) -> None:
+        """Wire up training event handlers."""
+
+        # Start training
+        c["train_btn"].click(
+            fn=self._start_training,
+            inputs=[
+                c["src_dir"],
+                c["dst_dir"],
+                c["output_dir"],
+                c["batch_size"],
+                c["max_epochs"],
+                c["learning_rate"],
+                c["dssim_weight"],
+                c["l1_weight"],
+                c["lpips_weight"],
+                c["gan_power"],
+                c["precision"],
+                c["resume_ckpt"],
+                c["model_type"],
+                c["texture_weight"],
+                c["use_pretrained_vae"],
+            ],
+            outputs=c["log"],
+        )
+
+        # Stop training
+        c["stop_btn"].click(
+            fn=self._stop_training,
+            outputs=c["log"],
+        )
+
+        # Refresh preview
+        c["refresh_btn"].click(
+            fn=self._refresh_preview,
+            inputs=[c["output_dir"]],
+            outputs=[c["preview_status"], c["preview_image"]],
+        )
+
+        # Preset events
+        def load_preset(key: str) -> tuple:
+            """Load preset and return all parameter values."""
+            if not key:
+                return tuple([gr.update()] * 11)
+            preset = self.preset_manager.load_preset(key)
+            if not preset:
+                return tuple([gr.update()] * 11)
+            return (
+                preset.batch_size,
+                preset.max_epochs,
+                preset.learning_rate,
+                preset.dssim_weight,
+                preset.l1_weight,
+                preset.lpips_weight,
+                preset.gan_power,
+                preset.precision,
+                preset.model_type,
+                preset.texture_weight,
+                preset.use_pretrained_vae,
+            )
+
+        def show_save_dialog() -> dict:
+            return gr.update(visible=True)
+
+        def hide_save_dialog() -> dict:
+            return gr.update(visible=False)
+
+        def save_preset(
+            name: str,
+            batch_size: int,
+            max_epochs: int,
+            learning_rate: float,
+            dssim_weight: float,
+            l1_weight: float,
+            lpips_weight: float,
+            gan_power: float,
+            precision: str,
+            model_type: str,
+            texture_weight: float,
+            use_pretrained_vae: bool,
+        ) -> tuple:
+            """Save current parameters as preset."""
+            if not name:
+                return gr.update(), gr.update(visible=True)
+            preset = TrainingPreset(
+                name=name,
+                batch_size=int(batch_size),
+                max_epochs=int(max_epochs),
+                learning_rate=float(learning_rate),
+                dssim_weight=float(dssim_weight),
+                l1_weight=float(l1_weight),
+                lpips_weight=float(lpips_weight),
+                gan_power=float(gan_power),
+                precision=precision,
+                model_type=model_type,
+                texture_weight=float(texture_weight),
+                use_pretrained_vae=bool(use_pretrained_vae),
+            )
+            self.preset_manager.save_preset(preset)
+            new_choices = self.preset_manager.list_presets()
+            return gr.update(choices=new_choices), gr.update(visible=False)
+
+        # Wire preset events
+        c["load_preset_btn"].click(
+            fn=load_preset,
+            inputs=[c["preset_dropdown"]],
+            outputs=[
+                c["batch_size"],
+                c["max_epochs"],
+                c["learning_rate"],
+                c["dssim_weight"],
+                c["l1_weight"],
+                c["lpips_weight"],
+                c["gan_power"],
+                c["precision"],
+                c["model_type"],
+                c["texture_weight"],
+                c["use_pretrained_vae"],
+            ],
+        )
+
+        c["save_preset_btn"].click(
+            fn=show_save_dialog,
+            outputs=[c["save_preset_row"]],
+        )
+
+        c["cancel_save_btn"].click(
+            fn=hide_save_dialog,
+            outputs=[c["save_preset_row"]],
+        )
+
+        c["confirm_save_btn"].click(
+            fn=save_preset,
+            inputs=[
+                c["preset_name_input"],
+                c["batch_size"],
+                c["max_epochs"],
+                c["learning_rate"],
+                c["dssim_weight"],
+                c["l1_weight"],
+                c["lpips_weight"],
+                c["gan_power"],
+                c["precision"],
+                c["model_type"],
+                c["texture_weight"],
+                c["use_pretrained_vae"],
+            ],
+            outputs=[c["preset_dropdown"], c["save_preset_row"]],
+        )
+
+    def _start_training(
+        self,
+        src_dir: str,
+        dst_dir: str,
+        output_dir: str,
+        batch_size: int,
+        max_epochs: int,
+        learning_rate: float,
+        dssim_weight: float,
+        l1_weight: float,
+        lpips_weight: float,
+        gan_power: float,
+        precision: str,
+        resume_ckpt: str,
+        model_type: str,
+        texture_weight: float,
+        use_pretrained_vae: bool,
+    ) -> Generator[str, None, None]:
+        """Start training subprocess."""
+        # Validation
+        if not src_dir or not Path(src_dir).exists():
+            yield self.i18n.t("errors.path_not_found")
+            return
+        if not dst_dir or not Path(dst_dir).exists():
+            yield self.i18n.t("errors.path_not_found")
+            return
+
+        # Build command
+        cmd = [
+            sys.executable,
+            "-m",
+            "visagen.tools.train",
+            "--src-dir",
+            src_dir,
+            "--dst-dir",
+            dst_dir,
+            "--output-dir",
+            output_dir or "./workspace/model",
+            "--batch-size",
+            str(int(batch_size)),
+            "--max-epochs",
+            str(int(max_epochs)),
+            "--learning-rate",
+            str(learning_rate),
+            "--dssim-weight",
+            str(dssim_weight),
+            "--l1-weight",
+            str(l1_weight),
+            "--lpips-weight",
+            str(lpips_weight),
+            "--precision",
+            precision,
+            "--model-type",
+            model_type,
+            "--texture-weight",
+            str(texture_weight),
+        ]
+
+        # NOTE: gan_power is not currently used in the CLI args in original code
+        # If it should be supported, visagen.tools.train needs update.
+        # Keeping it consistent with original implementation for now.
+
+        if use_pretrained_vae:
+            cmd.append("--use-pretrained-vae")
+        else:
+            cmd.append("--no-pretrained-vae")
+
+        if resume_ckpt and Path(resume_ckpt).exists():
+            cmd.extend(["--resume", resume_ckpt])
+
+        yield f"Starting training...\n$ {' '.join(cmd)}\n"
+
+        try:
+            self.state.processes.training = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+
+            # Stream output
+            if self.state.processes.training.stdout:
+                for line in iter(self.state.processes.training.stdout.readline, ""):
+                    if line:
+                        yield line
+                    if self.state.processes.training.poll() is not None:
+                        break
+
+            remaining, _ = self.state.processes.training.communicate()
+            if remaining:
+                yield remaining
+
+            exit_code = self.state.processes.training.returncode
+            if exit_code == 0:
+                yield f"\n\n{self.i18n.t('status.completed')}"
+            else:
+                yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
+
+        except Exception as e:
+            yield f"\n\nError: {e}"
+
+        finally:
+            self.state.processes.training = None
+
+    def _stop_training(self) -> str:
+        """Stop training process."""
+        if self.state.processes.terminate("training"):
+            return self.i18n.t("status.stopped")
+        return self.i18n.t("status.no_training")
+
+    def _refresh_preview(self, output_dir: str) -> tuple[str, np.ndarray | None]:
+        """Get current training preview status."""
+        if not output_dir:
+            return self.i18n.t("errors.no_output_dir"), None
+
+        preview_path = Path(output_dir) / "previews"
+        latest_img = preview_path / "latest.png"
+        latest_json = preview_path / "latest.json"
+
+        if not latest_img.exists():
+            return (
+                "No preview available yet. Training may not have started or reached first interval.",
+                None,
+            )
+
+        try:
+            import cv2
+
+            img = cv2.imread(str(latest_img))
+            if img is None:
+                return "Error: Could not read preview image", None
+
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+            status = self.i18n.t("status.preview_available")
+            if latest_json.exists():
+                with open(latest_json) as f:
+                    meta = json.load(f)
+                loss_val = meta.get("loss")
+                loss_str = f"{loss_val:.4f}" if loss_val is not None else "N/A"
+                status = (
+                    f"Step: {meta.get('step', '?')} | "
+                    f"Epoch: {meta.get('epoch', '?')} | "
+                    f"Loss: {loss_str}"
+                )
+
+            return status, img
+        except Exception as e:
+            return f"Error loading preview: {e}", None
