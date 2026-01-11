@@ -20,31 +20,45 @@ from visagen.tools.video_ed import (
 
 
 class TestFFmpegPaths:
-    """Tests for FFmpeg path detection."""
+    """Tests for FFmpeg path detection.
 
-    def test_get_ffmpeg_path_found(self) -> None:
-        """Test FFmpeg path detection when available."""
-        with patch("shutil.which", return_value="/usr/bin/ffmpeg"):
+    Note: video_ed.py prioritizes imageio_ffmpeg bundled binary,
+    falling back to system PATH if unavailable.
+    """
+
+    def test_get_ffmpeg_path_imageio_priority(self) -> None:
+        """Test imageio_ffmpeg is preferred when available."""
+        with patch("imageio_ffmpeg.get_ffmpeg_exe", return_value="/opt/imageio/ffmpeg"):
             path = get_ffmpeg_path()
-            assert path == Path("/usr/bin/ffmpeg")
+            assert path == Path("/opt/imageio/ffmpeg")
+
+    def test_get_ffmpeg_path_fallback_to_system(self) -> None:
+        """Test fallback to system PATH when imageio_ffmpeg returns None."""
+        with patch("imageio_ffmpeg.get_ffmpeg_exe", return_value=None):
+            with patch("shutil.which", return_value="/usr/bin/ffmpeg"):
+                path = get_ffmpeg_path()
+                assert path == Path("/usr/bin/ffmpeg")
 
     def test_get_ffmpeg_path_not_found(self) -> None:
-        """Test FFmpeg path detection when not available."""
-        with patch("shutil.which", return_value=None):
-            with pytest.raises(RuntimeError, match="FFmpeg not found"):
-                get_ffmpeg_path()
+        """Test RuntimeError when FFmpeg not available anywhere."""
+        with patch("imageio_ffmpeg.get_ffmpeg_exe", return_value=None):
+            with patch("shutil.which", return_value=None):
+                with pytest.raises(RuntimeError, match="FFmpeg not found"):
+                    get_ffmpeg_path()
 
-    def test_get_ffprobe_path_found(self) -> None:
-        """Test FFprobe path detection when available."""
-        with patch("shutil.which", return_value="/usr/bin/ffprobe"):
-            path = get_ffprobe_path()
-            assert path == Path("/usr/bin/ffprobe")
+    def test_get_ffprobe_path_system_fallback(self) -> None:
+        """Test FFprobe detection via system PATH (imageio has no ffprobe)."""
+        with patch("imageio_ffmpeg.get_ffmpeg_exe", return_value=None):
+            with patch("shutil.which", return_value="/usr/bin/ffprobe"):
+                path = get_ffprobe_path()
+                assert path == Path("/usr/bin/ffprobe")
 
     def test_get_ffprobe_path_not_found(self) -> None:
-        """Test FFprobe path detection when not available."""
-        with patch("shutil.which", return_value=None):
-            with pytest.raises(RuntimeError, match="FFprobe not found"):
-                get_ffprobe_path()
+        """Test RuntimeError when FFprobe not available."""
+        with patch("imageio_ffmpeg.get_ffmpeg_exe", return_value=None):
+            with patch("shutil.which", return_value=None):
+                with pytest.raises(RuntimeError, match="FFprobe not found"):
+                    get_ffprobe_path()
 
 
 class TestVideoInfo:

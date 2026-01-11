@@ -337,7 +337,7 @@ Output (512x512x3)
 | 🎬 `visagen-merge` | Merge face swaps with NVENC encoding |
 | 📦 `visagen-export` | Export to ONNX/TensorRT |
 | 📊 `visagen-sort` | Sort datasets (14 methods) |
-| 🌐 `visagen-gui` | Launch Gradio web interface |
+| 🌐 `visagen-gui` | Launch Gradio web interface (14 tabs, bilingual) |
 | 🎞️ `visagen-video` | Video frame extraction/creation |
 | ✨ `visagen-enhance` | Batch face enhancement (GFPGAN/GPEN) |
 | 📐 `visagen-resize` | Resize faceset with metadata |
@@ -396,8 +396,28 @@ visagen/
 │   ├── video_ed.py        # Video frame tools
 │   ├── faceset_enhancer.py# Batch face enhancement
 │   ├── faceset_resizer.py # Faceset resizing
-│   ├── benchmark.py       # Performance benchmarks
-│   └── gradio_app.py      # Web UI (10 tabs)
+│   └── benchmark.py       # Performance benchmarks
+├── 📂 gui/                # Gradio web interface (14 tabs)
+│   ├── app.py             # Application factory
+│   ├── 📂 tabs/           # Tab implementations
+│   │   ├── wizard.py      # Step-by-step workflow
+│   │   ├── extract.py     # Face extraction
+│   │   ├── sort.py        # Dataset sorting
+│   │   ├── training.py    # Model training + presets
+│   │   ├── inference.py   # Single image test
+│   │   ├── compare.py     # Model comparison (SSIM/PSNR)
+│   │   ├── merge.py       # Video processing
+│   │   ├── interactive_merge.py  # Real-time preview
+│   │   ├── batch.py       # Batch processing queue
+│   │   ├── postprocess.py # Post-processing demos
+│   │   ├── export.py      # ONNX/TensorRT export
+│   │   ├── video_tools.py # Video utilities
+│   │   ├── faceset_tools.py  # Face enhancement/resize
+│   │   └── settings.py    # App settings
+│   ├── 📂 components/     # Reusable UI components
+│   ├── 📂 i18n/           # English + Turkish translations
+│   ├── 📂 state/          # Application state management
+│   └── theme.py           # Custom theme + dark mode
 ├── 📂 vision/             # Computer vision
 │   ├── detector.py        # InsightFace SCRFD detection
 │   ├── aligner.py         # Face alignment (Umeyama)

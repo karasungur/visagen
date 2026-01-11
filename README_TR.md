@@ -337,7 +337,7 @@ Girdi (512x512x3)
 | 🎬 `visagen-merge` | NVENC kodlama ile yüz değiştirme birleştir |
 | 📦 `visagen-export` | ONNX/TensorRT'ye aktar |
 | 📊 `visagen-sort` | Veri seti sırala (14 yöntem) |
-| 🌐 `visagen-gui` | Gradio web arayüzü başlat |
+| 🌐 `visagen-gui` | Gradio web arayüzü başlat (14 sekme, 2 dil) |
 | 🎞️ `visagen-video` | Video kare çıkarma/oluşturma |
 | ✨ `visagen-enhance` | Toplu yüz iyileştirme (GFPGAN/GPEN) |
 | 📐 `visagen-resize` | Metadata ile faceset boyutlandır |
@@ -396,8 +396,28 @@ visagen/
 │   ├── video_ed.py        # Video kare araçları
 │   ├── faceset_enhancer.py# Toplu yüz iyileştirme
 │   ├── faceset_resizer.py # Faceset boyutlandırma
-│   ├── benchmark.py       # Performans karşılaştırmaları
-│   └── gradio_app.py      # Web UI (10 sekme)
+│   └── benchmark.py       # Performans karşılaştırmaları
+├── 📂 gui/                # Gradio web arayüzü (14 sekme)
+│   ├── app.py             # Uygulama fabrikası
+│   ├── 📂 tabs/           # Sekme implementasyonları
+│   │   ├── wizard.py      # Adım adım iş akışı
+│   │   ├── extract.py     # Yüz çıkarma
+│   │   ├── sort.py        # Veri seti sıralama
+│   │   ├── training.py    # Model eğitimi + ön ayarlar
+│   │   ├── inference.py   # Tek görsel test
+│   │   ├── compare.py     # Model karşılaştırma (SSIM/PSNR)
+│   │   ├── merge.py       # Video işleme
+│   │   ├── interactive_merge.py  # Gerçek zamanlı önizleme
+│   │   ├── batch.py       # Toplu işlem kuyruğu
+│   │   ├── postprocess.py # Son işleme demoları
+│   │   ├── export.py      # ONNX/TensorRT dışa aktarım
+│   │   ├── video_tools.py # Video araçları
+│   │   ├── faceset_tools.py  # Yüz iyileştirme/boyutlandırma
+│   │   └── settings.py    # Uygulama ayarları
+│   ├── 📂 components/     # Yeniden kullanılabilir UI bileşenleri
+│   ├── 📂 i18n/           # İngilizce + Türkçe çeviriler
+│   ├── 📂 state/          # Uygulama durum yönetimi
+│   └── theme.py           # Özel tema + karanlık mod
 ├── 📂 vision/             # Bilgisayarlı görü
 │   ├── detector.py        # InsightFace SCRFD algılama
 │   ├── aligner.py         # Yüz hizalama (Umeyama)
