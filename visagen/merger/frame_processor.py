@@ -15,6 +15,7 @@ Features:
     - Multiple inference backends (PyTorch, ONNX, TensorRT)
 """
 
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,8 @@ import torch
 
 # Type alias for face metadata
 FaceMetadata = dict[str, Any]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -307,13 +310,14 @@ class FrameProcessor:
                     output = self._blend_to_frame(output, swapped_face, face_meta, mask)
 
                     faces_swapped += 1
-                except Exception:
+                except Exception as e:
                     # Skip this face on error
+                    logger.debug(f"Face processing failed: {e}")
                     continue
 
-        except Exception:
+        except Exception as e:
             # Return original frame on error
-            pass
+            logger.debug(f"Frame processing failed: {e}")
 
         processing_time = time.time() - start_time
 
@@ -541,8 +545,9 @@ class FrameProcessor:
             # Use segmenter if available
             mask = self.segmenter.segment(aligned_face)
             return mask.astype(np.float32)
-        except Exception:
+        except Exception as e:
             # Fallback to ellipse mask
+            logger.debug(f"Segmenter failed, using ellipse mask: {e}")
             h, w = aligned_face.shape[:2]
             mask = np.zeros((h, w), dtype=np.float32)
             center = (w // 2, h // 2)
@@ -604,9 +609,7 @@ class FrameProcessor:
 
         # Ensure mask is 3-channel for blending
         if mask.ndim == 2:
-            np.stack([mask] * 3, axis=-1)
-        else:
-            pass
+            mask = np.stack([mask] * 3, axis=-1)
 
         if mode == "laplacian":
             return laplacian_blend(foreground, background, mask)
@@ -622,8 +625,9 @@ class FrameProcessor:
                     cv2.NORMAL_CLONE,
                 )
                 return result
-            except Exception:
+            except Exception as e:
                 # Fallback to feather
+                logger.debug(f"Poisson blending failed, using feather: {e}")
                 return feather_blend(foreground, background, mask)
         else:
             # Default: feather blend

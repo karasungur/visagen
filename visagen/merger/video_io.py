@@ -465,7 +465,7 @@ class VideoReader:
         # Run process
         process = stream.run_async(
             pipe_stdout=True,
-            pipe_stderr=subprocess.DEVNULL,
+            pipe_stderr=subprocess.PIPE,  # Capture errors for debugging
             cmd=ffmpeg_exe,
         )
         self._process = process
@@ -688,7 +688,7 @@ class VideoWriter:
 
         self._process = stream.run_async(
             pipe_stdin=True,
-            pipe_stderr=subprocess.DEVNULL,
+            pipe_stderr=subprocess.PIPE,  # Capture errors for debugging
             cmd=ffmpeg_exe,
         )
 

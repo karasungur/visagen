@@ -203,9 +203,9 @@ class GPENRestorer:
 
             except ImportError:
                 # GPEN package not installed - use fallback
-                logger.debug(
-                    "gpen package not installed. Using simple enhancement fallback. "
-                    "Install with: pip install gpen"
+                logger.warning(
+                    "GPEN package not installed. Using basic enhancement fallback. "
+                    "For best quality, install GPEN: pip install gpen"
                 )
                 self._model = "fallback"
                 return True

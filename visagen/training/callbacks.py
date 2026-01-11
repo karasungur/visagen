@@ -8,6 +8,7 @@ Includes:
 """
 
 import json
+import logging
 import shutil
 import time
 from pathlib import Path
@@ -23,6 +24,8 @@ try:
     TORCHVISION_AVAILABLE = True
 except ImportError:
     TORCHVISION_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 
 class PreviewCallback(Callback):
@@ -206,9 +209,11 @@ class PreviewCallback(Callback):
                     # Logger doesn't support add_image (e.g., CSVLogger)
                     pass
 
-        except Exception:
-            # Don't crash training on preview errors
-            pass
+        except Exception as e:
+            # Don't crash training on preview errors, but log them
+            logger.warning(
+                f"Preview generation failed at step {trainer.global_step}: {e}"
+            )
 
         finally:
             # Restore training mode
@@ -343,9 +348,9 @@ class AutoBackupCallback(Callback):
             with open(slot_path / "backup_info.json", "w") as f:
                 json.dump(metadata, f, indent=2)
 
-        except Exception:
-            # Don't crash training on backup errors
-            pass
+        except Exception as e:
+            # Don't crash training on backup errors, but log them
+            logger.error(f"Backup failed at step {trainer.global_step}: {e}")
 
 
 class TargetStepCallback(Callback):

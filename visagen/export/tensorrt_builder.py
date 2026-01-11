@@ -173,8 +173,9 @@ class TensorRTBuilder:
                 logger.info("INT8 precision enabled")
                 # Note: INT8 requires calibration data
                 logger.warning(
-                    "INT8 calibration not implemented. "
-                    "Engine may have reduced accuracy."
+                    "INT8 calibration data not provided. Engine will use default ranges "
+                    "which may result in significant accuracy loss. Consider using FP16 "
+                    "or providing calibration data for best results."
                 )
             else:
                 logger.warning("INT8 not supported on this platform, using FP32")

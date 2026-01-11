@@ -432,8 +432,8 @@ class FaceMerger:
                 with open(checkpoint_file) as f:
                     data = json.load(f)
                     return set(data.get("processed_frames", []))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to load resume state: {e}")
         return set()
 
     def _save_resume_state(self, frames_dir: Path, processed: set[int]) -> None:
@@ -442,8 +442,8 @@ class FaceMerger:
         try:
             with open(checkpoint_file, "w") as f:
                 json.dump({"processed_frames": list(processed)}, f)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to save resume state: {e}")
 
     def _encode_output(
         self,

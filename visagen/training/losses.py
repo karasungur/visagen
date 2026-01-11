@@ -84,8 +84,8 @@ class DSSIMLoss(nn.Module):
         """
         c = pred.shape[1]
 
-        # Expand kernel for all channels
-        kernel = self.kernel.repeat(c, 1, 1, 1)
+        # Expand kernel for all channels (ensure dtype matches for AMP)
+        kernel = self.kernel.to(dtype=pred.dtype).repeat(c, 1, 1, 1)
 
         # Constants
         c1 = (self.k1 * self.max_val) ** 2

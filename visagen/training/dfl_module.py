@@ -7,6 +7,7 @@ Supports optional GAN training with PatchGAN discriminator
 and temporal training with 3D Conv discriminator.
 """
 
+import logging
 from typing import Any
 
 import pytorch_lightning as pl
@@ -16,6 +17,8 @@ import torch.nn.functional as F
 from visagen.models.decoders.decoder import Decoder
 from visagen.models.encoders.convnext import ConvNeXtEncoder
 from visagen.training.losses import DSSIMLoss, MultiScaleDSSIMLoss
+
+logger = logging.getLogger(__name__)
 
 
 class DFLModule(pl.LightningModule):
@@ -655,6 +658,14 @@ class DFLModule(pl.LightningModule):
         # Compute losses (with landmarks for eyes_mouth/gaze losses, mask for style losses)
         total_loss, loss_dict = self.compute_loss(pred, src, landmarks, mask)
 
+        # NaN/Inf guard to prevent training corruption
+        if torch.isnan(total_loss) or torch.isinf(total_loss):
+            logger.error(
+                f"Loss is NaN/Inf at step {self.global_step}. Loss dict: {loss_dict}"
+            )
+            # Return a small valid loss to prevent crash
+            return torch.tensor(0.0, device=total_loss.device, requires_grad=True)
+
         # Log all losses
         for name, value in loss_dict.items():
             self.log(f"train_{name}", value, prog_bar=(name == "total"))
@@ -727,6 +738,14 @@ class DFLModule(pl.LightningModule):
             + tv_loss
             + self.true_face_power * g_code_loss
         )
+
+        # NaN/Inf guard for generator loss
+        if torch.isnan(g_total) or torch.isinf(g_total):
+            logger.error(
+                f"Generator loss is NaN/Inf at step {self.global_step}. "
+                f"Loss dict: {loss_dict}"
+            )
+            return  # Skip this step
 
         self.manual_backward(g_total)
         g_opt.step()
