@@ -487,11 +487,9 @@ class TrainingTab(BaseTab):
             model_type,
             "--texture-weight",
             str(texture_weight),
+            "--gan-power",
+            str(gan_power),
         ]
-
-        # NOTE: gan_power is not currently used in the CLI args in original code
-        # If it should be supported, visagen.tools.train needs update.
-        # Keeping it consistent with original implementation for now.
 
         if use_pretrained_vae:
             cmd.append("--use-pretrained-vae")

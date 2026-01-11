@@ -262,8 +262,13 @@ class FaceAugmentationPipeline(nn.Module):
                         img_np,  # Target (image to modify)
                         tgt_np,  # Source (image to match)
                     )
-                except Exception:
-                    # Fallback on error
+                except Exception as e:
+                    # Fallback on error with warning
+                    import logging
+
+                    logging.getLogger(__name__).warning(
+                        f"Color transfer failed, using original image: {e}"
+                    )
                     res_np = img_np
 
                 # Convert back to tensor
@@ -471,6 +476,12 @@ def blur_out_mask(
         from kornia.filters import gaussian_blur2d
     except ImportError:
         # Fallback: return image unchanged if kornia not available
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "kornia not available, blur_out_mask skipped. "
+            "Install with: pip install kornia"
+        )
         return image
 
     # Get resolution from image if not specified

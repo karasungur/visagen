@@ -194,6 +194,12 @@ Examples:
         default=0.0,
         help="Gaze consistency loss weight (default: 0.0, requires landmarks)",
     )
+    parser.add_argument(
+        "--gan-power",
+        type=float,
+        default=0.0,
+        help="GAN loss power (default: 0.0, enables adversarial training when > 0)",
+    )
 
     # Experimental model arguments
     parser.add_argument(
@@ -401,6 +407,7 @@ def main() -> int:
         "lpips_weight": 0.0,
         "eyes_mouth_weight": 0.0,
         "gaze_weight": 0.0,
+        "gan_power": 0.0,
         "texture_weight": 0.0,
         "preview_interval": 500,
         "backup_interval": 0,
@@ -506,6 +513,7 @@ def main() -> int:
     print(f"  LPIPS weight: {args.lpips_weight}")
     print(f"  Eyes/Mouth weight: {args.eyes_mouth_weight}")
     print(f"  Gaze weight: {args.gaze_weight}")
+    print(f"  GAN power: {args.gan_power}")
     print(f"  Uniform yaw: {args.uniform_yaw}")
     print(f"  Masked training: {args.masked_training}")
     if args.model_type == "diffusion":
@@ -557,6 +565,7 @@ def main() -> int:
             lpips_weight=args.lpips_weight,
             eyes_mouth_weight=args.eyes_mouth_weight,
             gaze_weight=args.gaze_weight,
+            gan_power=args.gan_power,
             # Optimizer config
             optimizer_type=args.optimizer_type,
             lr_dropout=args.lr_dropout,
