@@ -748,10 +748,11 @@ class VideoWriter:
                 .overwrite_output()
                 .run(quiet=True, cmd=ffmpeg_exe)
             )
-        except ffmpeg.Error:
+        except ffmpeg.Error as e:
             # If merge fails, just use video without audio
             import shutil
 
+            logger.warning(f"Audio merge failed, video will have no audio: {e}")
             shutil.move(str(self._temp_video), str(self.output_path))
         finally:
             # Clean up temp file

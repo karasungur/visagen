@@ -221,7 +221,7 @@ class LPIPSLoss(nn.Module):
         self._ensure_lpips()
 
         # Move model to same device as input
-        if self._lpips.parameters().__next__().device != pred.device:
+        if next(self._lpips.parameters()).device != pred.device:
             self._lpips = self._lpips.to(pred.device)
 
         return self._lpips(pred, target).mean()
