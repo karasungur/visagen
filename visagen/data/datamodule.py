@@ -243,11 +243,13 @@ if pl is not None:
                     self.src_dir,
                     target_size=self.target_size,
                     transform=None,
+                    uniform_yaw=self.uniform_yaw,
                 )
                 dst_full = FaceDataset(
                     self.dst_dir,
                     target_size=self.target_size,
                     transform=None,
+                    uniform_yaw=self.uniform_yaw,
                 )
 
                 # Calculate split sizes

@@ -300,6 +300,16 @@ Examples:
         action="store_true",
         help="Disable warp augmentation",
     )
+    parser.add_argument(
+        "--uniform-yaw",
+        action="store_true",
+        help="Enable uniform yaw sampling",
+    )
+    parser.add_argument(
+        "--masked-training",
+        action="store_true",
+        help="Enable masked training (blur out non-face area)",
+    )
 
     # Preview arguments
     parser.add_argument(
@@ -407,6 +417,8 @@ def main() -> int:
         "eg3d_latent_dim": 512,
         "eg3d_plane_channels": 32,
         "eg3d_render_resolution": 64,
+        "uniform_yaw": False,
+        "masked_training": False,
     }
 
     # Load YAML config if provided
@@ -479,6 +491,7 @@ def main() -> int:
         target_size=args.image_size,
         val_split=args.val_split,
         augmentation_config=aug_config,
+        uniform_yaw=args.uniform_yaw,
     )
 
     # Create Model
@@ -493,6 +506,8 @@ def main() -> int:
     print(f"  LPIPS weight: {args.lpips_weight}")
     print(f"  Eyes/Mouth weight: {args.eyes_mouth_weight}")
     print(f"  Gaze weight: {args.gaze_weight}")
+    print(f"  Uniform yaw: {args.uniform_yaw}")
+    print(f"  Masked training: {args.masked_training}")
     if args.model_type == "diffusion":
         print(f"  Texture weight: {args.texture_weight}")
         print(f"  Pretrained VAE: {not args.no_pretrained_vae}")
@@ -554,6 +569,8 @@ def main() -> int:
             eg3d_latent_dim=args.eg3d_latent_dim,
             eg3d_plane_channels=args.eg3d_plane_channels,
             eg3d_render_resolution=args.eg3d_render_resolution,
+            # Masked training
+            blur_out_mask=args.masked_training,
         )
 
     # Callbacks

@@ -191,7 +191,7 @@ class TrainingTab(BaseTab):
                 components["model_type"] = DropdownInput(
                     DropdownConfig(
                         key="training.model_type",
-                        choices=["standard", "diffusion", "eg3d"],
+                        choices=["standard"],
                         default="standard",
                     ),
                     self.i18n,
@@ -212,6 +212,19 @@ class TrainingTab(BaseTab):
                     value=True,
                     info=self.t("use_pretrained_vae.info"),
                 )
+
+        gr.Markdown("### Advanced Settings")
+        with gr.Row():
+            components["uniform_yaw"] = gr.Checkbox(
+                label=self.t("uniform_yaw.label"),
+                value=False,
+                info=self.t("uniform_yaw.info"),
+            )
+            components["masked_training"] = gr.Checkbox(
+                label=self.t("masked_training.label"),
+                value=False,
+                info=self.t("masked_training.info"),
+            )
 
         # Resume checkpoint
         components["resume_ckpt"] = PathInput(
@@ -276,6 +289,8 @@ class TrainingTab(BaseTab):
                 c["model_type"],
                 c["texture_weight"],
                 c["use_pretrained_vae"],
+                c["uniform_yaw"],
+                c["masked_training"],
             ],
             outputs=c["log"],
         )
@@ -313,6 +328,8 @@ class TrainingTab(BaseTab):
                 preset.model_type,
                 preset.texture_weight,
                 preset.use_pretrained_vae,
+                getattr(preset, "uniform_yaw", False),
+                getattr(preset, "masked_training", False),
             )
 
         def show_save_dialog() -> dict:
@@ -334,6 +351,8 @@ class TrainingTab(BaseTab):
             model_type: str,
             texture_weight: float,
             use_pretrained_vae: bool,
+            uniform_yaw: bool,
+            masked_training: bool,
         ) -> tuple:
             """Save current parameters as preset."""
             if not name:
@@ -351,6 +370,8 @@ class TrainingTab(BaseTab):
                 model_type=model_type,
                 texture_weight=float(texture_weight),
                 use_pretrained_vae=bool(use_pretrained_vae),
+                uniform_yaw=bool(uniform_yaw),
+                masked_training=bool(masked_training),
             )
             self.preset_manager.save_preset(preset)
             new_choices = self.preset_manager.list_presets()
@@ -372,6 +393,8 @@ class TrainingTab(BaseTab):
                 c["model_type"],
                 c["texture_weight"],
                 c["use_pretrained_vae"],
+                c["uniform_yaw"],
+                c["masked_training"],
             ],
         )
 
@@ -400,6 +423,8 @@ class TrainingTab(BaseTab):
                 c["model_type"],
                 c["texture_weight"],
                 c["use_pretrained_vae"],
+                c["uniform_yaw"],
+                c["masked_training"],
             ],
             outputs=[c["preset_dropdown"], c["save_preset_row"]],
         )
@@ -421,6 +446,8 @@ class TrainingTab(BaseTab):
         model_type: str,
         texture_weight: float,
         use_pretrained_vae: bool,
+        uniform_yaw: bool,
+        masked_training: bool,
     ) -> Generator[str, None, None]:
         """Start training subprocess."""
         # Validation
@@ -470,6 +497,12 @@ class TrainingTab(BaseTab):
             cmd.append("--use-pretrained-vae")
         else:
             cmd.append("--no-pretrained-vae")
+
+        if uniform_yaw:
+            cmd.append("--uniform-yaw")
+
+        if masked_training:
+            cmd.append("--masked-training")
 
         if resume_ckpt and Path(resume_ckpt).exists():
             cmd.extend(["--resume", resume_ckpt])

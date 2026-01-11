@@ -151,6 +151,14 @@ TRANSLATIONS = {
             "label": "Use Pretrained VAE",
             "info": "Use SD VAE (requires diffusers package)",
         },
+        "uniform_yaw": {
+            "label": "Uniform Yaw",
+            "info": "Balance training samples across different face angles",
+        },
+        "masked_training": {
+            "label": "Masked Training",
+            "info": "Focus training on face area (blur background)",
+        },
         "resume_ckpt": {
             "label": "Resume Checkpoint",
             "placeholder": "./workspace/model/checkpoints/last.ckpt",

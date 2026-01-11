@@ -28,6 +28,9 @@ class TrainingPreset:
     # Experimental
     texture_weight: float = 0.0
     use_pretrained_vae: bool = True
+    # Advanced
+    uniform_yaw: bool = False
+    masked_training: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""

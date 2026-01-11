@@ -151,6 +151,14 @@ TRANSLATIONS = {
             "label": "Önceden Eğitilmiş VAE Kullan",
             "info": "SD VAE kullan (diffusers paketi gerektirir)",
         },
+        "uniform_yaw": {
+            "label": "Dengeli Yaw (Açı)",
+            "info": "Eğitim örneklerini farklı yüz açılarında dengele",
+        },
+        "masked_training": {
+            "label": "Maskeli Eğitim",
+            "info": "Sadece yüz alanına odaklan (arkaplanı bulanıklaştır)",
+        },
         "resume_ckpt": {
             "label": "Checkpoint'tan Devam Et",
             "placeholder": "./workspace/model/checkpoints/last.ckpt",

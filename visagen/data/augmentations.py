@@ -8,6 +8,7 @@ Matches legacy DeepFaceLab augmentation behavior.
 import math
 import random
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -59,6 +60,7 @@ class FaceAugmentationPipeline(nn.Module):
         # Control
         apply_geometric: bool = True,
         apply_color: bool = True,
+        color_transfer_mode: str | None = None,
     ) -> None:
         super().__init__()
         self.target_size = target_size
@@ -72,11 +74,13 @@ class FaceAugmentationPipeline(nn.Module):
         self.contrast_range = contrast_range
         self.apply_geometric = apply_geometric
         self.apply_color = apply_color
+        self.color_transfer_mode = color_transfer_mode
 
     def forward(
         self,
         image: torch.Tensor,
         mask: torch.Tensor | None = None,
+        target_image: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """
         Apply augmentations to face image and optional mask.
@@ -87,6 +91,7 @@ class FaceAugmentationPipeline(nn.Module):
         Args:
             image: Image tensor (C, H, W) or (B, C, H, W) in [0, 1] or [-1, 1].
             mask: Optional mask tensor (1, H, W) or (B, 1, H, W) in [0, 1].
+            target_image: Optional target image for color transfer (same shape as image).
 
         Returns:
             Tuple of (augmented_image, augmented_mask).
@@ -100,10 +105,14 @@ class FaceAugmentationPipeline(nn.Module):
             image = image.unsqueeze(0)
             if mask is not None:
                 mask = mask.unsqueeze(0)
+            if target_image is not None:
+                target_image = target_image.unsqueeze(0)
 
         # Convert to [0, 1] for processing
         if was_normalized:
             image = (image + 1) / 2
+            if target_image is not None:
+                target_image = (target_image + 1) / 2
 
         # Apply geometric augmentations
         if self.apply_geometric:
@@ -111,7 +120,7 @@ class FaceAugmentationPipeline(nn.Module):
 
         # Apply color augmentations (only to image)
         if self.apply_color:
-            image = self._apply_color(image)
+            image = self._apply_color(image, target_image)
 
         # Ensure valid range
         image = torch.clamp(image, 0, 1)
@@ -213,8 +222,57 @@ class FaceAugmentationPipeline(nn.Module):
             align_corners=True,
         )
 
-    def _apply_color(self, image: torch.Tensor) -> torch.Tensor:
+    def _apply_color(
+        self,
+        image: torch.Tensor,
+        target_image: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Apply color augmentations."""
+        # Color Transfer
+        if (
+            self.color_transfer_mode
+            and self.color_transfer_mode != "none"
+            and target_image is not None
+        ):
+            # Apply color transfer before random augmentations
+            # Note: We do this on CPU via numpy/cv2 because current color transfer
+            # implementation is numpy-based.
+            # TODO: Port color transfer to PyTorch for GPU support
+            b, c, h, w = image.shape
+            device = image.device
+            dtype = image.dtype
+
+            # Process each image in batch
+            transferred_images = []
+            for i in range(b):
+                # Convert to numpy (C, H, W) -> (H, W, C)
+                img_np = image[i].detach().cpu().numpy().transpose(1, 2, 0)
+                tgt_np = target_image[i].detach().cpu().numpy().transpose(1, 2, 0)
+
+                # Ensure float32 [0, 1]
+                img_np = np.clip(img_np, 0, 1).astype(np.float32)
+                tgt_np = np.clip(tgt_np, 0, 1).astype(np.float32)
+
+                # Apply transfer
+                try:
+                    from visagen.postprocess.color_transfer import color_transfer
+
+                    res_np = color_transfer(
+                        self.color_transfer_mode,
+                        img_np,  # Target (image to modify)
+                        tgt_np,  # Source (image to match)
+                    )
+                except Exception:
+                    # Fallback on error
+                    res_np = img_np
+
+                # Convert back to tensor
+                res_tensor = torch.from_numpy(res_np.transpose(2, 0, 1))
+                transferred_images.append(res_tensor)
+
+            # Re-stack
+            image = torch.stack(transferred_images).to(device, dtype)
+
         # HSV shift
         if self.hsv_shift_amount > 0:
             image = self._random_hsv_shift(image, self.hsv_shift_amount)

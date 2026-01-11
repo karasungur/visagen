@@ -99,9 +99,9 @@ class TensorRTRunner:
 
     def _setup_bindings(self) -> None:
         """Set up input/output bindings."""
-        self.input_binding = None
-        self.output_binding = None
-        self.bindings = []
+        self.input_binding: dict[str, Any] | None = None
+        self.output_binding: dict[str, Any] | None = None
+        self.bindings: list[dict[str, Any]] = []
 
         for i in range(self.engine.num_io_tensors):
             name = self.engine.get_tensor_name(i)
@@ -124,10 +124,10 @@ class TensorRTRunner:
             self.bindings.append(binding)
 
         logger.info(
-            f"Input: {self.input_binding['name']} {self.input_binding['shape']}"
+            f"Input: {self.input_binding['name']} {self.input_binding['shape']}"  # type: ignore
         )
         logger.info(
-            f"Output: {self.output_binding['name']} {self.output_binding['shape']}"
+            f"Output: {self.output_binding['name']} {self.output_binding['shape']}"  # type: ignore
         )
 
     def _allocate_buffers(self, batch_size: int, height: int, width: int):
@@ -181,6 +181,11 @@ class TensorRTRunner:
 
         try:
             # Set dynamic shapes
+            if self.input_binding is None:
+                raise RuntimeError("Input binding not found")
+            if self.output_binding is None:
+                raise RuntimeError("Output binding not found")
+
             self.context.set_input_shape(self.input_binding["name"], input_shape)
 
             # Copy input to device
@@ -326,8 +331,8 @@ class TensorRTRunnerV2:
 
     def _setup_bindings(self) -> None:
         """Set up input/output bindings."""
-        self.input_binding = None
-        self.output_binding = None
+        self.input_binding: dict[str, Any] | None = None
+        self.output_binding: dict[str, Any] | None = None
 
         for i in range(self.engine.num_io_tensors):
             name = self.engine.get_tensor_name(i)
@@ -373,6 +378,11 @@ class TensorRTRunnerV2:
 
         try:
             # Set dynamic shapes
+            if self.input_binding is None:
+                raise RuntimeError("Input binding not found")
+            if self.output_binding is None:
+                raise RuntimeError("Output binding not found")
+
             self.context.set_input_shape(
                 self.input_binding["name"],
                 (batch_size, channels, height, width),

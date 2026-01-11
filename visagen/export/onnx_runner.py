@@ -66,7 +66,7 @@ class ONNXRunner:
 
         # Get input shape info
         input_info = self.session.get_inputs()[0]
-        self.input_shape = input_info.shape
+        self.input_shape = tuple(input_info.shape)
         self.input_dtype = input_info.type
 
         logger.info(
