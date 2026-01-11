@@ -234,49 +234,37 @@ class FaceAugmentationPipeline(nn.Module):
             and self.color_transfer_mode != "none"
             and target_image is not None
         ):
-            # Apply color transfer before random augmentations
-            # Note: We do this on CPU via numpy/cv2 because current color transfer
-            # implementation is numpy-based.
-            # TODO: Port color transfer to PyTorch for GPU support
-            b, c, h, w = image.shape
-            device = image.device
-            dtype = image.dtype
+            # Try GPU path first for supported modes
+            gpu_transfer_success = False
 
-            # Process each image in batch
-            transferred_images = []
-            for i in range(b):
-                # Convert to numpy (C, H, W) -> (H, W, C)
-                img_np = image[i].detach().cpu().numpy().transpose(1, 2, 0)
-                tgt_np = target_image[i].detach().cpu().numpy().transpose(1, 2, 0)
+            try:
+                from visagen.postprocess.color_transfer_gpu import (
+                    color_transfer_gpu,
+                    is_gpu_mode_available,
+                )
 
-                # Ensure float32 [0, 1]
-                img_np = np.clip(img_np, 0, 1).astype(np.float32)
-                tgt_np = np.clip(tgt_np, 0, 1).astype(np.float32)
-
-                # Apply transfer
-                try:
-                    from visagen.postprocess.color_transfer import color_transfer
-
-                    res_np = color_transfer(
+                if is_gpu_mode_available(self.color_transfer_mode) and image.is_cuda:
+                    # GPU path - no numpy conversion needed, much faster
+                    image = color_transfer_gpu(
                         self.color_transfer_mode,
-                        img_np,  # Target (image to modify)
-                        tgt_np,  # Source (image to match)
+                        image,
+                        target_image,
                     )
-                except Exception as e:
-                    # Fallback on error with warning
-                    import logging
+                    gpu_transfer_success = True
+            except ImportError:
+                # GPU module not available, will use CPU fallback
+                pass
+            except Exception as e:
+                # GPU transfer failed, will use CPU fallback
+                import logging
 
-                    logging.getLogger(__name__).warning(
-                        f"Color transfer failed, using original image: {e}"
-                    )
-                    res_np = img_np
+                logging.getLogger(__name__).warning(
+                    f"GPU color transfer failed, falling back to CPU: {e}"
+                )
 
-                # Convert back to tensor
-                res_tensor = torch.from_numpy(res_np.transpose(2, 0, 1))
-                transferred_images.append(res_tensor)
-
-            # Re-stack
-            image = torch.stack(transferred_images).to(device, dtype)
+            # CPU fallback for unsupported modes or when GPU fails
+            if not gpu_transfer_success:
+                image = self._apply_color_transfer_cpu(image, target_image)
 
         # HSV shift
         if self.hsv_shift_amount > 0:
@@ -296,6 +284,64 @@ class FaceAugmentationPipeline(nn.Module):
             image = (image - mean) * contrast + mean
 
         return image
+
+    def _apply_color_transfer_cpu(
+        self,
+        image: torch.Tensor,
+        target_image: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Apply color transfer using CPU (numpy-based) implementation.
+
+        This is the fallback when GPU color transfer is not available
+        or for unsupported modes (sot, idt, neural, etc.).
+
+        Args:
+            image: Image tensor (B, C, H, W) in [0, 1].
+            target_image: Target image tensor for color matching.
+
+        Returns:
+            Color-transferred image tensor.
+        """
+        b, c, h, w = image.shape
+        device = image.device
+        dtype = image.dtype
+
+        # Process each image in batch
+        transferred_images = []
+        for i in range(b):
+            # Convert to numpy (C, H, W) -> (H, W, C)
+            img_np = image[i].detach().cpu().numpy().transpose(1, 2, 0)
+            tgt_np = target_image[i].detach().cpu().numpy().transpose(1, 2, 0)
+
+            # Ensure float32 [0, 1]
+            img_np = np.clip(img_np, 0, 1).astype(np.float32)
+            tgt_np = np.clip(tgt_np, 0, 1).astype(np.float32)
+
+            # Apply transfer
+            try:
+                from visagen.postprocess.color_transfer import color_transfer
+
+                res_np = color_transfer(
+                    self.color_transfer_mode,
+                    img_np,  # Target (image to modify)
+                    tgt_np,  # Source (image to match)
+                )
+            except Exception as e:
+                # Fallback on error with warning
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"CPU color transfer failed, using original image: {e}"
+                )
+                res_np = img_np
+
+            # Convert back to tensor
+            res_tensor = torch.from_numpy(res_np.transpose(2, 0, 1))
+            transferred_images.append(res_tensor)
+
+        # Re-stack and move to original device
+        return torch.stack(transferred_images).to(device, dtype)
 
     def _random_hsv_shift(
         self,
