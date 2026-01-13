@@ -185,13 +185,65 @@ class TrainingTab(BaseTab):
                     self.i18n,
                 ).build()
 
+        # Advanced loss weights section
+        gr.Markdown("### Advanced Loss Weights")
+        with gr.Row():
+            with gr.Column():
+                components["eyes_mouth_weight"] = SliderInput(
+                    SliderConfig(
+                        key="training.eyes_mouth_weight",
+                        minimum=0,
+                        maximum=300,
+                        default=0.0,
+                    ),
+                    self.i18n,
+                ).build()
+                components["gaze_weight"] = SliderInput(
+                    SliderConfig(
+                        key="training.gaze_weight",
+                        minimum=0,
+                        maximum=10,
+                        default=0.0,
+                    ),
+                    self.i18n,
+                ).build()
+                components["true_face_power"] = SliderInput(
+                    SliderConfig(
+                        key="training.true_face_power",
+                        minimum=0,
+                        maximum=1.0,
+                        default=0.0,
+                    ),
+                    self.i18n,
+                ).build()
+
+            with gr.Column():
+                components["face_style_weight"] = SliderInput(
+                    SliderConfig(
+                        key="training.face_style_weight",
+                        minimum=0,
+                        maximum=100,
+                        default=0.0,
+                    ),
+                    self.i18n,
+                ).build()
+                components["bg_style_weight"] = SliderInput(
+                    SliderConfig(
+                        key="training.bg_style_weight",
+                        minimum=0,
+                        maximum=100,
+                        default=0.0,
+                    ),
+                    self.i18n,
+                ).build()
+
         gr.Markdown("### Experimental Models")
         with gr.Row():
             with gr.Column():
                 components["model_type"] = DropdownInput(
                     DropdownConfig(
                         key="training.model_type",
-                        choices=["standard"],
+                        choices=["standard", "diffusion", "eg3d"],
                         default="standard",
                     ),
                     self.i18n,
@@ -285,6 +337,11 @@ class TrainingTab(BaseTab):
                 c["lpips_weight"],
                 c["gan_power"],
                 c["precision"],
+                c["eyes_mouth_weight"],
+                c["gaze_weight"],
+                c["true_face_power"],
+                c["face_style_weight"],
+                c["bg_style_weight"],
                 c["resume_ckpt"],
                 c["model_type"],
                 c["texture_weight"],
@@ -442,6 +499,11 @@ class TrainingTab(BaseTab):
         lpips_weight: float,
         gan_power: float,
         precision: str,
+        eyes_mouth_weight: float,
+        gaze_weight: float,
+        true_face_power: float,
+        face_style_weight: float,
+        bg_style_weight: float,
         resume_ckpt: str,
         model_type: str,
         texture_weight: float,
@@ -489,7 +551,19 @@ class TrainingTab(BaseTab):
             str(texture_weight),
             "--gan-power",
             str(gan_power),
+            "--eyes-mouth-weight",
+            str(eyes_mouth_weight),
+            "--gaze-weight",
+            str(gaze_weight),
         ]
+
+        # Advanced loss weights (only add if non-zero to avoid clutter)
+        if face_style_weight > 0:
+            cmd.extend(["--face-style-weight", str(face_style_weight)])
+        if bg_style_weight > 0:
+            cmd.extend(["--bg-style-weight", str(bg_style_weight)])
+        if true_face_power > 0:
+            cmd.extend(["--true-face-power", str(true_face_power)])
 
         if use_pretrained_vae:
             cmd.append("--use-pretrained-vae")

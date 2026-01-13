@@ -195,6 +195,24 @@ Examples:
         help="Gaze consistency loss weight (default: 0.0, requires landmarks)",
     )
     parser.add_argument(
+        "--face-style-weight",
+        type=float,
+        default=0.0,
+        help="Face style loss weight (default: 0.0, learns dst face color)",
+    )
+    parser.add_argument(
+        "--bg-style-weight",
+        type=float,
+        default=0.0,
+        help="Background style loss weight (default: 0.0, learns dst background)",
+    )
+    parser.add_argument(
+        "--true-face-power",
+        type=float,
+        default=0.0,
+        help="True face discriminator power (default: 0.0, df architecture only)",
+    )
+    parser.add_argument(
         "--gan-power",
         type=float,
         default=0.0,
@@ -407,6 +425,9 @@ def main() -> int:
         "lpips_weight": 0.0,
         "eyes_mouth_weight": 0.0,
         "gaze_weight": 0.0,
+        "face_style_weight": 0.0,
+        "bg_style_weight": 0.0,
+        "true_face_power": 0.0,
         "gan_power": 0.0,
         "texture_weight": 0.0,
         "preview_interval": 500,
@@ -513,6 +534,9 @@ def main() -> int:
     print(f"  LPIPS weight: {args.lpips_weight}")
     print(f"  Eyes/Mouth weight: {args.eyes_mouth_weight}")
     print(f"  Gaze weight: {args.gaze_weight}")
+    print(f"  Face style weight: {args.face_style_weight}")
+    print(f"  Background style weight: {args.bg_style_weight}")
+    print(f"  True face power: {args.true_face_power}")
     print(f"  GAN power: {args.gan_power}")
     print(f"  Uniform yaw: {args.uniform_yaw}")
     print(f"  Masked training: {args.masked_training}")
@@ -565,6 +589,9 @@ def main() -> int:
             lpips_weight=args.lpips_weight,
             eyes_mouth_weight=args.eyes_mouth_weight,
             gaze_weight=args.gaze_weight,
+            face_style_weight=args.face_style_weight,
+            bg_style_weight=args.bg_style_weight,
+            true_face_power=args.true_face_power,
             gan_power=args.gan_power,
             # Optimizer config
             optimizer_type=args.optimizer_type,

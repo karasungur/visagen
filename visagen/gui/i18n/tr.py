@@ -126,6 +126,26 @@ TRANSLATIONS = {
             "label": "GAN Gücü",
             "info": "0 = devre dışı, > 0 = çekişmeli eğitim",
         },
+        "eyes_mouth_weight": {
+            "label": "Göz/Ağız Ağırlığı",
+            "info": "Göz ve ağız bölgeleri için öncelik (0-300)",
+        },
+        "gaze_weight": {
+            "label": "Bakış Ağırlığı",
+            "info": "Bakış tutarlılık kaybı (landmark gerektirir)",
+        },
+        "face_style_weight": {
+            "label": "Yüz Stili Ağırlığı",
+            "info": "Maske içinde hedef yüz rengini öğren (0-100)",
+        },
+        "bg_style_weight": {
+            "label": "Arka Plan Stili Ağırlığı",
+            "info": "Maske dışında hedef arka planı öğren (0-100)",
+        },
+        "true_face_power": {
+            "label": "Gerçek Yüz Gücü",
+            "info": "Kimlik ayrıştırıcı (sadece df mimarisi, 0-1)",
+        },
         "precision": {
             "label": "Hassasiyet",
             "choices": {

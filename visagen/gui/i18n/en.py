@@ -126,6 +126,26 @@ TRANSLATIONS = {
             "label": "GAN Power",
             "info": "0 = disabled, > 0 = adversarial training",
         },
+        "eyes_mouth_weight": {
+            "label": "Eyes/Mouth Weight",
+            "info": "Priority for eyes and mouth regions (0-300)",
+        },
+        "gaze_weight": {
+            "label": "Gaze Weight",
+            "info": "Gaze consistency loss (requires landmarks)",
+        },
+        "face_style_weight": {
+            "label": "Face Style Weight",
+            "info": "Learn dst face color inside mask (0-100)",
+        },
+        "bg_style_weight": {
+            "label": "Background Style Weight",
+            "info": "Learn dst background outside mask (0-100)",
+        },
+        "true_face_power": {
+            "label": "True Face Power",
+            "info": "Identity discriminator (df architecture only, 0-1)",
+        },
         "precision": {
             "label": "Precision",
             "choices": {
