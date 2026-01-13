@@ -407,6 +407,7 @@ TRANSLATIONS = {
                 "mkl": "MKL (Monge-Kantorovitch)",
                 "idt": "IDT (İteratif)",
                 "sot": "SOT (Dilimli OT)",
+                "mix": "Mix (LCT+SOT En İyi)",
             },
         },
         # Maske işleme
@@ -454,6 +455,14 @@ TRANSLATIONS = {
         },
         "restore_strength": {
             "label": "Restorasyon Gücü",
+        },
+        # Süper Çözünürlük
+        "super_resolution": {
+            "title": "Süper Çözünürlük",
+        },
+        "super_resolution_power": {
+            "label": "Süper Çözünürlük Gücü",
+            "info": "4x büyütme karışımı (0 = devre dışı, 100 = tam iyileştirme)",
         },
         # Uygula
         "apply_settings": "Ayarları Uygula",

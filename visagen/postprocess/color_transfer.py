@@ -29,6 +29,7 @@ ColorTransferMode = Literal[
     "sot",
     "mkl",
     "idt",
+    "mix",
     "neural",
     "mkl-masked",
     "idt-masked",
@@ -529,6 +530,78 @@ def color_transfer_idt(
     return np.clip(new_target.astype(np.float32), 0, 1)
 
 
+def color_transfer_mix(
+    target: np.ndarray,
+    source: np.ndarray,
+    sot_steps: int = 10,
+    sot_batch_size: int = 30,
+) -> np.ndarray:
+    """
+    Mixed color transfer combining LCT (lightness) and SOT (chrominance).
+
+    This method:
+    1. Applies Linear Color Transfer to the L (lightness) channel in LAB space
+    2. Applies Sliced Optimal Transport to the A and B (color) channels
+    3. Combines the results for natural-looking color matching
+
+    This is the "mix-m" mode from DeepFaceLab, providing the best of both:
+    - LCT for stable luminance matching
+    - SOT for accurate color distribution matching
+
+    Args:
+        target: Target image (H, W, 3) float32 [0, 1] BGR.
+        source: Source image (H, W, 3) float32 [0, 1] BGR.
+        sot_steps: Number of SOT iterations. Default: 10.
+        sot_batch_size: SOT batch size. Default: 30.
+
+    Returns:
+        Color-transferred target image (H, W, 3) float32 [0, 1] BGR.
+    """
+    # Convert to uint8 for LAB conversion
+    target_uint8 = np.clip(target * 255, 0, 255).astype(np.uint8)
+    source_uint8 = np.clip(source * 255, 0, 255).astype(np.uint8)
+
+    # Convert to LAB
+    target_lab = cv2.cvtColor(target_uint8, cv2.COLOR_BGR2LAB)
+    source_lab = cv2.cvtColor(source_uint8, cv2.COLOR_BGR2LAB)
+
+    # Step 1: Apply LCT to lightness channel only
+    target_l = target_lab[..., 0:1].astype(np.float32) / 255.0
+    source_l = source_lab[..., 0:1].astype(np.float32) / 255.0
+
+    # Linear color transfer on L channel (1D case)
+    transferred_l = linear_color_transfer(target_l, source_l)
+    transferred_l = np.clip(transferred_l[..., 0] * 255, 0, 255).astype(np.uint8)
+
+    # Step 2: Apply SOT to color channels (AB)
+    # Set L to constant (100) for both images to isolate color
+    target_lab_neutral = target_lab.copy()
+    source_lab_neutral = source_lab.copy()
+    target_lab_neutral[..., 0] = 100
+    source_lab_neutral[..., 0] = 100
+
+    # Convert back to BGR with neutral L for SOT
+    target_bgr_neutral = cv2.cvtColor(target_lab_neutral, cv2.COLOR_LAB2BGR)
+    source_bgr_neutral = cv2.cvtColor(source_lab_neutral, cv2.COLOR_LAB2BGR)
+
+    # Apply SOT to get color-matched result
+    sot_result = color_transfer_sot(
+        target_bgr_neutral.astype(np.float32),
+        source_bgr_neutral.astype(np.float32),
+        steps=sot_steps,
+        batch_size=sot_batch_size,
+        reg_sigma_xy=0,  # Disable regularization for cleaner result
+    )
+    sot_result_uint8 = np.clip(sot_result * 255, 0, 255).astype(np.uint8)
+
+    # Step 3: Combine LCT lightness with SOT color
+    result_lab = cv2.cvtColor(sot_result_uint8, cv2.COLOR_BGR2LAB)
+    result_lab[..., 0] = transferred_l
+    result_bgr = cv2.cvtColor(result_lab, cv2.COLOR_LAB2BGR)
+
+    return (result_bgr / 255.0).astype(np.float32)
+
+
 def color_transfer(
     mode: ColorTransferMode,
     target: np.ndarray,
@@ -573,6 +646,8 @@ def color_transfer(
         return color_transfer_mkl(target, source, **kwargs)
     elif base_mode == "idt":
         return color_transfer_idt(target, source, **kwargs)
+    elif base_mode == "mix":
+        return color_transfer_mix(target, source, **kwargs)
     elif base_mode == "neural":
         from visagen.postprocess.neural_color import neural_color_transfer
 

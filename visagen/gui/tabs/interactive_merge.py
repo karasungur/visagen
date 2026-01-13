@@ -125,7 +125,7 @@ class InteractiveMergeTab(BaseTab):
                 components["color_transfer"] = DropdownInput(
                     DropdownConfig(
                         key="interactive_merge.color_transfer",
-                        choices=["none", "rct", "lct", "mkl", "idt", "sot"],
+                        choices=["none", "rct", "lct", "mkl", "idt", "sot", "mix"],
                         default="rct",
                     ),
                     self.i18n,
@@ -214,6 +214,19 @@ class InteractiveMergeTab(BaseTab):
                         maximum=1.0,
                         step=0.1,
                         default=0.5,
+                    ),
+                    self.i18n,
+                ).build()
+
+                gr.Markdown(f"#### {self.t('super_resolution.title')}")
+
+                components["super_resolution_power"] = SliderInput(
+                    SliderConfig(
+                        key="interactive_merge.super_resolution_power",
+                        minimum=0,
+                        maximum=100,
+                        step=5,
+                        default=0,
                     ),
                     self.i18n,
                 ).build()
@@ -314,6 +327,7 @@ class InteractiveMergeTab(BaseTab):
             c["hist_threshold"],
             c["restore_face"],
             c["restore_strength"],
+            c["super_resolution_power"],
             c["show_original"],
         ]
 
@@ -430,6 +444,7 @@ class InteractiveMergeTab(BaseTab):
         hist_threshold: int,
         restore_face: bool,
         restore_strength: float,
+        super_resolution_power: int,
         show_original: bool,
     ) -> tuple[np.ndarray | None, str]:
         """Handle settings update."""
@@ -453,6 +468,7 @@ class InteractiveMergeTab(BaseTab):
                 hist_match_threshold=hist_threshold,
                 restore_face=restore_face,
                 restore_strength=restore_strength,
+                super_resolution_power=int(super_resolution_power),
             )
 
             # Get status string from config

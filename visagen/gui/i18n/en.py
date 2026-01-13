@@ -407,6 +407,7 @@ TRANSLATIONS = {
                 "mkl": "MKL (Monge-Kantorovitch)",
                 "idt": "IDT (Iterative)",
                 "sot": "SOT (Sliced OT)",
+                "mix": "Mix (LCT+SOT Best)",
             },
         },
         # Mask processing
@@ -454,6 +455,14 @@ TRANSLATIONS = {
         },
         "restore_strength": {
             "label": "Restoration Strength",
+        },
+        # Super Resolution
+        "super_resolution": {
+            "title": "Super Resolution",
+        },
+        "super_resolution_power": {
+            "label": "Super Resolution Power",
+            "info": "4x upscale blend (0 = disabled, 100 = full enhancement)",
         },
         # Apply
         "apply_settings": "Apply Settings",

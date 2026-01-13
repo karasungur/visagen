@@ -79,6 +79,10 @@ class FrameProcessorConfig:
     restore_strength: float = 0.5
     restore_model_version: float = 1.4
 
+    # Super resolution (legacy compatibility)
+    # 0 = disabled, 1-100 = blend power with 4x upscaled enhanced face
+    super_resolution_power: int = 0
+
 
 @dataclass
 class ProcessedFrame:
@@ -306,6 +310,10 @@ class FrameProcessor:
                     if self.config.restore_face:
                         swapped_face = self._apply_restoration(swapped_face)
 
+                    # Apply super resolution (legacy 4x upscale with blend)
+                    if self.config.super_resolution_power > 0:
+                        swapped_face = self._apply_super_resolution(swapped_face)
+
                     # Blend back to frame
                     output = self._blend_to_frame(output, swapped_face, face_meta, mask)
 
@@ -457,6 +465,63 @@ class FrameProcessor:
             return swapped_face
 
         return self.restorer.restore(swapped_face)
+
+    def _apply_super_resolution(self, swapped_face: np.ndarray) -> np.ndarray:
+        """
+        Apply super resolution with 4x upscale and gradual blending.
+
+        Legacy compatibility: Mimics DeepFaceLab's super_resolution_power behavior.
+        When enabled, upscales the face 4x using GFPGAN and blends with the
+        original based on power setting (0-100).
+
+        Args:
+            swapped_face: Swapped face (H, W, 3) BGR uint8.
+
+        Returns:
+            Super-resolved face (H, W, 3) BGR uint8.
+        """
+        power = self.config.super_resolution_power
+        if power == 0:
+            return swapped_face
+
+        # Ensure restorer is available
+        if self._restorer is None:
+            from visagen.postprocess.restore import FaceRestorer, RestoreConfig
+
+            restore_config = RestoreConfig(
+                enabled=True,
+                strength=1.0,  # Full strength for super resolution
+                model_version=self.config.restore_model_version,
+            )
+            self._restorer = FaceRestorer(restore_config, device=self.device)
+
+        # Get original size
+        h, w = swapped_face.shape[:2]
+        output_size = w * 4  # 4x upscale
+
+        # Apply GFPGAN restoration (returns 4x upscaled)
+        enhanced = self._restorer.restore(swapped_face, upscale=4)
+
+        # Ensure enhanced is the correct size
+        if enhanced.shape[0] != output_size or enhanced.shape[1] != output_size:
+            enhanced = cv2.resize(
+                enhanced, (output_size, output_size), interpolation=cv2.INTER_LANCZOS4
+            )
+
+        # Upscale original for blending
+        face_upscaled = cv2.resize(
+            swapped_face, (output_size, output_size), interpolation=cv2.INTER_LANCZOS4
+        )
+
+        # Blend based on power (0-100)
+        mod = power / 100.0
+        result = (
+            face_upscaled.astype(np.float32) * (1.0 - mod)
+            + enhanced.astype(np.float32) * mod
+        )
+        result = np.clip(result, 0, 255).astype(np.uint8)
+
+        return result
 
     def _blend_to_frame(
         self,

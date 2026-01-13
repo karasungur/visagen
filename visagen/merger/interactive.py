@@ -263,6 +263,9 @@ class InteractiveMerger:
         proc_config.restore_face = config.restore_face
         proc_config.restore_strength = config.restore_strength
 
+        # Super resolution (legacy 4x upscale)
+        proc_config.super_resolution_power = config.super_resolution_power
+
         # Sharpening
         proc_config.sharpen = config.sharpen_mode != "none"
         proc_config.sharpen_amount = config.sharpen_amount / 100.0

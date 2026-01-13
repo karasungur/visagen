@@ -19,6 +19,8 @@ from pathlib import Path
 def get_sort_methods():
     """Get available sorting methods."""
     from visagen.sorting import (
+        AbsDiffDissimilaritySorter,
+        AbsDiffSorter,
         BlackPixelSorter,
         BlurSorter,
         BrightnessSorter,
@@ -43,6 +45,8 @@ def get_sort_methods():
         "face-source-rect-size": SourceRectSorter,
         "hist": HistogramSimilaritySorter,
         "hist-dissim": HistogramDissimilaritySorter,
+        "absdiff": AbsDiffSorter,
+        "absdiff-dissim": AbsDiffDissimilaritySorter,
         "brightness": BrightnessSorter,
         "hue": HueSorter,
         "black": BlackPixelSorter,
@@ -73,6 +77,8 @@ Available methods:
   face-source-rect-size  Sort by face size in source image
   hist              Sort by histogram similarity (groups similar)
   hist-dissim       Sort by histogram dissimilarity (unique first)
+  absdiff           Sort by absolute pixel difference (GPU, similar)
+  absdiff-dissim    Sort by absolute pixel difference (GPU, dissimilar)
   brightness        Sort by brightness
   hue               Sort by hue
   black             Sort by amount of black pixels

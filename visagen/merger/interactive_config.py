@@ -45,6 +45,7 @@ COLOR_TRANSFER_MODES = {
     "mkl": "Monge-Kantorovitch Linear",
     "idt": "Iterative Distribution Transfer",
     "sot": "Sliced Optimal Transport",
+    "mix": "Mixed LCT+SOT (best quality)",
 }
 
 # Available sharpen modes
@@ -100,6 +101,10 @@ class InteractiveMergerConfig:
     restore_face: bool = False
     restore_strength: float = 0.5  # 0.0..1.0
 
+    # Super resolution (legacy compatibility)
+    # 0 = disabled, 1-100 = 4x upscale blend power
+    super_resolution_power: int = 0  # 0..100
+
     def __post_init__(self) -> None:
         """Validate configuration values."""
         self._validate()
@@ -134,6 +139,7 @@ class InteractiveMergerConfig:
         self.sharpen_amount = max(-100, min(100, self.sharpen_amount))
         self.hist_match_threshold = max(0, min(255, self.hist_match_threshold))
         self.restore_strength = max(0.0, min(1.0, self.restore_strength))
+        self.super_resolution_power = max(0, min(100, self.super_resolution_power))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary."""
@@ -183,6 +189,8 @@ class InteractiveMergerConfig:
             parts.append(f"Sharpen: {self.sharpen_mode} ({self.sharpen_amount})")
         if self.restore_face:
             parts.append(f"Restore: {self.restore_strength:.1f}")
+        if self.super_resolution_power > 0:
+            parts.append(f"SuperRes: {self.super_resolution_power}%")
 
         return " | ".join(parts)
 

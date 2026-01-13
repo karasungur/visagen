@@ -67,7 +67,7 @@ MESSAGES = {
         "cuda_cpu": "CPU only (GPU yok)",
         "profile_select": "Kurulum profilini secin:",
         "profile_minimal": "Minimal - Sadece temel egitim",
-        "profile_full": "Full - Tum ozellikler",
+        "profile_full": "Full - Tum ozellikler (GPU)",
         "profile_dev": "Developer - Gelistirici araclari dahil",
         "profile_all": "All - Her sey (restore dahil)",
         "installing": "Kuruluyor",
@@ -127,7 +127,7 @@ MESSAGES = {
         "cuda_cpu": "CPU only (no GPU)",
         "profile_select": "Select installation profile:",
         "profile_minimal": "Minimal - Basic training only",
-        "profile_full": "Full - All features",
+        "profile_full": "Full - All features (GPU)",
         "profile_dev": "Developer - With dev tools",
         "profile_all": "All - Everything (incl. restore)",
         "installing": "Installing",
@@ -1264,17 +1264,34 @@ def install_pytorch(
 def install_visagen(
     venv_path: Path,
     profile: str,
+    cuda_version: str,
     lang: str,
     logger: logging.Logger,
 ) -> bool:
-    """Install visagen with selected profile."""
+    """Install visagen with selected profile.
+
+    Automatically selects CPU or GPU profile based on CUDA selection.
+    When cuda_version is "cpu" and profile is "full", uses [full-cpu] instead.
+    """
     msg = MESSAGES[lang]
     pip = get_pip_path(venv_path)
 
-    profile_str = PROFILES[profile]
-    message = f"{msg['visagen_install']} [{profile}]"
+    # Dynamic profile selection based on CUDA choice
+    # When CPU is selected, use full-cpu instead of full for GPU-dependent profiles
+    if cuda_version == "cpu" and profile == "full":
+        actual_profile = "[full-cpu]"
+        logger.info("Using full-cpu profile for CPU-only installation")
+    elif cuda_version == "cpu" and profile == "dev":
+        actual_profile = "[full-cpu,dev]"
+        logger.info("Using full-cpu profile for CPU-only installation")
+    elif cuda_version == "cpu" and profile == "all":
+        actual_profile = "[full-cpu,dev,restore]"
+        logger.info("Using full-cpu profile for CPU-only installation")
+    else:
+        actual_profile = PROFILES[profile]
 
-    args = ["-e", f".{profile_str}"]
+    message = f"{msg['visagen_install']} [{profile}]"
+    args = ["-e", f".{actual_profile}"]
 
     # Use retry mechanism for Visagen installation
     return run_with_retry(
@@ -1543,7 +1560,7 @@ def main() -> int:
         if not install_pytorch(venv_path, cuda, lang, logger):
             return 1
 
-        if not install_visagen(venv_path, profile, lang, logger):
+        if not install_visagen(venv_path, profile, cuda, lang, logger):
             return 1
 
         progress.step_done(msg["step_packages"])

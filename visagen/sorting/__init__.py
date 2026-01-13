@@ -15,6 +15,7 @@ Example:
     >>> result = sorter.sort(image_paths, processor)
 """
 
+from visagen.sorting.absdiff import AbsDiffDissimilaritySorter, AbsDiffSorter
 from visagen.sorting.base import SortMethod, SortOutput, SortResult
 from visagen.sorting.blur import BlurSorter, MotionBlurSorter
 from visagen.sorting.color import BlackPixelSorter, BrightnessSorter, HueSorter
@@ -32,6 +33,9 @@ __all__ = [
     "SortMethod",
     "SortResult",
     "SortOutput",
+    # AbsDiff
+    "AbsDiffSorter",
+    "AbsDiffDissimilaritySorter",
     # Blur
     "BlurSorter",
     "MotionBlurSorter",
