@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -321,6 +322,66 @@ class TrainingTab(BaseTab):
 
     def _setup_events(self, c: dict[str, Any]) -> None:
         """Wire up training event handlers."""
+
+        # Live control helper
+        def send_live_param(key: str, value: Any, output_dir: str) -> None:
+            """Send parameter update to running training process."""
+            if not output_dir or not self.state.processes.training:
+                return
+
+            try:
+                cmd_file = Path(output_dir) / "cmd_training.json"
+
+                # Read existing to preserve other pending updates
+                data = {"params": {}}
+                if cmd_file.exists():
+                    try:
+                        with open(cmd_file) as f:
+                            existing = json.load(f)
+                            if isinstance(existing, dict):
+                                data = existing
+                    except Exception:
+                        pass  # Start fresh if corrupted
+
+                # Update param
+                if "params" not in data:
+                    data["params"] = {}
+
+                data["params"][key] = value
+                data["timestamp"] = time.time()
+
+                # Write atomically (mostly)
+                with open(cmd_file, "w") as f:
+                    json.dump(data, f, indent=2)
+            except Exception as e:
+                print(f"Failed to send live command: {e}")
+
+        # Bind live controls
+        live_controls = [
+            ("learning_rate", c["learning_rate"]),
+            ("gan_power", c["gan_power"]),
+            ("true_face_power", c["true_face_power"]),
+            ("face_style_weight", c["face_style_weight"]),
+            ("bg_style_weight", c["bg_style_weight"]),
+            ("dssim_weight", c["dssim_weight"]),
+            ("l1_weight", c["l1_weight"]),
+            ("lpips_weight", c["lpips_weight"]),
+            ("eyes_mouth_weight", c["eyes_mouth_weight"]),
+            ("gaze_weight", c["gaze_weight"]),
+            ("texture_weight", c["texture_weight"]),
+        ]
+
+        for key, component in live_controls:
+            # Create a closure for each key
+            def handler(val, out, k=key):
+                send_live_param(k, val, out)
+
+            component.change(
+                fn=handler,
+                inputs=[component, c["output_dir"]],
+                outputs=None,
+                show_progress=False,
+            )
 
         # Start training
         c["train_btn"].click(

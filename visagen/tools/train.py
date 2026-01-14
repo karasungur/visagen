@@ -30,6 +30,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from visagen.data.datamodule import FaceDataModule
 from visagen.training.callbacks import (
     AutoBackupCallback,
+    CommandFileReaderCallback,
     PreviewCallback,
     TargetStepCallback,
 )
@@ -656,6 +657,13 @@ def main() -> int:
             target_loss=args.target_loss,
         )
         callbacks.append(target_callback)
+
+    # Add live command reader callback
+    command_callback = CommandFileReaderCallback(
+        command_file="cmd_training.json",
+        check_interval=10,
+    )
+    callbacks.append(command_callback)
 
     # Logger
     logger = TensorBoardLogger(
