@@ -660,7 +660,7 @@ def main() -> int:
 
     # Add live command reader callback
     command_callback = CommandFileReaderCallback(
-        command_file="cmd_training.json",
+        command_file=args.output_dir / "cmd_training.json",
         check_interval=10,
     )
     callbacks.append(command_callback)
