@@ -237,6 +237,38 @@ class TrainingTab(BaseTab):
                     ),
                     self.i18n,
                 ).build()
+                components["id_weight"] = SliderInput(
+                    SliderConfig(
+                        key="training.id_weight",
+                        minimum=0,
+                        maximum=1.0,
+                        default=0.0,
+                    ),
+                    self.i18n,
+                ).build()
+
+        gr.Markdown("### Temporal Training")
+        with gr.Row():
+            with gr.Column():
+                components["temporal_power"] = SliderInput(
+                    SliderConfig(
+                        key="training.temporal_power",
+                        minimum=0,
+                        maximum=1.0,
+                        default=0.1,
+                    ),
+                    self.i18n,
+                ).build()
+            with gr.Column():
+                components["temporal_consistency_weight"] = SliderInput(
+                    SliderConfig(
+                        key="training.temporal_consistency_weight",
+                        minimum=0,
+                        maximum=5.0,
+                        default=1.0,
+                    ),
+                    self.i18n,
+                ).build()
 
         gr.Markdown("### Experimental Models")
         with gr.Row():
@@ -376,6 +408,9 @@ class TrainingTab(BaseTab):
             ("eyes_mouth_weight", c["eyes_mouth_weight"]),
             ("gaze_weight", c["gaze_weight"]),
             ("texture_weight", c["texture_weight"]),
+            ("id_weight", c["id_weight"]),
+            ("temporal_power", c["temporal_power"]),
+            ("temporal_consistency_weight", c["temporal_consistency_weight"]),
         ]
 
         for key, component in live_controls:
