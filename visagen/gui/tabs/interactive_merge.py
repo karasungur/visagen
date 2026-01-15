@@ -345,6 +345,45 @@ class InteractiveMergeTab(BaseTab):
             outputs=[c["preview"], c["config_status"]],
         )
 
+        # Real-time updates for sliders (Debounced via Gradio's concurrency/queue)
+        # Note: Gradio's .change(..., show_progress="hidden") + generic queue limits
+        # acts as a throttle. For true debounce we rely on backend speed or custom JS.
+        # Here we attach .change to all sliders for "interactive" feel.
+        sliders = [
+            "erode_mask",
+            "blur_mask",
+            "face_scale",
+            "sharpen_amount",
+            "hist_threshold",
+            "restore_strength",
+            "super_resolution_power",
+        ]
+        for name in sliders:
+            c[name].change(
+                fn=self._on_apply_settings,
+                inputs=config_inputs,
+                outputs=[c["preview"], c["config_status"]],
+                show_progress="hidden",
+            )
+
+        # Dropdowns trigger immediate update
+        dropdowns = ["mode", "mask_mode", "color_transfer", "sharpen_mode"]
+        for name in dropdowns:
+            c[name].change(
+                fn=self._on_apply_settings,
+                inputs=config_inputs,
+                outputs=[c["preview"], c["config_status"]],
+                show_progress="hidden",
+            )
+
+        # Checkbox triggers immediate update
+        c["restore_face"].change(
+            fn=self._on_apply_settings,
+            inputs=config_inputs,
+            outputs=[c["preview"], c["config_status"]],
+            show_progress="hidden",
+        )
+
         # Navigation
         c["prev_btn"].click(
             fn=self._on_navigate_prev,
@@ -387,7 +426,7 @@ class InteractiveMergeTab(BaseTab):
         checkpoint_path: str,
         frames_dir: str,
         output_dir: str,
-    ) -> tuple[str, np.ndarray | None, gr.Slider, str]:
+    ) -> tuple[str, np.ndarray | None, Any, str]:
         """Handle session load."""
         from visagen.merger.interactive import InteractiveMerger
 
@@ -478,7 +517,7 @@ class InteractiveMergeTab(BaseTab):
         except Exception as e:
             return None, f"{self.t('errors.update_failed')}: {e}"
 
-    def _on_navigate_prev(self) -> tuple[np.ndarray | None, int, str]:
+    def _on_navigate_prev(self) -> tuple[np.ndarray | None, Any, str]:
         """Navigate to previous frame."""
         if self.state._interactive_merger is None:
             return None, 0, self.t("errors.no_session")
@@ -500,7 +539,7 @@ class InteractiveMergeTab(BaseTab):
         except Exception as e:
             return None, 0, f"{self.t('errors.navigate_failed')}: {e}"
 
-    def _on_navigate_next(self) -> tuple[np.ndarray | None, int, str]:
+    def _on_navigate_next(self) -> tuple[np.ndarray | None, Any, str]:
         """Navigate to next frame."""
         if self.state._interactive_merger is None:
             return None, 0, self.t("errors.no_session")
