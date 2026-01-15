@@ -14,6 +14,7 @@ from visagen.gui.components import (
     PathInputConfig,
 )
 from visagen.gui.tabs.base import BaseTab
+from visagen.merger.frame_processor import FrameProcessor, FrameProcessorConfig
 
 if TYPE_CHECKING:
     pass
@@ -119,52 +120,64 @@ class InferenceTab(BaseTab):
 
     def _swap_face(
         self,
-        source_img: np.ndarray,
+        source_img: np.ndarray | None,
         target_img: np.ndarray,
     ) -> np.ndarray | None:
         """
         Perform face swap inference.
 
+        Uses FrameProcessor for proper face detection, alignment, and blending.
+        The model is trained to produce a specific source identity, so source_img
+        is optional (for reference display only). The actual swap happens on
+        target_img using the identity learned during training.
+
         Args:
-            source_img: Source face image.
-            target_img: Target face image.
+            source_img: Optional reference image (not used in inference,
+                        the model already knows the source identity).
+            target_img: Target frame (where the face will be swapped).
 
         Returns:
-            Swapped face image.
+            Swapped face image with model's learned identity on target frame.
         """
         if not self.state.model.is_loaded:
             raise gr.Error(self.i18n.t("errors.no_model_loaded"))
 
-        if source_img is None:
-            raise gr.Error(self.i18n.t("errors.source_image_required"))
+        if target_img is None:
+            raise gr.Error(self.i18n.t("errors.target_image_required"))
 
         try:
             import cv2
-            import torch
 
-            # Preprocess: resize and normalize
-            img = cv2.resize(source_img, (256, 256))
-            img = img.astype(np.float32) / 255.0
-            img = np.transpose(img, (2, 0, 1))  # HWC -> CHW
-            img = torch.from_numpy(img).unsqueeze(0)  # Add batch dim
+            # Create frame processor with loaded model
+            config = FrameProcessorConfig(
+                face_type="whole_face",
+                output_size=256,
+                color_transfer_mode="rct",
+                blend_mode="laplacian",
+                mask_erode=5,
+                mask_blur=5,
+            )
+            processor = FrameProcessor(
+                model=self.state.model.model,
+                config=config,
+                device=self.state.model.device,
+            )
 
-            if self.state.model.device == "cuda":
-                img = img.cuda()
+            # Convert RGB to BGR (Gradio uses RGB, OpenCV uses BGR)
+            target_bgr = cv2.cvtColor(target_img, cv2.COLOR_RGB2BGR)
 
-            # Inference
-            with torch.no_grad():
-                output = self.state.model.model(img)
+            # Process frame (target_img is where the swap happens)
+            result = processor.process_frame(target_bgr, frame_idx=0)
 
-            # Postprocess
-            output = output.squeeze(0).cpu().numpy()
-            output = np.transpose(output, (1, 2, 0))  # CHW -> HWC
-            output = np.clip(output * 255, 0, 255).astype(np.uint8)
+            if result.faces_swapped == 0:
+                raise gr.Error(self.i18n.t("errors.no_face_detected"))
 
-            # Resize back to original size if needed
-            if source_img.shape[:2] != (256, 256):
-                output = cv2.resize(output, (source_img.shape[1], source_img.shape[0]))
+            # Convert BGR back to RGB for Gradio display
+            output_rgb = cv2.cvtColor(result.output_image, cv2.COLOR_BGR2RGB)
 
-            return output
+            return output_rgb
 
+        except gr.Error:
+            raise
         except Exception as e:
             raise gr.Error(f"Inference failed: {e}")
