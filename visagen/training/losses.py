@@ -626,6 +626,87 @@ class GazeLoss(nn.Module):
         return (loss_left + loss_right) / 2.0
 
 
+class MomentStyleLoss(nn.Module):
+    """
+    Moment-matching style loss.
+
+    Computes style difference using first-order (mean) and second-order (std)
+    statistics instead of Gram matrices.
+
+    Args:
+        gaussian_blur_radius: Blur radius before computing moments. Default: 0.
+        loss_weight: Weight multiplier for the loss. Default: 1.0.
+    """
+
+    def __init__(
+        self,
+        gaussian_blur_radius: float = 0.0,
+        loss_weight: float = 1.0,
+    ) -> None:
+        super().__init__()
+        self.blur_radius = gaussian_blur_radius
+        self.loss_weight = loss_weight
+
+    def forward(
+        self,
+        content: torch.Tensor,
+        style: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute moment-matching style loss.
+
+        Args:
+            content: Content features (B, C, H, W).
+            style: Style features (B, C, H, W).
+
+        Returns:
+            Style loss value.
+        """
+        if content.shape[1] != style.shape[1]:
+            raise ValueError("content and style must have same number of channels")
+
+        # Optional Gaussian blur
+        if self.blur_radius > 0:
+            try:
+                import kornia.filters
+
+                kernel_size = max(3, int(2 * 2 * self.blur_radius))
+                if kernel_size % 2 == 0:
+                    kernel_size += 1
+                content = kornia.filters.gaussian_blur2d(
+                    content,
+                    (kernel_size, kernel_size),
+                    (self.blur_radius, self.blur_radius),
+                )
+                style = kornia.filters.gaussian_blur2d(
+                    style,
+                    (kernel_size, kernel_size),
+                    (self.blur_radius, self.blur_radius),
+                )
+            except ImportError:
+                pass
+
+        # Compute spatial statistics
+        c_mean = content.mean(dim=[2, 3], keepdim=True)
+        s_mean = style.mean(dim=[2, 3], keepdim=True)
+
+        c_var = content.var(dim=[2, 3], keepdim=True)
+        s_var = style.var(dim=[2, 3], keepdim=True)
+
+        c_std = torch.sqrt(c_var + 1e-5)
+        s_std = torch.sqrt(s_var + 1e-5)
+
+        # Mean and std losses
+        mean_loss = ((c_mean - s_mean) ** 2).sum(dim=[1, 2, 3])
+        std_loss = ((c_std - s_std) ** 2).sum(dim=[1, 2, 3])
+
+        # Normalize by channel count
+        nc = content.shape[1]
+        loss = (mean_loss + std_loss) * (self.loss_weight / nc)
+
+        return loss.mean()
+
+
 class StyleLoss(nn.Module):
     """
     Gram matrix based style transfer loss.
