@@ -55,15 +55,19 @@ class DSSIMLoss(nn.Module):
         self.register_buffer("kernel", kernel)
 
     def _create_gaussian_kernel(self, size: int, sigma: float) -> torch.Tensor:
-        """Create 2D Gaussian kernel."""
+        """Create 2D Gaussian kernel using softmax normalization for compatibility."""
         coords = torch.arange(size, dtype=torch.float32)
         coords -= (size - 1) / 2.0
 
+        # Use softmax normalization for kernel (matches reference implementation)
         g = coords**2
-        g = torch.exp(-g / (2 * sigma**2))
+        g = g * (-0.5 / (sigma**2))
 
-        g_2d = g.unsqueeze(0) * g.unsqueeze(1)
-        g_2d = g_2d / g_2d.sum()
+        # 2D kernel via outer sum
+        g_2d = g.unsqueeze(0) + g.unsqueeze(1)  # (size, size)
+        g_2d = g_2d.view(-1)  # Flatten for softmax
+        g_2d = torch.softmax(g_2d, dim=0)  # Softmax normalization
+        g_2d = g_2d.view(size, size)
 
         return g_2d.unsqueeze(0).unsqueeze(0)
 
