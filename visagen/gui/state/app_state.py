@@ -147,12 +147,22 @@ class ProcessState:
     sort: subprocess.Popen | None = None
     export: subprocess.Popen | None = None
     extract: subprocess.Popen | None = None
+    video_tools: subprocess.Popen | None = None
+    faceset_tools: subprocess.Popen | None = None
 
     training_queue: queue.Queue = field(default_factory=queue.Queue)
 
     def terminate_all(self) -> None:
         """Terminate all running processes."""
-        for proc_name in ["training", "merge", "sort", "export", "extract"]:
+        for proc_name in [
+            "training",
+            "merge",
+            "sort",
+            "export",
+            "extract",
+            "video_tools",
+            "faceset_tools",
+        ]:
             proc = getattr(self, proc_name)
             if proc is not None:
                 proc.terminate()

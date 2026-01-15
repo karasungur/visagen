@@ -24,8 +24,7 @@ from visagen.gui.components import (
 from visagen.gui.tabs.base import BaseTab
 
 if TYPE_CHECKING:
-    from visagen.gui.i18n import I18n
-    from visagen.gui.state.app_state import AppState
+    pass
 
 
 class ExtractTab(BaseTab):
@@ -39,15 +38,6 @@ class ExtractTab(BaseTab):
     - Set minimum detection confidence
     - Run extraction with real-time log streaming
     """
-
-    def __init__(
-        self,
-        app_state: AppState,
-        i18n: I18n,
-    ) -> None:
-        """Initialize extract tab."""
-        super().__init__(app_state, i18n)
-        self._process: subprocess.Popen | None = None
 
     @property
     def id(self) -> str:
@@ -218,7 +208,7 @@ class ExtractTab(BaseTab):
         yield f"Starting extraction...\n$ {' '.join(cmd)}\n"
 
         try:
-            self._process = subprocess.Popen(
+            self.state.processes.extract = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -227,18 +217,18 @@ class ExtractTab(BaseTab):
             )
 
             # Stream stdout line by line
-            for line in iter(self._process.stdout.readline, ""):
+            for line in iter(self.state.processes.extract.stdout.readline, ""):
                 if line:
                     yield line
-                if self._process.poll() is not None:
+                if self.state.processes.extract.poll() is not None:
                     break
 
             # Get any remaining output
-            remaining, _ = self._process.communicate()
+            remaining, _ = self.state.processes.extract.communicate()
             if remaining:
                 yield remaining
 
-            exit_code = self._process.returncode
+            exit_code = self.state.processes.extract.returncode
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.extraction_completed')}"
             else:
@@ -248,7 +238,7 @@ class ExtractTab(BaseTab):
             yield f"\n\nError: {e}"
 
         finally:
-            self._process = None
+            self.state.processes.extract = None
 
     def _stop_extraction(self) -> str:
         """
@@ -257,12 +247,6 @@ class ExtractTab(BaseTab):
         Returns:
             Status message indicating whether process was stopped.
         """
-        if self._process is not None:
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-            self._process = None
+        if self.state.processes.terminate("extract"):
             return self.i18n.t("status.extraction_stopped")
         return self.i18n.t("status.no_extraction")
