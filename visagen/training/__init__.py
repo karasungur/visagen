@@ -2,6 +2,7 @@
 
 from visagen.training.callbacks import (
     AutoBackupCallback,
+    CommandFileReaderCallback,
     PreviewCallback,
     TargetStepCallback,
 )
@@ -14,4 +15,5 @@ __all__ = [
     "PreviewCallback",
     "AutoBackupCallback",
     "TargetStepCallback",
+    "CommandFileReaderCallback",
 ]

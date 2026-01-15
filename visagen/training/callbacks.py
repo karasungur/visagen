@@ -5,6 +5,7 @@ Includes:
 - PreviewCallback: Generate training previews at intervals
 - AutoBackupCallback: Automatic checkpoint backups with rotation
 - TargetStepCallback: Stop training at target step or loss
+- CommandFileReaderCallback: Read and apply live parameter updates from JSON file
 """
 
 import json
@@ -429,3 +430,175 @@ class TargetStepCallback(Callback):
             return float(outputs)
 
         return None
+
+
+class CommandFileReaderCallback(Callback):
+    """
+    Read and apply live parameter updates from a JSON command file.
+
+    This callback enables real-time parameter adjustment during training by
+    polling a JSON file for changes. When the file is modified, the callback
+    reads new parameter values and applies them to the training module.
+
+    The command file format:
+        {
+            "params": {
+                "learning_rate": 0.0001,
+                "gan_power": 0.1,
+                "dssim_weight": 10.0,
+                ...
+            }
+        }
+
+    Supported parameters:
+        - learning_rate: Updates optimizer learning rate
+        - gan_power, true_face_power: GAN-related weights
+        - face_style_weight, bg_style_weight: Style transfer weights
+        - dssim_weight, l1_weight, lpips_weight: Reconstruction loss weights
+        - eyes_mouth_weight, gaze_weight, texture_weight: Feature-specific weights
+
+    Args:
+        command_file: Path to the JSON command file. Default: "cmd_training.json".
+        check_interval: Check for updates every N training steps. Default: 10.
+
+    Example:
+        >>> from visagen.training.callbacks import CommandFileReaderCallback
+        >>> callback = CommandFileReaderCallback(
+        ...     command_file="./workspace/model/cmd_training.json",
+        ...     check_interval=10,
+        ... )
+        >>> trainer = pl.Trainer(callbacks=[callback])
+    """
+
+    # Parameters that can be updated at runtime
+    UPDATABLE_PARAMS = frozenset(
+        {
+            "learning_rate",
+            "gan_power",
+            "true_face_power",
+            "face_style_weight",
+            "bg_style_weight",
+            "dssim_weight",
+            "l1_weight",
+            "lpips_weight",
+            "eyes_mouth_weight",
+            "gaze_weight",
+            "texture_weight",
+        }
+    )
+
+    def __init__(
+        self,
+        command_file: str | Path = "cmd_training.json",
+        check_interval: int = 10,
+    ) -> None:
+        super().__init__()
+        self.command_file = Path(command_file)
+        self.check_interval = check_interval
+        self._last_check_step = 0
+        self._last_mtime: float | None = None
+
+    def on_train_batch_end(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        outputs: Any,
+        batch: tuple,
+        batch_idx: int,
+    ) -> None:
+        """Check for command file updates and apply parameter changes."""
+        # Only check at specified interval
+        if trainer.global_step - self._last_check_step < self.check_interval:
+            return
+
+        self._last_check_step = trainer.global_step
+
+        # Skip if command file doesn't exist
+        if not self.command_file.exists():
+            return
+
+        # Check if file was modified since last read
+        try:
+            current_mtime = self.command_file.stat().st_mtime
+        except OSError:
+            return
+
+        if self._last_mtime is not None and current_mtime <= self._last_mtime:
+            return
+
+        self._last_mtime = current_mtime
+
+        # Read and apply parameters
+        self._apply_params(trainer, pl_module)
+
+    def _apply_params(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+    ) -> None:
+        """Read command file and apply parameter updates."""
+        try:
+            with open(self.command_file, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to read command file: {e}")
+            return
+
+        params = data.get("params", {})
+        if not params:
+            return
+
+        for key, value in params.items():
+            if key not in self.UPDATABLE_PARAMS:
+                logger.warning(f"Unknown parameter '{key}' in command file, skipping")
+                continue
+
+            try:
+                float_value = float(value)
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid value for '{key}': {value}")
+                continue
+
+            if key == "learning_rate":
+                self._update_learning_rate(trainer, pl_module, float_value)
+            else:
+                self._update_module_param(trainer, pl_module, key, float_value)
+
+    def _update_learning_rate(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        new_lr: float,
+    ) -> None:
+        """Update learning rate across all optimizer param groups."""
+        optimizers = pl_module.optimizers()
+        if optimizers is None:
+            return
+
+        # Handle single optimizer or list of optimizers
+        if not isinstance(optimizers, list):
+            optimizers = [optimizers]
+
+        for opt in optimizers:
+            for param_group in opt.param_groups:
+                old_lr = param_group.get("lr", 0)
+                if abs(old_lr - new_lr) > 1e-9:
+                    param_group["lr"] = new_lr
+
+        logger.info(f"[Step {trainer.global_step}] Learning rate updated to {new_lr}")
+
+    def _update_module_param(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        key: str,
+        value: float,
+    ) -> None:
+        """Update a parameter on the training module."""
+        if hasattr(pl_module, key):
+            old_value = getattr(pl_module, key, None)
+            if old_value != value:
+                setattr(pl_module, key, value)
+                logger.info(f"[Step {trainer.global_step}] {key} updated to {value}")
+        else:
+            logger.warning(f"Module does not have attribute '{key}', cannot update")
