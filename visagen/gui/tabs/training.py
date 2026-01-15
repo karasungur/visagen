@@ -350,9 +350,16 @@ class TrainingTab(BaseTab):
                 data["params"][key] = value
                 data["timestamp"] = time.time()
 
-                # Write atomically (mostly)
-                with open(cmd_file, "w") as f:
-                    json.dump(data, f, indent=2)
+                # Write atomically using temp file + rename
+                tmp_file = cmd_file.with_suffix(".tmp")
+                try:
+                    with open(tmp_file, "w") as f:
+                        json.dump(data, f, indent=2)
+                    tmp_file.replace(cmd_file)  # Atomic on POSIX
+                except OSError:
+                    # Fallback: direct write if temp file fails
+                    with open(cmd_file, "w") as f:
+                        json.dump(data, f, indent=2)
             except Exception as e:
                 print(f"Failed to send live command: {e}")
 
