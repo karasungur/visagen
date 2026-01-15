@@ -1,0 +1,28 @@
+# AMP (Adaptive Multi-modal Processing) Model Configuration
+
+model_type: "amp"
+
+# AMP specific settings
+# Uses both structure and texture encoders
+encoder:
+  structure:
+    dims: [64, 128, 256, 512]
+    depths: [2, 2, 4, 2]
+  texture:
+    dim: 512
+    heads: 8
+
+# Decoder configuration
+decoder:
+  dims: [512, 256, 128, 64]
+  use_skip_connections: true
+
+# Resolution settings
+resolution: 256
+face_type: "whole_face"
+
+# Mask configuration
+mask:
+  type: "segformer"
+  erode_kernel: 5
+  blur_kernel: 5

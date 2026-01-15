@@ -1,0 +1,31 @@
+# SAEHD (DF + LIAE) Model Configuration
+# Based on legacy DeepFaceLab SAEHD architecture
+
+# Model architecture
+model_type: "saehd"  # Options: saehd, amp, quick96
+
+# Encoder configuration
+encoder:
+  dims: [64, 128, 256, 512]
+  depths: [2, 2, 4, 2]
+  drop_path_rate: 0.1
+
+# Decoder configuration
+decoder:
+  dims: [512, 256, 128, 64]
+  use_skip_connections: true
+
+# Architecture variant
+# df: Decoder-focused (better identity)
+# liae: Latent space (better expressions)
+variant: "df"  # Options: df, liae
+
+# Resolution settings
+resolution: 256
+face_type: "whole_face"
+
+# Mask configuration
+mask:
+  type: "segformer"  # Options: segformer, learned
+  erode_kernel: 5
+  blur_kernel: 5

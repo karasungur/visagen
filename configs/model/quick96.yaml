@@ -1,0 +1,25 @@
+# Quick96 Model Configuration
+# Lightweight model for fast training and inference
+
+model_type: "quick96"
+
+# Fixed 96x96 resolution for speed
+resolution: 96
+face_type: "half"
+
+# Encoder configuration (smaller)
+encoder:
+  dims: [32, 64, 128, 256]
+  depths: [1, 1, 2, 1]
+  drop_path_rate: 0.0
+
+# Decoder configuration
+decoder:
+  dims: [256, 128, 64, 32]
+  use_skip_connections: true
+
+# Mask configuration
+mask:
+  type: "segformer"
+  erode_kernel: 3
+  blur_kernel: 3

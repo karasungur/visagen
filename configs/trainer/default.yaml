@@ -1,0 +1,69 @@
+# Default Training Configuration
+
+# Training parameters
+trainer:
+  max_steps: 500000
+  batch_size: 8
+  accumulate_grad_batches: 1
+  precision: "16-mixed"  # Options: 32, 16-mixed, bf16-mixed
+
+# Optimizer settings
+optimizer:
+  name: "adamw"  # Options: adamw, adabelief
+  lr: 0.0001
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+
+# Learning rate scheduler
+scheduler:
+  name: "cosine"  # Options: cosine, linear, constant
+  warmup_steps: 1000
+  min_lr: 1.0e-6
+
+# Loss weights
+loss:
+  # Reconstruction losses
+  l1_weight: 10.0
+  dssim_weight: 10.0
+  lpips_weight: 0.5
+
+  # Identity preservation
+  id_weight: 0.5
+
+  # Eyes/mouth enhancement
+  eyes_mouth_weight: 2.0
+
+  # Style losses
+  style_weight: 1.0
+  moment_style_weight: 1.0
+
+  # GAN loss (if enabled)
+  gan_weight: 0.0
+
+  # Temporal consistency (if sequence training)
+  temporal_weight: 0.0
+
+# Callbacks
+callbacks:
+  # Preview generation
+  preview:
+    enabled: true
+    interval: 500
+
+  # Auto backup
+  backup:
+    enabled: true
+    interval: 25000
+    keep_last: 5
+
+  # Target step stopping
+  target_step:
+    enabled: true
+    step: 500000
+
+# Data loading
+dataloader:
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true

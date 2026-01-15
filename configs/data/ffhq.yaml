@@ -1,0 +1,42 @@
+# FFHQ Pretraining Dataset Configuration
+# For pretraining on FFHQ or similar diverse face datasets
+
+dataset:
+  type: "pretrain"
+
+  # Path to FFHQ or similar dataset
+  path: "./datasets/ffhq"
+  recursive: true
+  extensions: [".jpg", ".png"]
+
+  # Validation split
+  val_split: 0.01
+  val_seed: 42
+
+# Heavy augmentation for pretraining
+augmentation:
+  enabled: true
+  random_flip: true
+  color_jitter:
+    brightness: 0.3
+    contrast: 0.3
+    saturation: 0.3
+    hue: 0.15
+  random_warp: true
+  warp_scale: 0.08
+  random_downsample: true
+  downsample_range: [0.5, 1.0]
+  random_noise: true
+  noise_std: 0.02
+
+# DALI GPU acceleration
+dali:
+  enabled: true
+  prefetch_queue_depth: 4
+  device_id: 0
+
+# Preprocessing
+preprocessing:
+  normalize: true
+  mean: [0.5, 0.5, 0.5]
+  std: [0.5, 0.5, 0.5]
