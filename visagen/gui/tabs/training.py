@@ -461,11 +461,19 @@ class TrainingTab(BaseTab):
             outputs=c["log"],
         )
 
-        # Refresh preview
+        # Refresh preview - manual button
         c["refresh_btn"].click(
             fn=self._refresh_preview,
             inputs=[c["output_dir"]],
             outputs=[c["preview_status"], c["preview_image"]],
+        )
+
+        # Auto-refresh preview every 5 seconds when training is active
+        c["preview_image"].load(
+            fn=self._refresh_preview,
+            inputs=[c["output_dir"]],
+            outputs=[c["preview_status"], c["preview_image"]],
+            every=5,
         )
 
         # Preset events
