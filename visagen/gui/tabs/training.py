@@ -451,6 +451,9 @@ class TrainingTab(BaseTab):
                 c["use_pretrained_vae"],
                 c["uniform_yaw"],
                 c["masked_training"],
+                c["id_weight"],
+                c["temporal_power"],
+                c["temporal_consistency_weight"],
             ],
             outputs=c["log"],
         )
@@ -621,6 +624,9 @@ class TrainingTab(BaseTab):
         use_pretrained_vae: bool,
         uniform_yaw: bool,
         masked_training: bool,
+        id_weight: float,
+        temporal_power: float,
+        temporal_consistency_weight: float,
     ) -> Generator[str, None, None]:
         """Start training subprocess."""
         # Validation
@@ -689,6 +695,14 @@ class TrainingTab(BaseTab):
 
         if resume_ckpt and Path(resume_ckpt).exists():
             cmd.extend(["--resume", resume_ckpt])
+
+        # id_weight
+        if id_weight > 0:
+            cmd.extend(["--id-weight", str(id_weight)])
+
+        # temporal parameters
+        cmd.extend(["--temporal-power", str(temporal_power)])
+        cmd.extend(["--temporal-consistency-weight", str(temporal_consistency_weight)])
 
         yield f"Starting training...\n$ {' '.join(cmd)}\n"
 
