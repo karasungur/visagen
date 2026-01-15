@@ -168,6 +168,14 @@ class FacesetToolsTab(BaseTab):
             self.i18n,
         ).build()
 
+        gr.Markdown("---")
+
+        # Global stop button
+        components["stop_btn"] = gr.Button(
+            self.t("stop_all"),
+            variant="stop",
+        )
+
         return components
 
     def _setup_events(self, c: dict[str, Any]) -> None:
@@ -194,6 +202,12 @@ class FacesetToolsTab(BaseTab):
                 c["resize_interp"],
             ],
             outputs=c["resize_log"],
+        )
+
+        # Global stop
+        c["stop_btn"].click(
+            fn=self._stop_current_process,
+            outputs=[],
         )
 
     # =========================================================================
@@ -229,18 +243,18 @@ class FacesetToolsTab(BaseTab):
         yield f"Starting faceset enhancement...\n$ {' '.join(cmd)}\n"
 
         try:
-            process = subprocess.Popen(
+            self.state.processes.faceset_tools = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
+            for line in iter(self.state.processes.faceset_tools.stdout.readline, ""):
                 if line:
                     yield line
 
-            exit_code = process.wait()
+            exit_code = self.state.processes.faceset_tools.wait()
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
             else:
@@ -248,6 +262,9 @@ class FacesetToolsTab(BaseTab):
 
         except Exception as e:
             yield f"\n\nError: {e}"
+
+        finally:
+            self.state.processes.faceset_tools = None
 
     def _run_resize_faceset(
         self,
@@ -282,18 +299,18 @@ class FacesetToolsTab(BaseTab):
         yield f"Starting faceset resize...\n$ {' '.join(cmd)}\n"
 
         try:
-            process = subprocess.Popen(
+            self.state.processes.faceset_tools = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
+            for line in iter(self.state.processes.faceset_tools.stdout.readline, ""):
                 if line:
                     yield line
 
-            exit_code = process.wait()
+            exit_code = self.state.processes.faceset_tools.wait()
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
             else:
@@ -301,3 +318,10 @@ class FacesetToolsTab(BaseTab):
 
         except Exception as e:
             yield f"\n\nError: {e}"
+
+        finally:
+            self.state.processes.faceset_tools = None
+
+    def _stop_current_process(self) -> None:
+        """Stop currently running faceset tools process."""
+        self.state.processes.terminate("faceset_tools")

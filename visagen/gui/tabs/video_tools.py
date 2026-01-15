@@ -237,6 +237,14 @@ class VideoToolsTab(BaseTab):
             self.i18n,
         ).build()
 
+        gr.Markdown("---")
+
+        # Global stop button for all video operations
+        components["stop_btn"] = gr.Button(
+            self.t("stop_all"),
+            variant="stop",
+        )
+
         return components
 
     def _setup_events(self, c: dict[str, Any]) -> None:
@@ -281,6 +289,12 @@ class VideoToolsTab(BaseTab):
             outputs=c["denoise_log"],
         )
 
+        # Global stop
+        c["stop_btn"].click(
+            fn=self._stop_current_process,
+            outputs=[],
+        )
+
     # =========================================================================
     # Operation Handlers
     # =========================================================================
@@ -315,18 +329,18 @@ class VideoToolsTab(BaseTab):
         yield f"Starting frame extraction...\n$ {' '.join(cmd)}\n"
 
         try:
-            process = subprocess.Popen(
+            self.state.processes.video_tools = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
+            for line in iter(self.state.processes.video_tools.stdout.readline, ""):
                 if line:
                     yield line
 
-            exit_code = process.wait()
+            exit_code = self.state.processes.video_tools.wait()
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
             else:
@@ -334,6 +348,9 @@ class VideoToolsTab(BaseTab):
 
         except Exception as e:
             yield f"\n\nError: {e}"
+
+        finally:
+            self.state.processes.video_tools = None
 
     def _run_create_video(
         self,
@@ -367,18 +384,18 @@ class VideoToolsTab(BaseTab):
         yield f"Starting video creation...\n$ {' '.join(cmd)}\n"
 
         try:
-            process = subprocess.Popen(
+            self.state.processes.video_tools = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
+            for line in iter(self.state.processes.video_tools.stdout.readline, ""):
                 if line:
                     yield line
 
-            exit_code = process.wait()
+            exit_code = self.state.processes.video_tools.wait()
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
             else:
@@ -386,6 +403,9 @@ class VideoToolsTab(BaseTab):
 
         except Exception as e:
             yield f"\n\nError: {e}"
+
+        finally:
+            self.state.processes.video_tools = None
 
     def _run_cut_video(
         self,
@@ -416,18 +436,18 @@ class VideoToolsTab(BaseTab):
         yield f"Starting video cut...\n$ {' '.join(cmd)}\n"
 
         try:
-            process = subprocess.Popen(
+            self.state.processes.video_tools = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
+            for line in iter(self.state.processes.video_tools.stdout.readline, ""):
                 if line:
                     yield line
 
-            exit_code = process.wait()
+            exit_code = self.state.processes.video_tools.wait()
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
             else:
@@ -435,6 +455,9 @@ class VideoToolsTab(BaseTab):
 
         except Exception as e:
             yield f"\n\nError: {e}"
+
+        finally:
+            self.state.processes.video_tools = None
 
     def _run_denoise_sequence(
         self,
@@ -463,18 +486,18 @@ class VideoToolsTab(BaseTab):
         yield f"Starting temporal denoising...\n$ {' '.join(cmd)}\n"
 
         try:
-            process = subprocess.Popen(
+            self.state.processes.video_tools = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
+            for line in iter(self.state.processes.video_tools.stdout.readline, ""):
                 if line:
                     yield line
 
-            exit_code = process.wait()
+            exit_code = self.state.processes.video_tools.wait()
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
             else:
@@ -482,3 +505,10 @@ class VideoToolsTab(BaseTab):
 
         except Exception as e:
             yield f"\n\nError: {e}"
+
+        finally:
+            self.state.processes.video_tools = None
+
+    def _stop_current_process(self) -> None:
+        """Stop currently running video tools process."""
+        self.state.processes.terminate("video_tools")
