@@ -36,7 +36,7 @@ class InferenceTab(BaseTab):
 
     def _build_content(self) -> dict[str, Any]:
         """Build inference tab UI."""
-        components = {}
+        components: dict[str, Any] = {}
 
         gr.Markdown(f"### {self.t('title')}")
 
@@ -109,10 +109,20 @@ class InferenceTab(BaseTab):
             outputs=[c["output_image"]],
         )
 
-    def _load_model(self, checkpoint_path: str) -> str:
+    def _load_model(
+        self,
+        checkpoint_path: str,
+        progress: gr.Progress = gr.Progress(),
+    ) -> str:
         """Load model wrapper."""
-        device = self.state.settings.device
-        return self.state.model.load(checkpoint_path, device)
+        progress(0, desc="Loading model...")
+        try:
+            device = self.state.settings.device
+            result = self.state.model.load(checkpoint_path, device)
+            progress(1, desc="Done")
+            return result
+        except Exception as e:
+            raise gr.Error(f"Failed to load model: {e}")
 
     def _unload_model(self) -> str:
         """Unload model wrapper."""
@@ -122,6 +132,7 @@ class InferenceTab(BaseTab):
         self,
         source_img: np.ndarray | None,
         target_img: np.ndarray,
+        progress: gr.Progress = gr.Progress(),
     ) -> np.ndarray | None:
         """
         Perform face swap inference.
@@ -135,10 +146,12 @@ class InferenceTab(BaseTab):
             source_img: Optional reference image (not used in inference,
                         the model already knows the source identity).
             target_img: Target frame (where the face will be swapped).
+            progress: Gradio progress tracker.
 
         Returns:
             Swapped face image with model's learned identity on target frame.
         """
+        progress(0, desc="Initializing...")
         if not self.state.model.is_loaded:
             raise gr.Error(self.i18n.t("errors.no_model_loaded"))
 
@@ -148,6 +161,7 @@ class InferenceTab(BaseTab):
         try:
             import cv2
 
+            progress(0.2, desc="Configuring processor...")
             # Create frame processor with loaded model
             config = FrameProcessorConfig(
                 face_type="whole_face",
@@ -163,6 +177,7 @@ class InferenceTab(BaseTab):
                 device=self.state.model.device,
             )
 
+            progress(0.4, desc="Processing frame...")
             # Convert RGB to BGR (Gradio uses RGB, OpenCV uses BGR)
             target_bgr = cv2.cvtColor(target_img, cv2.COLOR_RGB2BGR)
 
@@ -172,6 +187,7 @@ class InferenceTab(BaseTab):
             if result.faces_swapped == 0:
                 raise gr.Error(self.i18n.t("errors.no_face_detected"))
 
+            progress(0.9, desc="Finalizing...")
             # Convert BGR back to RGB for Gradio display
             output_rgb = cv2.cvtColor(result.output_image, cv2.COLOR_BGR2RGB)
 
