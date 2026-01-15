@@ -13,6 +13,115 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# =============================================================================
+# Gaussian Blur Utilities (Kornia Fallback)
+# =============================================================================
+
+
+def _create_gaussian_kernel_1d(
+    size: int,
+    sigma: float,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Create 1D Gaussian kernel."""
+    coords = torch.arange(size, dtype=torch.float32, device=device)
+    coords -= (size - 1) / 2.0
+    g = torch.exp(-0.5 * (coords / sigma) ** 2)
+    return (g / g.sum()).to(dtype=dtype)
+
+
+def _gaussian_blur2d_native(
+    x: torch.Tensor,
+    kernel_size: int | tuple[int, int],
+    sigma: float | tuple[float, float],
+) -> torch.Tensor:
+    """PyTorch native Gaussian blur (depthwise conv2d)."""
+    # Parse kernel size
+    if isinstance(kernel_size, tuple):
+        ksize_h, ksize_w = kernel_size
+    else:
+        ksize_h = ksize_w = kernel_size
+
+    # Parse sigma
+    if isinstance(sigma, tuple):
+        sigma_h, sigma_w = sigma
+    else:
+        sigma_h = sigma_w = sigma
+
+    # Validate kernel sizes (must be odd and >= 3)
+    ksize_h = max(3, ksize_h if ksize_h % 2 == 1 else ksize_h + 1)
+    ksize_w = max(3, ksize_w if ksize_w % 2 == 1 else ksize_w + 1)
+
+    # Create 1D kernels
+    kernel_h = _create_gaussian_kernel_1d(ksize_h, sigma_h, x.device, x.dtype)
+    kernel_w = _create_gaussian_kernel_1d(ksize_w, sigma_w, x.device, x.dtype)
+
+    # 2D kernel via outer product
+    kernel_2d = kernel_h.unsqueeze(1) @ kernel_w.unsqueeze(0)
+    kernel_2d = kernel_2d.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+
+    # Expand for all channels (depthwise)
+    c = x.shape[1]
+    kernel_2d = kernel_2d.repeat(c, 1, 1, 1)  # (C, 1, H, W)
+
+    # Padding
+    padding_h = ksize_h // 2
+    padding_w = ksize_w // 2
+
+    return F.conv2d(x, kernel_2d, padding=(padding_h, padding_w), groups=c)
+
+
+def safe_gaussian_blur2d(
+    x: torch.Tensor,
+    kernel_size: int | tuple[int, int],
+    sigma: float | tuple[float, float],
+) -> torch.Tensor:
+    """
+    Safe Gaussian blur with automatic kornia fallback.
+
+    Tries kornia.filters.gaussian_blur2d first, falls back to
+    native PyTorch implementation if kornia is not available.
+
+    Args:
+        x: Input tensor (B, C, H, W)
+        kernel_size: Kernel size (odd int or tuple)
+        sigma: Gaussian standard deviation
+
+    Returns:
+        Blurred tensor (B, C, H, W)
+    """
+    try:
+        import kornia.filters
+
+        # Kornia expects kernel_size as tuple and sigma as (B, 2) tensor
+        if isinstance(kernel_size, int):
+            ks = (kernel_size, kernel_size)
+        else:
+            ks = kernel_size
+
+        # Build sigma tensor with shape (B, 2) for kornia
+        b = x.shape[0]
+        if isinstance(sigma, (int, float)):
+            sig = torch.tensor([[sigma, sigma]], device=x.device, dtype=x.dtype)
+        elif isinstance(sigma, tuple):
+            sig = torch.tensor([list(sigma)], device=x.device, dtype=x.dtype)
+        else:
+            sig = sigma
+
+        # Expand to batch size if needed
+        if sig.dim() == 2 and sig.shape[0] == 1 and b > 1:
+            sig = sig.expand(b, -1)
+
+        return kornia.filters.gaussian_blur2d(x, ks, sig)
+    except ImportError:
+        return _gaussian_blur2d_native(x, kernel_size, sigma)
+
+
+# =============================================================================
+# Loss Functions
+# =============================================================================
+
 
 class DSSIMLoss(nn.Module):
     """
@@ -667,24 +776,16 @@ class MomentStyleLoss(nn.Module):
 
         # Optional Gaussian blur
         if self.blur_radius > 0:
-            try:
-                import kornia.filters
-
-                kernel_size = max(3, int(2 * 2 * self.blur_radius))
-                if kernel_size % 2 == 0:
-                    kernel_size += 1
-                content = kornia.filters.gaussian_blur2d(
-                    content,
-                    (kernel_size, kernel_size),
-                    (self.blur_radius, self.blur_radius),
-                )
-                style = kornia.filters.gaussian_blur2d(
-                    style,
-                    (kernel_size, kernel_size),
-                    (self.blur_radius, self.blur_radius),
-                )
-            except ImportError:
-                pass
+            kernel_size = max(3, int(2 * 2 * self.blur_radius))
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            sigma = self.blur_radius
+            content = safe_gaussian_blur2d(
+                content, (kernel_size, kernel_size), (sigma, sigma)
+            )
+            style = safe_gaussian_blur2d(
+                style, (kernel_size, kernel_size), (sigma, sigma)
+            )
 
         # Compute spatial statistics
         c_mean = content.mean(dim=[2, 3], keepdim=True)
@@ -725,22 +826,9 @@ class StyleLoss(nn.Module):
         """Compute Gram matrix with optional blur."""
         # Apply Gaussian blur if blur_radius > 0
         if self.blur_radius > 0:
-            # Ensure odd kernel size
             kernel_size = int(self.blur_radius) * 2 + 1
             sigma = self.blur_radius / 3.0
-
-            # Use kornia for GPU-accelerated blur
-            try:
-                import kornia.filters
-
-                x = kornia.filters.gaussian_blur2d(
-                    x,
-                    kernel_size=(kernel_size, kernel_size),
-                    sigma=(sigma, sigma),
-                )
-            except ImportError:
-                # Fallback: skip blur if kornia not available
-                pass
+            x = safe_gaussian_blur2d(x, (kernel_size, kernel_size), (sigma, sigma))
 
         b, c, h, w = x.shape
         features = x.view(b, c, h * w)
@@ -1295,19 +1383,14 @@ def face_style_loss(
 
     # Optional blur for smoother style matching
     if blur_radius > 0:
-        try:
-            from kornia.filters import gaussian_blur2d
-
-            kernel_size = blur_radius * 2 + 1
-            sigma = blur_radius / 3.0
-            pred_masked = gaussian_blur2d(
-                pred_masked, (kernel_size, kernel_size), (sigma, sigma)
-            )
-            target_masked = gaussian_blur2d(
-                target_masked, (kernel_size, kernel_size), (sigma, sigma)
-            )
-        except ImportError:
-            pass  # Skip blur if kornia not available
+        kernel_size = blur_radius * 2 + 1
+        sigma = blur_radius / 3.0
+        pred_masked = safe_gaussian_blur2d(
+            pred_masked, (kernel_size, kernel_size), (sigma, sigma)
+        )
+        target_masked = safe_gaussian_blur2d(
+            target_masked, (kernel_size, kernel_size), (sigma, sigma)
+        )
 
     # Compute Gram matrices
     gram_pred = gram_matrix(pred_masked)
