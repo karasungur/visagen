@@ -484,6 +484,9 @@ class CommandFileReaderCallback(Callback):
             "eyes_mouth_weight",
             "gaze_weight",
             "texture_weight",
+            "id_weight",
+            "temporal_power",
+            "temporal_consistency_weight",
         }
     )
 
