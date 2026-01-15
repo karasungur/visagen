@@ -149,6 +149,7 @@ class ProcessState:
     extract: subprocess.Popen | None = None
     video_tools: subprocess.Popen | None = None
     faceset_tools: subprocess.Popen | None = None
+    benchmark: subprocess.Popen | None = None
 
     training_queue: queue.Queue = field(default_factory=queue.Queue)
 
@@ -162,6 +163,7 @@ class ProcessState:
             "extract",
             "video_tools",
             "faceset_tools",
+            "benchmark",
         ]:
             proc = getattr(self, proc_name)
             if proc is not None:

@@ -18,9 +18,16 @@ import subprocess
 import sys
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from visagen.merger.interactive import InteractiveMerger
+
+from visagen.gui.i18n import I18n
+from visagen.gui.state.app_state import AppState
+from visagen.gui.tabs.benchmark import BenchmarkTab
 
 # Check gradio availability
 try:
@@ -39,7 +46,7 @@ class GradioApp:
     """
 
     def __init__(self) -> None:
-        self.model = None
+        self.model: Any | None = None
         self.model_path: str | None = None
 
         # Subprocess management
@@ -47,6 +54,7 @@ class GradioApp:
         self.merge_process: subprocess.Popen | None = None
         self.sort_process: subprocess.Popen | None = None
         self.export_process: subprocess.Popen | None = None
+        self.extract_process: subprocess.Popen | None = None
 
         self.training_queue: queue.Queue = queue.Queue()
         self.device = "auto"
@@ -58,10 +66,10 @@ class GradioApp:
         }
 
         # Lazy-loaded components
-        self._restorer = None
+        self._restorer: Any | None = None
 
         # Interactive merger instance
-        self._interactive_merger = None
+        self._interactive_merger: "InteractiveMerger | None" = None
 
     def get_preview_status(self, output_dir: str) -> tuple[str, np.ndarray | None]:
         """
@@ -681,10 +689,12 @@ class GradioApp:
 
             # Segment
             segmenter = FaceSegmenter()
-            mask = segmenter.segment(image_bgr)
+            result = segmenter.segment(image_bgr)
 
-            if mask is None:
+            if result is None:
                 raise gr.Error("Segmentation failed. No face detected.")
+
+            mask = result.mask
 
             # Create temp file for export
             suffix = ".json"
@@ -2947,6 +2957,10 @@ def create_app() -> "gr.Blocks":
 
     app_state = GradioApp()
 
+    # Modern state for new tabs
+    state = AppState.create()
+    i18n = I18n()
+
     with gr.Blocks(
         title="Visagen - Face Swapping Framework",
         theme=gr.themes.Soft(),
@@ -2965,6 +2979,7 @@ def create_app() -> "gr.Blocks":
         create_video_tools_tab(app_state)
         create_faceset_tools_tab(app_state)
         create_postprocess_tab(app_state)
+        BenchmarkTab(state, i18n).create()
         create_settings_tab(app_state)
 
         gr.Markdown("---")
