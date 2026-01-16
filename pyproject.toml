@@ -30,6 +30,7 @@ dependencies = [
     "pyyaml>=6.0",
     "Pillow>=9.0.0",
     "tqdm>=4.65.0",
+    "portalocker>=2.7.0",
 ]
 
 [project.optional-dependencies]
@@ -115,6 +116,7 @@ full = [
     "tqdm>=4.65.0",
     "lpips>=0.1.4",
     "scipy>=1.10.0",
+    "portalocker>=2.7.0",
     # Hyperparameter tuning
     "optuna>=3.0.0",
     "optuna-integration[pytorch_lightning]>=3.0.0",
@@ -141,6 +143,7 @@ full-cpu = [
     "tqdm>=4.65.0",
     "lpips>=0.1.4",
     "scipy>=1.10.0",
+    "portalocker>=2.7.0",
     # Hyperparameter tuning
     "optuna>=3.0.0",
     "optuna-integration[pytorch_lightning]>=3.0.0",
