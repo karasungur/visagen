@@ -26,6 +26,9 @@ from visagen.merger.frame_processor import (
     FrameProcessor,
     FrameProcessorConfig,
 )
+from visagen.merger.interactive_config import (
+    InteractiveMergerSession,
+)
 from visagen.merger.video_io import (
     VideoInfo,
     VideoReader,
@@ -100,6 +103,42 @@ class MergerConfig:
             )
 
         return cls(**data)
+
+    @classmethod
+    def from_session(cls, path: Path | str) -> "MergerConfig":
+        """
+        Create merger configuration from an interactive session file.
+
+        Args:
+            path: Path to session.json file.
+
+        Returns:
+            MergerConfig instance with settings from session.
+        """
+        session = InteractiveMergerSession.from_json(path)
+        iconfig = session.config
+
+        # Map interactive config to frame processor config
+        fp_config = FrameProcessorConfig(
+            color_transfer_mode=iconfig.color_transfer
+            if iconfig.color_transfer != "none"
+            else None,
+            blend_mode=iconfig.mode,  # Simple mapping for now
+            mask_erode=abs(iconfig.erode_mask) if iconfig.erode_mask > 0 else 0,
+            mask_blur=iconfig.blur_mask,
+            sharpen=iconfig.sharpen_mode != "none",
+            sharpen_amount=iconfig.sharpen_amount / 100.0,
+            restore_face=iconfig.restore_face,
+            restore_strength=iconfig.restore_strength,
+            super_resolution_power=iconfig.super_resolution_power,
+        )
+
+        return cls(
+            input_path=Path(session.frames_dir),
+            output_path=Path(session.output_dir),
+            checkpoint_path=Path(session.checkpoint_path),
+            frame_processor_config=fp_config,
+        )
 
     def to_yaml(self, path: Path) -> None:
         """

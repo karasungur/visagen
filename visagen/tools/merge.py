@@ -43,19 +43,28 @@ Examples:
     parser.add_argument(
         "input",
         type=Path,
+        nargs="?",
         help="Input video file or directory of frames",
     )
     parser.add_argument(
         "output",
         type=Path,
+        nargs="?",
         help="Output video file or directory",
     )
     parser.add_argument(
         "--checkpoint",
         "-c",
         type=Path,
-        required=True,
         help="Path to trained model checkpoint (.ckpt)",
+    )
+
+    # Session support
+    parser.add_argument(
+        "--session",
+        "-s",
+        type=Path,
+        help="Load settings and paths from an interactive session file (session.json)",
     )
 
     # Detection options
@@ -250,6 +259,18 @@ Examples:
 
 def build_config(args: argparse.Namespace) -> MergerConfig:
     """Build MergerConfig from arguments."""
+    # Load from session if provided
+    if args.session and args.session.exists():
+        config = MergerConfig.from_session(args.session)
+        # Override with command line args if they are provided (not None)
+        if args.input:
+            config.input_path = args.input
+        if args.output:
+            config.output_path = args.output
+        if args.checkpoint:
+            config.checkpoint_path = args.checkpoint
+        return config
+
     # Load from YAML if provided
     if args.config and args.config.exists():
         config = MergerConfig.from_yaml(args.config)
@@ -324,12 +345,20 @@ def main() -> int:
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
 
-    # Validate inputs
-    if not args.input.exists():
+    # Validate inputs (only if not using session or session is partial)
+    if not args.session:
+        if not args.input:
+            print("Error: Input path is required", file=sys.stderr)
+            return 1
+        if not args.checkpoint:
+            print("Error: Checkpoint path is required", file=sys.stderr)
+            return 1
+
+    if args.input and not args.input.exists():
         print(f"Error: Input not found: {args.input}", file=sys.stderr)
         return 1
 
-    if not args.checkpoint.exists():
+    if args.checkpoint and not args.checkpoint.exists():
         print(f"Error: Checkpoint not found: {args.checkpoint}", file=sys.stderr)
         return 1
 
