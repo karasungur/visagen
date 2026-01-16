@@ -604,7 +604,8 @@ class FrameProcessor:
             aligned_face: Aligned face (H, W, 3) BGR.
 
         Returns:
-            Mask (H, W) float32 in [0, 1].
+            Mask (H, W) float32 with values 0 or 255.
+            Note: Normalized to [0, 1] by _process_mask before blending.
         """
         try:
             # Use segmenter if available
