@@ -1,14 +1,16 @@
-"""Extract tab for face extraction."""
+"""Extract tab for face extraction with real-time preview."""
 
 from __future__ import annotations
 
-import subprocess
-import sys
+import threading
+from collections import deque
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
+import cv2
 import gradio as gr
+import numpy as np
 
 from visagen.gui.components import (
     DropdownConfig,
@@ -21,20 +23,43 @@ from visagen.gui.components import (
     SliderConfig,
     SliderInput,
 )
+from visagen.gui.components.displays import (
+    GalleryPreview,
+    GalleryPreviewConfig,
+    create_mask_overlay,
+)
+from visagen.gui.components.faceset_browser import FacesetBrowser, FacesetBrowserConfig
 from visagen.gui.tabs.base import BaseTab
+from visagen.tools.extract_v2 import ExtractionProgress, FaceExtractor
+from visagen.vision.dflimg import DFLImage
+from visagen.vision.face_type import FaceType
 
 
 class ExtractTab(BaseTab):
     """
-    Face extraction tab for extracting faces from images/videos.
+    Face extraction tab with real-time preview.
 
     Allows users to:
     - Select input path (file or directory)
     - Configure output directory
     - Choose face type and output size
     - Set minimum detection confidence
-    - Run extraction with real-time log streaming
+    - Run extraction with real-time gallery preview
+    - View extracted faces with mask overlays
     """
+
+    MAX_PREVIEW_ITEMS = 16
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._extractor: FaceExtractor | None = None
+        self._extraction_active = False
+        self._preview_buffer: deque[tuple[np.ndarray, str]] = deque(
+            maxlen=self.MAX_PREVIEW_ITEMS
+        )
+        self._buffer_lock = threading.Lock()
+        self._last_face_info: dict[str, Any] | None = None
+        self._browser: FacesetBrowser | None = None
 
     @property
     def id(self) -> str:
@@ -42,7 +67,7 @@ class ExtractTab(BaseTab):
         return "extract"
 
     def _build_content(self) -> dict[str, Any]:
-        """Build extraction UI components."""
+        """Build extraction UI components with preview gallery."""
         components: dict[str, Any] = {}
 
         with gr.Column():
@@ -57,8 +82,8 @@ class ExtractTab(BaseTab):
                     input_path = PathInput(
                         config=PathInputConfig(
                             key="extract.input_path",
-                            path_type="file",  # Can be file or dir
-                            must_exist=False,  # Validated at runtime
+                            path_type="file",
+                            must_exist=False,
                         ),
                         i18n=self.i18n,
                     )
@@ -113,6 +138,14 @@ class ExtractTab(BaseTab):
                     )
                     components["min_confidence"] = min_confidence.build()
 
+            # Preview Options
+            with gr.Row():
+                components["show_mask"] = gr.Checkbox(
+                    label=self.t("preview.show_mask"),
+                    value=True,
+                    info=self.t("preview.show_mask_info"),
+                )
+
             # Process Control (Start/Stop buttons)
             with gr.Row():
                 process_control = ProcessControl(
@@ -123,16 +156,65 @@ class ExtractTab(BaseTab):
                 components["start_btn"] = start_btn
                 components["stop_btn"] = stop_btn
 
+            # Status
+            components["status"] = gr.Textbox(
+                label=self.t("status.label"),
+                value="",
+                interactive=False,
+            )
+
+            # Real-Time Preview Gallery
+            gr.Markdown(f"### {self.t('preview.title')}")
+
+            components["preview_gallery"] = GalleryPreview(
+                GalleryPreviewConfig(
+                    key="extract.preview_gallery",
+                    columns=4,
+                    rows=2,
+                    height=400,
+                ),
+                self.i18n,
+            ).build()
+
+            # Last Face Detail
+            with gr.Row():
+                components["last_face"] = gr.Image(
+                    label=self.t("preview.last_face"),
+                    height=256,
+                    interactive=False,
+                )
+                components["face_info"] = gr.JSON(
+                    label=self.t("preview.face_info"),
+                )
+
+            # Timer for preview refresh
+            components["preview_timer"] = gr.Timer(value=0.5, active=False)
+
             # Log Output
             log_output = LogOutput(
                 config=LogOutputConfig(
                     key="extract.log",
-                    lines=15,
-                    max_lines=30,
+                    lines=8,
+                    max_lines=15,
                 ),
                 i18n=self.i18n,
             )
             components["log"] = log_output.build()
+
+            # Faceset Browser (Accordion)
+            gr.Markdown("---")
+            self._browser = FacesetBrowser(
+                FacesetBrowserConfig(
+                    key="extract.browser",
+                    columns=6,
+                    rows=3,
+                ),
+                self.i18n,
+            )
+            browser_components = self._browser.build()
+            components.update(
+                {f"browser_{k}": v for k, v in browser_components.items()}
+            )
 
         return components
 
@@ -148,15 +230,46 @@ class ExtractTab(BaseTab):
                 components["face_type"],
                 components["output_size"],
                 components["min_confidence"],
+                components["show_mask"],
             ],
-            outputs=[components["log"]],
+            outputs=[
+                components["log"],
+                components["status"],
+                components["preview_timer"],
+            ],
         )
 
         # Stop button terminates process
         components["stop_btn"].click(
             fn=self._stop_extraction,
-            outputs=[components["log"]],
+            outputs=[components["status"]],
         )
+
+        # Timer refresh
+        components["preview_timer"].tick(
+            fn=self._refresh_preview,
+            outputs=[
+                components["preview_gallery"],
+                components["last_face"],
+                components["face_info"],
+            ],
+        )
+
+        # Setup Faceset Browser events
+        if self._browser:
+            browser_comps = {
+                k.replace("browser_", ""): v
+                for k, v in components.items()
+                if k.startswith("browser_")
+            }
+            self._browser.setup_events(browser_comps)
+
+            # Update browser directory when output_dir changes
+            components["output_dir"].change(
+                fn=lambda d: d,
+                inputs=[components["output_dir"]],
+                outputs=[components["browser_dir_input"]],
+            )
 
     def _start_extraction(
         self,
@@ -165,12 +278,10 @@ class ExtractTab(BaseTab):
         face_type: str,
         output_size: int,
         min_confidence: float,
-    ) -> Generator[str, None, None]:
+        show_mask: bool,
+    ) -> Generator[tuple[str, str, gr.Timer], None, None]:
         """
-        Start face extraction process.
-
-        Generator method that yields log lines as extraction progresses.
-        Calls visagen.tools.extract_v2 via subprocess and streams stdout.
+        In-process extraction with real-time preview.
 
         Args:
             input_path: Path to input file or directory.
@@ -178,64 +289,163 @@ class ExtractTab(BaseTab):
             face_type: Face type for alignment.
             output_size: Size of output face images.
             min_confidence: Minimum detection confidence threshold.
+            show_mask: Whether to show mask overlay in preview.
 
         Yields:
-            Log lines from the extraction process.
+            Tuple of (log_text, status_text, timer).
         """
         # Validate input path
         if not input_path or not Path(input_path).exists():
-            yield self.i18n.t("errors.path_not_found")
+            yield (
+                self.i18n.t("errors.path_not_found"),
+                "Error",
+                gr.Timer(active=False),
+            )
             return
 
-        # Build command
-        cmd = [
-            sys.executable,
-            "-m",
-            "visagen.tools.extract_v2",
-            str(input_path),
-            str(output_dir) if output_dir else "./workspace/extracted",
-            "--size",
-            str(int(output_size)),
-            "--face-type",
-            face_type,
-            "--min-confidence",
-            str(min_confidence),
-        ]
+        # Clear buffer
+        with self._buffer_lock:
+            self._preview_buffer.clear()
+        self._last_face_info = None
 
-        yield f"Starting extraction...\n$ {' '.join(cmd)}\n"
+        # Create extractor
+        self._extractor = FaceExtractor(
+            output_size=int(output_size),
+            face_type=FaceType.from_string(face_type),
+            min_confidence=min_confidence,
+        )
+
+        self._extraction_active = True
+        input_p = Path(input_path)
+        output_p = Path(output_dir) if output_dir else Path("./workspace/extracted")
+        output_p.mkdir(parents=True, exist_ok=True)
+
+        log_buffer = f"Starting extraction from {input_p.name}...\n"
+        yield (log_buffer, "Processing...", gr.Timer(active=True))
 
         try:
-            self.state.processes.extract = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
+            if input_p.suffix.lower() in {".mp4", ".avi", ".mkv", ".mov", ".webm"}:
+                # Video extraction
+                for face, progress in self._extractor.extract_streaming(
+                    input_p, output_p, with_mask=True
+                ):
+                    if not self._extraction_active:
+                        break
+
+                    self._add_to_preview(face, progress, show_mask)
+
+                    pct = progress.current_frame / max(progress.total_frames, 1) * 100
+                    log_buffer += (
+                        f"Frame {progress.current_frame}/{progress.total_frames} | "
+                        f"Faces: {progress.faces_extracted}\n"
+                    )
+                    yield (
+                        log_buffer,
+                        f"Processing... {pct:.1f}%",
+                        gr.Timer(active=True),
+                    )
+
+            else:
+                # Single image or directory
+                if input_p.is_dir():
+                    image_files = list(input_p.glob("*.jpg")) + list(
+                        input_p.glob("*.png")
+                    )
+                else:
+                    image_files = [input_p]
+
+                total_faces = 0
+                for idx, img_path in enumerate(image_files):
+                    if not self._extraction_active:
+                        break
+
+                    faces = self._extractor.extract_from_image(img_path, with_mask=True)
+                    for face in faces:
+                        total_faces += 1
+                        progress = ExtractionProgress(
+                            current_frame=idx + 1,
+                            total_frames=len(image_files),
+                            faces_extracted=total_faces,
+                            current_face=face,
+                            source_name=img_path.stem,
+                        )
+                        self._add_to_preview(face, progress, show_mask)
+
+                        # Save
+                        out_name = f"{img_path.stem}_{face.face_index}.jpg"
+                        DFLImage.save(output_p / out_name, face.image, face.metadata)
+
+                    log_buffer += f"Processed {img_path.name}: {len(faces)} face(s)\n"
+                    yield (
+                        log_buffer,
+                        f"Processing... {idx + 1}/{len(image_files)}",
+                        gr.Timer(active=True),
+                    )
+
+                log_buffer += f"\nExtracted {total_faces} face(s)\n"
+
+            log_buffer += f"\n{self.i18n.t('status.extraction_completed')}\n"
+            yield (
+                log_buffer,
+                self.i18n.t("status.extraction_completed"),
+                gr.Timer(active=False),
             )
 
-            # Stream stdout line by line
-            for line in iter(self.state.processes.extract.stdout.readline, ""):
-                if line:
-                    yield line
-                if self.state.processes.extract.poll() is not None:
-                    break
-
-            # Get any remaining output
-            remaining, _ = self.state.processes.extract.communicate()
-            if remaining:
-                yield remaining
-
-            exit_code = self.state.processes.extract.returncode
-            if exit_code == 0:
-                yield f"\n\n{self.i18n.t('status.extraction_completed')}"
-            else:
-                yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
-
         except Exception as e:
-            yield f"\n\nError: {e}"
+            log_buffer += f"\nError: {e}\n"
+            yield (log_buffer, "Error", gr.Timer(active=False))
 
         finally:
-            self.state.processes.extract = None
+            self._extraction_active = False
+            self._extractor = None
+
+    def _add_to_preview(
+        self,
+        face: Any,
+        progress: ExtractionProgress,
+        show_mask: bool,
+    ) -> None:
+        """Add face to preview buffer."""
+        with self._buffer_lock:
+            image = face.image.copy()
+
+            if show_mask and face.metadata.xseg_mask:
+                mask = cv2.imdecode(
+                    np.frombuffer(face.metadata.xseg_mask, np.uint8),
+                    cv2.IMREAD_UNCHANGED,
+                )
+                if mask is not None:
+                    image = create_mask_overlay(image, mask, alpha=0.4)
+
+            # BGR to RGB
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            caption = f"{progress.source_name}_{face.face_index}"
+
+            self._preview_buffer.append((image_rgb, caption))
+
+            # Update last face info
+            self._last_face_info = {
+                "caption": caption,
+                "confidence": round(face.confidence, 3),
+                "face_type": face.metadata.face_type,
+                "total_extracted": progress.faces_extracted,
+            }
+
+    def _refresh_preview(
+        self,
+    ) -> tuple[list[tuple[np.ndarray, str]], np.ndarray | None, dict[str, Any] | None]:
+        """Timer callback to refresh gallery."""
+        with self._buffer_lock:
+            items = list(self._preview_buffer)
+
+        if items:
+            last_img, _ = items[-1]
+            info = self._last_face_info
+        else:
+            last_img = None
+            info = None
+
+        return items, last_img, info
 
     def _stop_extraction(self) -> str:
         """
@@ -244,6 +454,7 @@ class ExtractTab(BaseTab):
         Returns:
             Status message indicating whether process was stopped.
         """
-        if self.state.processes.terminate("extract"):
-            return self.i18n.t("status.extraction_stopped")
-        return self.i18n.t("status.no_extraction")
+        self._extraction_active = False
+        if self._extractor:
+            self._extractor.request_stop()
+        return self.i18n.t("status.extraction_stopped")

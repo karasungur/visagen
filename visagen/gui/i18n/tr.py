@@ -249,6 +249,29 @@ TRANSLATIONS = {
         "log": {
             "label": "Çıkarma Logu",
         },
+        "preview": {
+            "title": "Çıkarma Önizlemesi",
+            "show_mask": "Maske Katmanını Göster",
+            "show_mask_info": "Yüz maskesini yarı saydam katman olarak göster",
+            "last_face": "Son Çıkarılan Yüz",
+            "face_info": "Yüz Bilgisi",
+            "gallery": {"label": "Çıkarılan Yüzler"},
+        },
+        "status": {"label": "Durum"},
+    },
+    # Yüz Seti Tarayıcı
+    "faceset_browser": {
+        "title": "Yüz Seti Tarayıcı",
+        "directory": "Dizin",
+        "load": "Yükle",
+        "refresh": "Yenile",
+        "faces": "Yüzler",
+        "show_masks": "Maskeleri Göster",
+        "sort_by": "Sıralama",
+        "selected": "Seçili Yüz",
+        "metadata": "Meta Veri",
+        "no_directory": "Dizin belirtilmedi",
+        "not_found": "Dizin bulunamadı",
     },
     # Ayarlar sekmesi
     "settings": {

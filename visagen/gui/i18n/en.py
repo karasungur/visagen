@@ -249,6 +249,29 @@ TRANSLATIONS = {
         "log": {
             "label": "Extraction Log",
         },
+        "preview": {
+            "title": "Extraction Preview",
+            "show_mask": "Show Mask Overlay",
+            "show_mask_info": "Display face mask as semi-transparent overlay",
+            "last_face": "Last Extracted Face",
+            "face_info": "Face Info",
+            "gallery": {"label": "Extracted Faces"},
+        },
+        "status": {"label": "Status"},
+    },
+    # Faceset Browser
+    "faceset_browser": {
+        "title": "Faceset Browser",
+        "directory": "Directory",
+        "load": "Load",
+        "refresh": "Refresh",
+        "faces": "Faces",
+        "show_masks": "Show Masks",
+        "sort_by": "Sort By",
+        "selected": "Selected Face",
+        "metadata": "Metadata",
+        "no_directory": "No directory specified",
+        "not_found": "Directory not found",
     },
     # Settings tab
     "settings": {

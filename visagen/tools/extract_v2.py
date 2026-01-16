@@ -7,6 +7,7 @@ InsightFace detection and SegFormer segmentation.
 
 import argparse
 import sys
+from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -45,6 +46,17 @@ class ExtractedFace:
     face_index: int = 0
 
 
+@dataclass
+class ExtractionProgress:
+    """Progress information for extraction."""
+
+    current_frame: int
+    total_frames: int
+    faces_extracted: int
+    current_face: ExtractedFace | None = None
+    source_name: str = ""
+
+
 class FaceExtractor:
     """
     Extract and align faces from images and videos.
@@ -79,11 +91,20 @@ class FaceExtractor:
         self.face_type = face_type
         self.jpeg_quality = jpeg_quality
         self.min_confidence = min_confidence
+        self._stop_requested = False
 
         # Initialize vision components
         self.detector = FaceDetector(model_name=model_name, device=device)
         self.aligner = FaceAligner()
         self.segmenter: FaceSegmenter | None = None  # Lazy load
+
+    def request_stop(self) -> None:
+        """Request extraction to stop gracefully."""
+        self._stop_requested = True
+
+    def reset_stop(self) -> None:
+        """Reset stop flag for new extraction."""
+        self._stop_requested = False
 
     def _ensure_segmenter(self) -> FaceSegmenter:
         """Lazy-load segmenter on first use."""
@@ -263,6 +284,85 @@ class FaceExtractor:
 
                     frame_idx += 1
                     pbar.update(1)
+
+        finally:
+            cap.release()
+
+        return face_count
+
+    def extract_streaming(
+        self,
+        video_path: Path,
+        output_dir: Path,
+        frame_skip: int = 1,
+        with_mask: bool = True,
+        max_frames: int | None = None,
+    ) -> Generator[tuple[ExtractedFace, ExtractionProgress], None, int]:
+        """
+        Extract faces with streaming progress.
+
+        Yields:
+            Tuple of (ExtractedFace, ExtractionProgress) for each face.
+
+        Returns:
+            Total number of faces extracted.
+        """
+        self.reset_stop()
+        video_path = Path(video_path)
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            raise ValueError(f"Failed to open video: {video_path}")
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        if max_frames:
+            total_frames = min(total_frames, max_frames * frame_skip)
+
+        face_count = 0
+        frame_idx = 0
+
+        try:
+            while frame_idx < total_frames:
+                if self._stop_requested:
+                    break
+
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                if frame_idx % frame_skip != 0:
+                    frame_idx += 1
+                    continue
+
+                source_name = f"{video_path.stem}_{frame_idx:06d}"
+                faces = self._extract_from_array(frame, source_name, with_mask)
+
+                for face in faces:
+                    face_count += 1
+
+                    # Save to disk
+                    output_name = f"{source_name}_{face.face_index}.jpg"
+                    DFLImage.save(
+                        output_dir / output_name,
+                        face.image,
+                        face.metadata,
+                        quality=self.jpeg_quality,
+                    )
+
+                    progress = ExtractionProgress(
+                        current_frame=frame_idx,
+                        total_frames=total_frames,
+                        faces_extracted=face_count,
+                        current_face=face,
+                        source_name=source_name,
+                    )
+
+                    yield (face, progress)
+
+                frame_idx += 1
 
         finally:
             cap.release()
