@@ -608,8 +608,8 @@ class FrameProcessor:
         """
         try:
             # Use segmenter if available
-            mask = self.segmenter.segment(aligned_face)
-            return mask.astype(np.float32)
+            result = self.segmenter.segment(aligned_face)
+            return result.mask.astype(np.float32)
         except Exception as e:
             # Fallback to ellipse mask
             logger.debug(f"Segmenter failed, using ellipse mask: {e}")
