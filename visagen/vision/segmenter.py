@@ -6,12 +6,16 @@ fine-tuned on CelebAMask-HQ dataset.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
 from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
+
+# Default local model path (relative to project root)
+DEFAULT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "face-parsing"
 
 # CelebAMask-HQ label mapping (19 classes)
 CELEBAMASK_LABELS = {
@@ -79,8 +83,8 @@ class FaceSegmenter:
     semantic face parsing with 19 classes.
 
     Args:
-        model_name: HuggingFace model identifier.
-            Default: "jonathandinu/face-parsing".
+        model_name: Model path or HuggingFace identifier.
+            Default: auto-detect (local first, then HuggingFace).
         device: Device for inference. Default: auto-detect.
         use_half: Use FP16 for faster inference. Default: True on CUDA.
 
@@ -92,7 +96,7 @@ class FaceSegmenter:
 
     def __init__(
         self,
-        model_name: str = "jonathandinu/face-parsing",
+        model_name: str | Path | None = None,
         device: str | None = None,
         use_half: bool = True,
     ) -> None:
@@ -102,14 +106,50 @@ class FaceSegmenter:
         self.device = device
         self.use_half = use_half and device == "cuda"
 
+        # Resolve model source
+        model_source, local_only = self._resolve_model_source(model_name)
+
         # Load model and processor
-        self.processor = SegformerImageProcessor.from_pretrained(model_name)
-        self.model = SegformerForSemanticSegmentation.from_pretrained(model_name)
+        self.processor = SegformerImageProcessor.from_pretrained(
+            model_source,
+            local_files_only=local_only,
+        )
+        self.model = SegformerForSemanticSegmentation.from_pretrained(
+            model_source,
+            local_files_only=local_only,
+        )
         self.model.to(device)
         self.model.eval()
 
         if self.use_half:
             self.model.half()
+
+    def _resolve_model_source(self, model_name: str | Path | None) -> tuple[str, bool]:
+        """
+        Resolve model source with local-first priority.
+
+        Priority:
+        1. Explicit path provided → use it
+        2. Default local path exists → use it
+        3. Fallback to HuggingFace Hub
+
+        Returns:
+            Tuple of (model_source, local_files_only).
+        """
+        # Explicit path provided
+        if model_name is not None:
+            path = Path(model_name) if isinstance(model_name, str) else model_name
+            if path.exists():
+                return str(path), True
+            # Assume it's a HuggingFace repo ID
+            return str(model_name), False
+
+        # Check default local path
+        if DEFAULT_MODEL_PATH.exists():
+            return str(DEFAULT_MODEL_PATH), True
+
+        # Fallback to HuggingFace
+        return "jonathandinu/face-parsing", False
 
     def segment(
         self,
