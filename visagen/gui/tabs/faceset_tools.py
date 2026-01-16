@@ -6,7 +6,7 @@ import subprocess
 import sys
 from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import gradio as gr
 
@@ -21,9 +21,6 @@ from visagen.gui.components import (
     SliderInput,
 )
 from visagen.gui.tabs.base import BaseTab
-
-if TYPE_CHECKING:
-    pass
 
 
 class FacesetToolsTab(BaseTab):

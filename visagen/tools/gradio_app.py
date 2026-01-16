@@ -14,7 +14,6 @@ Usage:
 
 import argparse
 import sys
-from typing import TYPE_CHECKING
 
 from visagen.gui.i18n import I18n
 from visagen.gui.state.app_state import AppState
@@ -38,9 +37,6 @@ try:
     GRADIO_AVAILABLE = True
 except ImportError:
     GRADIO_AVAILABLE = False
-
-if TYPE_CHECKING:
-    pass
 
 
 def create_app() -> "gr.Blocks":

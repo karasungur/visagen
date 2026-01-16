@@ -23,8 +23,6 @@ Reference:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -32,9 +30,6 @@ import torch.nn.functional as F
 from visagen.models.encoders.convnext import ConvNeXtEncoder
 from visagen.models.layers.adain import AdaptiveInstanceNorm2d
 from visagen.models.layers.attention import CBAM
-
-if TYPE_CHECKING:
-    pass
 
 
 class TextureEncoder(nn.Module):

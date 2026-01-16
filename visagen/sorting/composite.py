@@ -7,16 +7,12 @@ Provides FinalSorter for selecting best faces with pose variety.
 import math
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
 
 from visagen.sorting.base import SortMethod, SortOutput, SortResult
 from visagen.sorting.processor import ParallelSortProcessor, ProcessedImage
-
-if TYPE_CHECKING:
-    pass
 
 
 class FinalSorter(SortMethod):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import gradio as gr
 import numpy as np
@@ -15,9 +15,6 @@ from visagen.gui.components import (
 )
 from visagen.gui.tabs.base import BaseTab
 from visagen.merger.frame_processor import FrameProcessor, FrameProcessorConfig
-
-if TYPE_CHECKING:
-    pass
 
 
 class InferenceTab(BaseTab):
