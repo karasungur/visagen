@@ -18,7 +18,7 @@ import subprocess
 import sys
 from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -143,11 +143,11 @@ class GradioApp:
                 checkpoint_path,
                 map_location="cpu",
             )
-            self.model.eval()
+            cast(Any, self.model).eval()
 
             # Move to GPU if available
             if torch.cuda.is_available():
-                self.model = self.model.cuda()
+                self.model = cast(Any, self.model).cuda()
 
             self.model_path = checkpoint_path
             return f"Model loaded: {Path(checkpoint_path).name}"
@@ -309,11 +309,12 @@ class GradioApp:
             )
 
             # Stream output
-            for line in iter(self.training_process.stdout.readline, ""):
-                if line:
-                    yield line
-                if self.training_process.poll() is not None:
-                    break
+            if self.training_process.stdout:
+                for line in iter(self.training_process.stdout.readline, ""):
+                    if line:
+                        yield line
+                    if self.training_process.poll() is not None:
+                        break
 
             # Get remaining output
             remaining, _ = self.training_process.communicate()
@@ -478,9 +479,10 @@ class GradioApp:
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
-                if line:
-                    yield line
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    if line:
+                        yield line
 
             exit_code = process.wait()
             if exit_code == 0:
@@ -794,11 +796,12 @@ class GradioApp:
                 bufsize=1,
             )
 
-            for line in iter(self.merge_process.stdout.readline, ""):
-                if line:
-                    yield line
-                if self.merge_process.poll() is not None:
-                    break
+            if self.merge_process.stdout:
+                for line in iter(self.merge_process.stdout.readline, ""):
+                    if line:
+                        yield line
+                    if self.merge_process.poll() is not None:
+                        break
 
             remaining, _ = self.merge_process.communicate()
             if remaining:
@@ -876,11 +879,12 @@ class GradioApp:
                 bufsize=1,
             )
 
-            for line in iter(self.sort_process.stdout.readline, ""):
-                if line:
-                    yield line
-                if self.sort_process.poll() is not None:
-                    break
+            if self.sort_process.stdout:
+                for line in iter(self.sort_process.stdout.readline, ""):
+                    if line:
+                        yield line
+                    if self.sort_process.poll() is not None:
+                        break
 
             remaining, _ = self.sort_process.communicate()
             if remaining:
@@ -955,11 +959,12 @@ class GradioApp:
                 bufsize=1,
             )
 
-            for line in iter(self.export_process.stdout.readline, ""):
-                if line:
-                    yield line
-                if self.export_process.poll() is not None:
-                    break
+            if self.export_process.stdout:
+                for line in iter(self.export_process.stdout.readline, ""):
+                    if line:
+                        yield line
+                    if self.export_process.poll() is not None:
+                        break
 
             remaining, _ = self.export_process.communicate()
             if remaining:
@@ -1026,9 +1031,10 @@ class GradioApp:
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
-                if line:
-                    yield line
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    if line:
+                        yield line
 
             exit_code = process.wait()
             if exit_code == 0:
@@ -1078,9 +1084,10 @@ class GradioApp:
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
-                if line:
-                    yield line
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    if line:
+                        yield line
 
             exit_code = process.wait()
             if exit_code == 0:
@@ -1127,9 +1134,10 @@ class GradioApp:
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
-                if line:
-                    yield line
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    if line:
+                        yield line
 
             exit_code = process.wait()
             if exit_code == 0:
@@ -1174,9 +1182,10 @@ class GradioApp:
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
-                if line:
-                    yield line
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    if line:
+                        yield line
 
             exit_code = process.wait()
             if exit_code == 0:
@@ -1223,9 +1232,10 @@ class GradioApp:
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
-                if line:
-                    yield line
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    if line:
+                        yield line
 
             exit_code = process.wait()
             if exit_code == 0:
@@ -1276,9 +1286,10 @@ class GradioApp:
                 text=True,
             )
 
-            for line in iter(process.stdout.readline, ""):
-                if line:
-                    yield line
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    if line:
+                        yield line
 
             exit_code = process.wait()
             if exit_code == 0:
