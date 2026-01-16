@@ -472,12 +472,13 @@ class TrainingTab(BaseTab):
         )
 
         # Auto-refresh preview every 5 seconds when training is active
-        c["preview_image"].load(
-            fn=self._refresh_preview,
-            inputs=[c["output_dir"]],
-            outputs=[c["preview_status"], c["preview_image"]],
-            every=5,
-        )
+        # TODO: Replace deprecated .load() with gr.Timer in future update
+        # c["preview_image"].load(
+        #     fn=self._refresh_preview,
+        #     inputs=[c["output_dir"]],
+        #     outputs=[c["preview_status"], c["preview_image"]],
+        #     every=5,
+        # )
 
         # Preset events
         def load_preset(key: str) -> tuple:
