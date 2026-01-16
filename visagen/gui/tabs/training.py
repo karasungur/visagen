@@ -340,6 +340,9 @@ class TrainingTab(BaseTab):
             self.i18n,
         ).build()
 
+        # Timer for auto-refresh preview
+        components["preview_timer"] = gr.Timer(value=5)
+
         with gr.Row():
             components["refresh_btn"] = gr.Button(self.t("refresh_preview"))
 
@@ -471,14 +474,12 @@ class TrainingTab(BaseTab):
             outputs=[c["preview_status"], c["preview_image"]],
         )
 
-        # Auto-refresh preview every 5 seconds when training is active
-        # TODO: Replace deprecated .load() with gr.Timer in future update
-        # c["preview_image"].load(
-        #     fn=self._refresh_preview,
-        #     inputs=[c["output_dir"]],
-        #     outputs=[c["preview_status"], c["preview_image"]],
-        #     every=5,
-        # )
+        # Auto-refresh preview every 5 seconds
+        c["preview_timer"].tick(
+            fn=self._refresh_preview,
+            inputs=[c["output_dir"]],
+            outputs=[c["preview_status"], c["preview_image"]],
+        )
 
         # Preset events
         def load_preset(key: str) -> tuple:
