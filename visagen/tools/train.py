@@ -4,11 +4,11 @@ Training Script for Visagen.
 CLI for training face swapping models with PyTorch Lightning.
 
 Usage:
-    python -m visagen.tools.train \\
-        --src-dir /path/to/data_src/aligned \\
-        --dst-dir /path/to/data_dst/aligned \\
-        --output-dir /path/to/workspace/model \\
-        --batch-size 8 \\
+    python -m visagen.tools.train \
+        --src-dir /path/to/data_src/aligned \
+        --dst-dir /path/to/data_dst/aligned \
+        --output-dir /path/to/workspace/model \
+        --batch-size 8 \
         --max-epochs 500
 
     # Or with YAML config:
@@ -49,22 +49,22 @@ def parse_args() -> argparse.Namespace:
         epilog="""
 Examples:
     # Basic training
-    python -m visagen.tools.train \\
-        --src-dir ./workspace/data_src/aligned \\
+    python -m visagen.tools.train \
+        --src-dir ./workspace/data_src/aligned \
         --dst-dir ./workspace/data_dst/aligned
 
     # With custom settings
-    python -m visagen.tools.train \\
-        --src-dir ./data_src/aligned \\
-        --dst-dir ./data_dst/aligned \\
-        --batch-size 16 \\
-        --max-epochs 1000 \\
+    python -m visagen.tools.train \
+        --src-dir ./data_src/aligned \
+        --dst-dir ./data_dst/aligned \
+        --batch-size 16 \
+        --max-epochs 1000 \
         --precision 16-mixed
 
     # Resume from checkpoint
-    python -m visagen.tools.train \\
-        --src-dir ./data_src/aligned \\
-        --dst-dir ./data_dst/aligned \\
+    python -m visagen.tools.train \
+        --src-dir ./data_src/aligned \
+        --dst-dir ./data_dst/aligned \
         --resume ./workspace/model/checkpoints/last.ckpt
         """,
     )
@@ -388,6 +388,19 @@ Examples:
         help="Stop training when loss reaches this value (default: None)",
     )
 
+    # Tuning arguments
+    parser.add_argument(
+        "--tune",
+        action="store_true",
+        help="Enable hyperparameter optimization with Optuna",
+    )
+    parser.add_argument(
+        "--trials",
+        type=int,
+        default=20,
+        help="Number of tuning trials (default: 20)",
+    )
+
     return parser.parse_args()
 
 
@@ -491,7 +504,6 @@ def main() -> int:
     # Parse model dimensions
     encoder_dims = [int(d) for d in args.encoder_dims.split(",")]
     encoder_depths = [int(d) for d in args.encoder_depths.split(",")]
-    decoder_dims = encoder_dims[::-1]  # Reverse for decoder
 
     # Augmentation config
     aug_config = None
@@ -523,32 +535,40 @@ def main() -> int:
         uniform_yaw=args.uniform_yaw,
     )
 
-    # Create Model
-    print("\nModel configuration:")
-    print(f"  Model type: {args.model_type}")
-    print(f"  Image size: {args.image_size}")
-    print(f"  Encoder dims: {encoder_dims}")
-    print(f"  Encoder depths: {encoder_depths}")
-    print(f"  Learning rate: {args.learning_rate}")
-    print(f"  DSSIM weight: {args.dssim_weight}")
-    print(f"  L1 weight: {args.l1_weight}")
-    print(f"  LPIPS weight: {args.lpips_weight}")
-    print(f"  Eyes/Mouth weight: {args.eyes_mouth_weight}")
-    print(f"  Gaze weight: {args.gaze_weight}")
-    print(f"  Face style weight: {args.face_style_weight}")
-    print(f"  Background style weight: {args.bg_style_weight}")
-    print(f"  True face power: {args.true_face_power}")
-    print(f"  GAN power: {args.gan_power}")
-    print(f"  Uniform yaw: {args.uniform_yaw}")
-    print(f"  Masked training: {args.masked_training}")
-    if args.model_type == "diffusion":
-        print(f"  Texture weight: {args.texture_weight}")
-        print(f"  Pretrained VAE: {not args.no_pretrained_vae}")
-    elif args.model_type == "eg3d":
-        print(f"  EG3D latent dim: {args.eg3d_latent_dim}")
-        print(f"  EG3D plane channels: {args.eg3d_plane_channels}")
-        print(f"  EG3D render resolution: {args.eg3d_render_resolution}")
+    # Setup data to get sample counts
+    datamodule.setup()
+    print("\nDataset:")
+    print(f"  Training samples: {datamodule.num_train_samples}")
+    print(f"  Validation samples: {datamodule.num_val_samples}")
 
+    # Tuning mode
+    if args.tune:
+        from visagen.tuning.optuna_tuner import OptunaTuner, TuningConfig
+
+        print("\nStarting hyperparameter optimization...")
+        tuner = OptunaTuner(
+            study_name=f"visagen_tune_{args.model_type}",
+            storage_path=args.output_dir / "optuna_study.db",
+        )
+
+        tuning_config = TuningConfig()  # Uses defaults
+
+        tuner.optimize(
+            datamodule=datamodule,
+            config=tuning_config,
+            n_trials=args.trials,
+            max_epochs=min(args.max_epochs, 50),
+            accelerator=args.accelerator,
+            devices=args.devices,
+            precision=args.precision,
+        )
+
+        print("\nOptimization complete!")
+        tuner.print_summary()
+        tuner.export_best_config(args.output_dir / "best_config.yaml")
+        return 0
+
+    # Model and Trainer initialization for standard training
     if args.pretrain_from is not None:
         # Load pretrained weights for fine-tuning
         if not args.pretrain_from.exists():
@@ -566,7 +586,7 @@ def main() -> int:
             image_size=args.image_size,
             encoder_dims=encoder_dims,
             encoder_depths=encoder_depths,
-            decoder_dims=decoder_dims,
+            decoder_dims=encoder_dims[::-1],
             learning_rate=args.learning_rate,
             dssim_weight=args.dssim_weight,
             l1_weight=args.l1_weight,
@@ -583,7 +603,7 @@ def main() -> int:
             image_size=args.image_size,
             encoder_dims=encoder_dims,
             encoder_depths=encoder_depths,
-            decoder_dims=decoder_dims,
+            decoder_dims=encoder_dims[::-1],
             learning_rate=args.learning_rate,
             dssim_weight=args.dssim_weight,
             l1_weight=args.l1_weight,
@@ -672,25 +692,7 @@ def main() -> int:
         default_hp_metric=False,
     )
 
-    # Trainer
-    print("\nTraining configuration:")
-    print(f"  Batch size: {args.batch_size}")
-    print(f"  Max epochs: {args.max_epochs}")
-    print(f"  Precision: {args.precision}")
-    print(f"  Accelerator: {args.accelerator}")
-    print(f"  Devices: {args.devices}")
-    print(f"  Output: {args.output_dir}")
-    if not args.no_preview:
-        print(f"  Preview interval: {args.preview_interval} steps")
-    if args.backup_interval > 0:
-        print(f"  Backup interval: {args.backup_interval} steps")
-    if args.backup_minutes > 0:
-        print(f"  Backup interval: {args.backup_minutes} minutes")
-    if args.max_steps > 0:
-        print(f"  Target steps: {args.max_steps}")
-    if args.target_loss is not None:
-        print(f"  Target loss: {args.target_loss}")
-
+    # Trainer initialization
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         accelerator=args.accelerator,
@@ -702,12 +704,6 @@ def main() -> int:
         enable_progress_bar=True,
         gradient_clip_val=1.0,
     )
-
-    # Setup data to get sample counts
-    datamodule.setup()
-    print("\nDataset:")
-    print(f"  Training samples: {datamodule.num_train_samples}")
-    print(f"  Validation samples: {datamodule.num_val_samples}")
 
     # Train
     print("\nStarting training...")
