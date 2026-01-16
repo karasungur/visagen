@@ -19,6 +19,8 @@ import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import Callback
 
+from visagen.utils.io import read_json_locked
+
 try:
     import torchvision.utils as vutils
 
@@ -540,11 +542,8 @@ class CommandFileReaderCallback(Callback):
         pl_module: pl.LightningModule,
     ) -> None:
         """Read command file and apply parameter updates."""
-        try:
-            with open(self.command_file, encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError) as e:
-            logger.warning(f"Failed to read command file: {e}")
+        data = read_json_locked(self.command_file)
+        if data is None:
             return
 
         params = data.get("params", {})

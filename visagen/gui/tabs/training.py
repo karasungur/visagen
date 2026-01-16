@@ -28,6 +28,7 @@ from visagen.gui.components import (
 )
 from visagen.gui.presets import PresetManager, TrainingPreset
 from visagen.gui.tabs.base import BaseTab
+from visagen.utils.io import read_json_locked, write_json_locked
 
 if TYPE_CHECKING:
     from visagen.gui.i18n import I18n
@@ -367,16 +368,8 @@ class TrainingTab(BaseTab):
             try:
                 cmd_file = Path(output_dir) / "cmd_training.json"
 
-                # Read existing to preserve other pending updates
-                data = {"params": {}}
-                if cmd_file.exists():
-                    try:
-                        with open(cmd_file) as f:
-                            existing = json.load(f)
-                            if isinstance(existing, dict):
-                                data = existing
-                    except Exception:
-                        pass  # Start fresh if corrupted
+                # Read existing securely to preserve other pending updates
+                data = read_json_locked(cmd_file) or {"params": {}}
 
                 # Update param
                 if "params" not in data:
@@ -385,16 +378,8 @@ class TrainingTab(BaseTab):
                 data["params"][key] = value
                 data["timestamp"] = time.time()
 
-                # Write atomically using temp file + rename
-                tmp_file = cmd_file.with_suffix(".tmp")
-                try:
-                    with open(tmp_file, "w") as f:
-                        json.dump(data, f, indent=2)
-                    tmp_file.replace(cmd_file)  # Atomic on POSIX
-                except OSError:
-                    # Fallback: direct write if temp file fails
-                    with open(cmd_file, "w") as f:
-                        json.dump(data, f, indent=2)
+                # Write securely
+                write_json_locked(cmd_file, data)
             except Exception as e:
                 print(f"Failed to send live command: {e}")
 
