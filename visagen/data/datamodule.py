@@ -198,6 +198,7 @@ if pl is not None:
             val_split: float = 0.1,
             augmentation_config: dict | None = None,
             pin_memory: bool = True,
+            uniform_yaw: bool = False,
         ) -> None:
             super().__init__()
             self.save_hyperparameters()
@@ -209,6 +210,7 @@ if pl is not None:
             self.target_size = target_size
             self.val_split = val_split
             self.pin_memory = pin_memory
+            self.uniform_yaw = uniform_yaw
 
             # Default augmentation config matching legacy DFL
             self.aug_config = augmentation_config or {
