@@ -3,16 +3,32 @@ Face Segmentation using SegFormer.
 
 Provides semantic face parsing using SegFormer model
 fine-tuned on CelebAMask-HQ dataset.
+
+Features:
+- Single image and batch segmentation
+- Configurable interpolation modes for upsampling
+- Optional LRU caching for repeated images
+- Face type transformation support
 """
 
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
 from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
+
+from visagen.vision.cache import SegmentationCache
+
+if TYPE_CHECKING:
+    from visagen.vision.face_type import FaceType
 
 # Default local model path (relative to project root)
 DEFAULT_MODEL_PATH = Path(__file__).parent.parent.parent / "models" / "face-parsing"
@@ -59,6 +75,15 @@ FACE_COMPONENTS = {
 }
 
 
+class InterpolationMode(Enum):
+    """Interpolation modes for mask upsampling."""
+
+    BILINEAR = "bilinear"  # Default, smooth but may blur edges
+    BICUBIC = "bicubic"  # Smoother than bilinear
+    NEAREST = "nearest"  # Preserves hard edges, may be blocky
+    AREA = "area"  # Best for downsampling
+
+
 @dataclass
 class SegmentationResult:
     """
@@ -87,6 +112,9 @@ class FaceSegmenter:
             Default: auto-detect (local first, then HuggingFace).
         device: Device for inference. Default: auto-detect.
         use_half: Use FP16 for faster inference. Default: True on CUDA.
+        interpolation_mode: Upsampling interpolation mode. Default: BILINEAR.
+        enable_cache: Enable LRU cache for repeated images. Default: False.
+        cache_size: Maximum cache entries. Default: 100.
 
     Example:
         >>> segmenter = FaceSegmenter()
@@ -99,12 +127,19 @@ class FaceSegmenter:
         model_name: str | Path | None = None,
         device: str | None = None,
         use_half: bool = True,
+        interpolation_mode: InterpolationMode = InterpolationMode.BILINEAR,
+        enable_cache: bool = False,
+        cache_size: int = 100,
     ) -> None:
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self.device = device
         self.use_half = use_half and device == "cuda"
+        self.interpolation_mode = interpolation_mode
+
+        # Initialize cache if enabled
+        self._cache = SegmentationCache(cache_size) if enable_cache else None
 
         # Resolve model source
         model_source, local_only = self._resolve_model_source(model_name)
@@ -155,6 +190,8 @@ class FaceSegmenter:
         self,
         face_image: np.ndarray,
         return_soft_mask: bool = False,
+        use_cache: bool = True,
+        anti_alias: bool = False,
     ) -> SegmentationResult:
         """
         Segment face from aligned face image.
@@ -163,10 +200,18 @@ class FaceSegmenter:
             face_image: Aligned face image (BGR, uint8).
             return_soft_mask: Return soft probabilities instead of binary.
                 Default: False.
+            use_cache: Use cache if enabled. Default: True.
+            anti_alias: Apply anti-aliasing to binary mask edges. Default: False.
 
         Returns:
             SegmentationResult with binary mask and full parsing.
         """
+        # Check cache first
+        if use_cache and self._cache is not None:
+            cached = self._cache.get_result(face_image, return_soft_mask)
+            if cached is not None:
+                return cached
+
         h, w = face_image.shape[:2]
 
         # Convert BGR to RGB
@@ -184,12 +229,17 @@ class FaceSegmenter:
             outputs = self.model(**inputs)
             logits = outputs.logits
 
-        # Upsample to original size
+        # Upsample to original size with configurable interpolation
+        interp_mode = self.interpolation_mode.value
+        if interp_mode == "area":
+            # Area mode only for downsampling, use bilinear for upsampling
+            interp_mode = "bilinear"
+
         logits = F.interpolate(
             logits,
             size=(h, w),
-            mode="bilinear",
-            align_corners=False,
+            mode=interp_mode,
+            align_corners=False if interp_mode != "nearest" else None,
         )
 
         # Get predictions
@@ -212,11 +262,153 @@ class FaceSegmenter:
         if not return_soft_mask:
             face_mask = (face_mask > 0.5).astype(np.uint8) * 255
 
-        return SegmentationResult(
+            # Apply anti-aliasing if requested
+            if anti_alias:
+                face_mask = cv2.GaussianBlur(face_mask.astype(np.float32), (0, 0), 1.0)
+                face_mask = (face_mask > 127).astype(np.uint8) * 255
+
+        result = SegmentationResult(
             mask=face_mask,
             parsing=parsing.astype(np.uint8),
             confidence=confidence,
         )
+
+        # Store in cache
+        if use_cache and self._cache is not None:
+            self._cache.put_result(face_image, result, return_soft_mask)
+
+        return result
+
+    def segment_batch(
+        self,
+        face_images: Sequence[np.ndarray],
+        batch_size: int = 8,
+        return_soft_mask: bool = False,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> list[SegmentationResult]:
+        """
+        Batch segmentation for GPU efficiency.
+
+        Processes multiple images together for improved throughput.
+
+        Args:
+            face_images: Sequence of aligned face images (BGR, uint8).
+            batch_size: Number of images per batch. Default: 8.
+            return_soft_mask: Return soft probabilities. Default: False.
+            progress_callback: Optional callback(processed, total). Default: None.
+
+        Returns:
+            List of SegmentationResult for each input image.
+        """
+        results: list[SegmentationResult] = []
+        total = len(face_images)
+
+        for batch_start in range(0, total, batch_size):
+            batch_end = min(batch_start + batch_size, total)
+            batch = list(face_images[batch_start:batch_end])
+
+            batch_results = self._process_batch(batch, return_soft_mask)
+            results.extend(batch_results)
+
+            if progress_callback is not None:
+                progress_callback(len(results), total)
+
+        return results
+
+    def _process_batch(
+        self,
+        images: Sequence[np.ndarray],
+        return_soft_mask: bool,
+    ) -> list[SegmentationResult]:
+        """
+        Process a batch of images together.
+
+        Args:
+            images: Batch of images.
+            return_soft_mask: Whether to return soft masks.
+
+        Returns:
+            List of SegmentationResult for batch.
+        """
+        if not images:
+            return []
+
+        # All images must have same size for batching
+        h, w = images[0].shape[:2]
+
+        # Convert BGR to RGB
+        rgb_images = [cv2.cvtColor(img, cv2.COLOR_BGR2RGB) for img in images]
+
+        # Batch preprocess
+        inputs = self.processor(images=rgb_images, return_tensors="pt")
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+        if self.use_half:
+            inputs["pixel_values"] = inputs["pixel_values"].half()
+
+        # Batch inference
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            logits = outputs.logits
+
+        # Batch upsample
+        interp_mode = self.interpolation_mode.value
+        if interp_mode == "area":
+            interp_mode = "bilinear"
+
+        logits = F.interpolate(
+            logits,
+            size=(h, w),
+            mode=interp_mode,
+            align_corners=False if interp_mode != "nearest" else None,
+        )
+
+        # Get predictions
+        probs = F.softmax(logits, dim=1)
+        parsings = logits.argmax(dim=1).cpu().numpy()
+
+        # Build results for each image
+        results = []
+        for i in range(len(images)):
+            # Create face mask from components
+            face_mask = np.zeros((h, w), dtype=np.float32)
+            for component in FACE_COMPONENTS:
+                if component in LABEL_TO_ID:
+                    component_id = LABEL_TO_ID[component]
+                    face_mask += probs[i, component_id].cpu().numpy()
+
+            # Calculate confidence
+            confidence = (
+                float(face_mask[face_mask > 0.5].mean())
+                if (face_mask > 0.5).any()
+                else 0.0
+            )
+
+            # Convert to binary
+            if not return_soft_mask:
+                face_mask = (face_mask > 0.5).astype(np.uint8) * 255
+
+            results.append(
+                SegmentationResult(
+                    mask=face_mask,
+                    parsing=parsings[i].astype(np.uint8),
+                    confidence=confidence,
+                )
+            )
+
+        return results
+
+    def clear_cache(self) -> None:
+        """Clear the segmentation cache."""
+        if self._cache is not None:
+            self._cache.clear()
+
+    @property
+    def cache_stats(self) -> dict | None:
+        """Get cache statistics if caching is enabled."""
+        if self._cache is not None:
+            return self._cache.stats
+        return None
 
     def get_parsing(
         self,
@@ -299,3 +491,73 @@ class FaceSegmenter:
             combined = np.maximum(combined, parsing["hair"])
 
         return combined
+
+    def segment_with_face_type(
+        self,
+        face_image: np.ndarray,
+        landmarks: np.ndarray,
+        image_face_type: FaceType,
+        model_face_type: FaceType | None = None,
+    ) -> SegmentationResult:
+        """
+        Segment face with automatic face type transformation.
+
+        When the model is trained on a different face type than the image,
+        this method automatically transforms the image before segmentation
+        and transforms the result mask back.
+
+        Args:
+            face_image: Aligned face image (BGR, uint8).
+            landmarks: 68-point facial landmarks in aligned image space.
+            image_face_type: Face type of the input image.
+            model_face_type: Face type the model was trained on.
+                If None or same as image_face_type, no transformation is applied.
+
+        Returns:
+            SegmentationResult with mask in original image space.
+        """
+        from visagen.vision.aligner import FaceAligner
+        from visagen.vision.face_type import FaceType
+
+        # If no transformation needed, use direct segmentation
+        if model_face_type is None or model_face_type == image_face_type:
+            return self.segment(face_image)
+
+        h, w = face_image.shape[:2]
+        aligner = FaceAligner()
+
+        # Get transformation matrix from image face type to model face type
+        forward_mat = aligner.get_face_type_transform_mat(
+            landmarks, w, image_face_type, model_face_type
+        )
+
+        # Warp image to model face type space
+        warped_image = cv2.warpAffine(
+            face_image,
+            forward_mat,
+            (w, w),
+            flags=cv2.INTER_LANCZOS4,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+
+        # Segment in model face type space
+        result = self.segment(warped_image)
+
+        # Warp mask back to image face type space
+        inverse_mat = cv2.invertAffineTransform(forward_mat)
+        warped_mask = cv2.warpAffine(
+            result.mask,
+            inverse_mat,
+            (w, h),
+            flags=cv2.INTER_LANCZOS4,
+            borderValue=0,
+        )
+
+        # Re-threshold to clean up interpolation artifacts
+        warped_mask = (warped_mask > 127).astype(np.uint8) * 255
+
+        return SegmentationResult(
+            mask=warped_mask,
+            parsing=result.parsing,  # Note: parsing is in model space
+            confidence=result.confidence,
+        )

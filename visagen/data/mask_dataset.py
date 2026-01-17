@@ -3,9 +3,15 @@ Mask Dataset for SegFormer Fine-tuning.
 
 Provides dataset class for loading image-mask pairs
 with augmentation support for LoRA training.
+
+Features:
+- Binary and multi-class mask modes
+- Configurable label mapping
+- 8x data augmentation
 """
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 import cv2
@@ -13,6 +19,13 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from transformers import SegformerImageProcessor
+
+
+class MaskMode(Enum):
+    """Mask training mode."""
+
+    BINARY = "binary"  # 0=background, 1=face (default)
+    MULTICLASS = "multiclass"  # Full 19-class CelebAMask labels
 
 
 @dataclass
@@ -63,6 +76,8 @@ class MaskDataset(Dataset):
         processor: SegFormer image processor for preprocessing.
         augment: Whether to apply data augmentation. Default: True.
         target_size: Target image size. Default: 512.
+        mask_mode: BINARY or MULTICLASS. Default: BINARY.
+        label_mapping: Optional dict to remap mask label values.
 
     Example:
         >>> processor = SegformerImageProcessor.from_pretrained("jonathandinu/face-parsing")
@@ -80,11 +95,15 @@ class MaskDataset(Dataset):
         processor: SegformerImageProcessor,
         augment: bool = True,
         target_size: int = 512,
+        mask_mode: MaskMode = MaskMode.BINARY,
+        label_mapping: dict[int, int] | None = None,
     ) -> None:
         self.samples_dir = Path(samples_dir)
         self.processor = processor
         self.augment = augment
         self.target_size = target_size
+        self.mask_mode = mask_mode
+        self.label_mapping = label_mapping or {}
 
         # Validate directory structure
         self.images_dir = self.samples_dir / "images"
@@ -169,9 +188,16 @@ class MaskDataset(Dataset):
         if self.augment and variant > 0:
             image, mask = self._augment(image, mask, variant)
 
-        # Convert mask to class labels (assuming mask is binary 0/255)
-        # Map 255 -> 1 (face), 0 -> 0 (background)
-        labels = (mask > 127).astype(np.int64)
+        # Convert mask to class labels based on mode
+        if self.mask_mode == MaskMode.BINARY:
+            # Binary: 255 -> 1 (face), 0 -> 0 (background)
+            labels = (mask > 127).astype(np.int64)
+        else:
+            # Multi-class: mask values are class indices
+            labels = mask.astype(np.int64)
+            # Apply label remapping if specified
+            for src, dst in self.label_mapping.items():
+                labels[labels == src] = dst
 
         # Process image for SegFormer
         inputs = self.processor(images=image, return_tensors="pt")

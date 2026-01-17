@@ -1,16 +1,13 @@
 """Faceset resizing tool with metadata preservation.
 
-Batch resizes faceset images while preserving DFL metadata such as
+Batch resizes faceset images while preserving face metadata such as
 landmarks, face type, and segmentation masks.
 
 Features:
-    - Maintains DFL metadata (landmarks, masks, etc.)
+    - Maintains face metadata (landmarks, masks, etc.)
     - Parallel batch processing
     - Multiple interpolation methods
     - Face type conversion support
-
-References:
-    - Legacy DFL: mainscripts/FacesetResizer.py
 """
 
 from __future__ import annotations

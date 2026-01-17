@@ -123,7 +123,6 @@ class GalleryPreview(BaseComponent):
             height=self.gallery_config.height,
             object_fit=self.gallery_config.object_fit,
             allow_preview=self.gallery_config.allow_preview,
-            show_share_button=False,
             interactive=False,
             elem_id=self.config.get_elem_id(),
             elem_classes=["gallery-preview", *self.config.elem_classes],

@@ -13,6 +13,30 @@ import numpy as np
 
 from visagen.vision.segmenter import LABEL_TO_ID
 
+# Component priority for overlap resolution (higher = on top)
+# When components overlap, higher priority components overwrite lower ones
+COMPONENT_PRIORITY: dict[str, int] = {
+    "background": 0,
+    "cloth": 1,
+    "neck": 2,
+    "hair": 3,
+    "hat": 4,
+    "left_ear": 5,
+    "right_ear": 5,
+    "earring": 6,
+    "necklace": 6,
+    "skin": 10,
+    "left_brow": 11,
+    "right_brow": 11,
+    "nose": 12,
+    "left_eye": 13,
+    "right_eye": 13,
+    "eye_glasses": 14,  # Glasses should be on top of eyes
+    "mouth": 15,
+    "upper_lip": 16,
+    "lower_lip": 16,
+}
+
 
 @dataclass
 class MaskRefinementConfig:
@@ -280,6 +304,84 @@ class MaskOperations:
                 mask[parsing == component_id] = 255
 
         return mask
+
+    @staticmethod
+    def combine_component_masks_with_priority(
+        parsing: np.ndarray,
+        include_components: set[str],
+        priority_map: dict[str, int] | None = None,
+    ) -> np.ndarray:
+        """
+        Combine component masks respecting priority order.
+
+        Components are applied in priority order (low to high), so higher
+        priority components overwrite lower ones in overlapping regions.
+
+        This is useful when components like glasses should appear on top
+        of eyes, or when building layered masks.
+
+        Args:
+            parsing: Parsing map (H, W) with class indices.
+            include_components: Set of component names to include.
+            priority_map: Optional custom priority map. Default uses
+                COMPONENT_PRIORITY.
+
+        Returns:
+            Binary mask (H, W) with values 0 or 255.
+        """
+        if priority_map is None:
+            priority_map = COMPONENT_PRIORITY
+
+        h, w = parsing.shape[:2]
+
+        # Sort components by priority (low to high)
+        sorted_components = sorted(
+            include_components,
+            key=lambda c: priority_map.get(c, 0),
+        )
+
+        mask = np.zeros((h, w), dtype=np.uint8)
+        for component in sorted_components:
+            if component in LABEL_TO_ID:
+                component_id = LABEL_TO_ID[component]
+                mask[parsing == component_id] = 255
+
+        return mask
+
+    @staticmethod
+    def get_component_overlap_mask(
+        parsing: np.ndarray,
+        component_a: str,
+        component_b: str,
+    ) -> np.ndarray:
+        """
+        Get mask of overlapping regions between two components.
+
+        Note: In practice, parsing maps don't have true overlaps since
+        each pixel has a single class. This returns the boundary region
+        between two adjacent components.
+
+        Args:
+            parsing: Parsing map (H, W) with class indices.
+            component_a: First component name.
+            component_b: Second component name.
+
+        Returns:
+            Binary mask (H, W) of boundary region.
+        """
+        if component_a not in LABEL_TO_ID or component_b not in LABEL_TO_ID:
+            return np.zeros(parsing.shape[:2], dtype=np.uint8)
+
+        mask_a = (parsing == LABEL_TO_ID[component_a]).astype(np.uint8)
+        mask_b = (parsing == LABEL_TO_ID[component_b]).astype(np.uint8)
+
+        # Dilate both masks and find intersection
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        dilated_a = cv2.dilate(mask_a, kernel, iterations=1)
+        dilated_b = cv2.dilate(mask_b, kernel, iterations=1)
+
+        overlap = cv2.bitwise_and(dilated_a, dilated_b)
+        return overlap * 255
 
     @staticmethod
     def invert(mask: np.ndarray) -> np.ndarray:

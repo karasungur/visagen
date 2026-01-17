@@ -14,11 +14,21 @@ import cv2
 import gradio as gr
 import numpy as np
 
+from visagen.gui.components.mask_preview import (
+    MaskPreviewGenerator,
+    PreviewMode,
+)
+from visagen.gui.components.poly_editor import PolygonEditor
+from visagen.gui.components.workflow_steps import (
+    STEP_ORDER,
+    WorkflowManager,
+)
 from visagen.vision.mask_ops import (
     DEFAULT_FACE_COMPONENTS,
     MaskOperations,
     MaskRefinementConfig,
 )
+from visagen.vision.polys import PolygonSet
 from visagen.vision.segmenter import LABEL_TO_ID, FaceSegmenter
 
 if TYPE_CHECKING:
@@ -151,6 +161,8 @@ class MaskCanvasState:
         current_parsing: Face parsing result.
         selected_components: Set of enabled component names.
         history: Undo/redo history.
+        preview_mode: Current preview visualization mode.
+        polygons: Include/Exclude polygons for mask editing.
     """
 
     current_image: np.ndarray | None = None
@@ -160,6 +172,8 @@ class MaskCanvasState:
         default_factory=lambda: DEFAULT_FACE_COMPONENTS.copy()
     )
     history: MaskHistory = field(default_factory=MaskHistory)
+    preview_mode: PreviewMode = PreviewMode.OVERLAY
+    polygons: PolygonSet = field(default_factory=PolygonSet)
 
 
 class MaskCanvas:
@@ -167,11 +181,13 @@ class MaskCanvas:
     Interactive mask editing canvas component.
 
     Features:
+    - Step-based workflow (Auto → Components → Polygons → Brush → Refine → Preview)
     - Component toggles (skin, eyes, nose, lips, hair, etc.)
+    - Polygon-based include/exclude editing
     - Brush add/remove tools via gr.ImageEditor
     - Erode/Dilate/Blur refinement sliders
     - Undo/Redo functionality
-    - Live preview
+    - Multiple preview modes
 
     Args:
         i18n: Internationalization instance.
@@ -191,6 +207,9 @@ class MaskCanvas:
         self.i18n = i18n
         self._segmenter = segmenter
         self._state = MaskCanvasState()
+        self._preview_generator = MaskPreviewGenerator()
+        self._workflow = WorkflowManager()
+        self._poly_editor: PolygonEditor | None = None
 
     def t(self, key: str) -> str:
         """Get translation."""
@@ -212,129 +231,204 @@ class MaskCanvas:
         """
         components: dict[str, Any] = {}
 
-        # Component toggles section
-        with gr.Accordion(self.i18n.t("mask_editor.components.title"), open=True):
-            # Face components row
-            with gr.Row():
-                components["toggle_skin"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["skin"], value=True
-                )
-                components["toggle_nose"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["nose"], value=True
-                )
-                components["toggle_left_eye"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["left_eye"], value=True
-                )
-                components["toggle_right_eye"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["right_eye"], value=True
-                )
-
-            # Brows and mouth
-            with gr.Row():
-                components["toggle_left_brow"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["left_brow"], value=True
-                )
-                components["toggle_right_brow"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["right_brow"], value=True
-                )
-                components["toggle_mouth"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["mouth"], value=True
-                )
-
-            # Lips
-            with gr.Row():
-                components["toggle_upper_lip"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["upper_lip"], value=True
-                )
-                components["toggle_lower_lip"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["lower_lip"], value=True
-                )
-                components["toggle_hair"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["hair"], value=False
-                )
-
-            # Ears and extras (collapsed by default)
-            with gr.Row():
-                components["toggle_left_ear"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["left_ear"], value=False
-                )
-                components["toggle_right_ear"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["right_ear"], value=False
-                )
-                components["toggle_neck"] = gr.Checkbox(
-                    label=COMPONENT_LABELS["neck"], value=False
-                )
-
-            # Rebuild button
-            components["rebuild_btn"] = gr.Button(
-                self.i18n.t("mask_editor.canvas.rebuild"),
-                size="sm",
+        # Workflow step navigation
+        with gr.Row():
+            components["prev_step_btn"] = gr.Button(
+                "◀ Previous", size="sm", interactive=False
+            )
+            components["step_indicator"] = gr.Textbox(
+                value="Step 1/6: Auto Segment",
+                interactive=False,
+                show_label=False,
+                container=False,
+            )
+            components["next_step_btn"] = gr.Button(
+                "Next ▶", size="sm", interactive=True
             )
 
-        # Main canvas area
-        with gr.Row():
-            # Image editor for brush operations
-            with gr.Column(scale=2):
-                components["editor"] = gr.ImageEditor(
-                    label=self.i18n.t("mask_editor.canvas.label"),
-                    type="numpy",
+        # === Step 1: Auto Segment ===
+        with gr.Group(visible=True) as step1_group:
+            components["step1_group"] = step1_group
+            gr.Markdown("### Step 1: Automatic Segmentation")
+            gr.Markdown("Load a face image to generate initial mask using SegFormer.")
+
+        # === Step 2: Components ===
+        with gr.Group(visible=False) as step2_group:
+            components["step2_group"] = step2_group
+            # Component toggles section
+            with gr.Accordion(self.i18n.t("mask_editor.components.title"), open=True):
+                # Face components row
+                with gr.Row():
+                    components["toggle_skin"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["skin"], value=True
+                    )
+                    components["toggle_nose"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["nose"], value=True
+                    )
+                    components["toggle_left_eye"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["left_eye"], value=True
+                    )
+                    components["toggle_right_eye"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["right_eye"], value=True
+                    )
+
+                # Brows and mouth
+                with gr.Row():
+                    components["toggle_left_brow"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["left_brow"], value=True
+                    )
+                    components["toggle_right_brow"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["right_brow"], value=True
+                    )
+                    components["toggle_mouth"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["mouth"], value=True
+                    )
+
+                # Lips
+                with gr.Row():
+                    components["toggle_upper_lip"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["upper_lip"], value=True
+                    )
+                    components["toggle_lower_lip"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["lower_lip"], value=True
+                    )
+                    components["toggle_hair"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["hair"], value=False
+                    )
+
+                # Ears and extras
+                with gr.Row():
+                    components["toggle_left_ear"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["left_ear"], value=False
+                    )
+                    components["toggle_right_ear"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["right_ear"], value=False
+                    )
+                    components["toggle_neck"] = gr.Checkbox(
+                        label=COMPONENT_LABELS["neck"], value=False
+                    )
+
+                # Rebuild button
+                components["rebuild_btn"] = gr.Button(
+                    self.i18n.t("mask_editor.canvas.rebuild"),
+                    size="sm",
+                )
+
+        # === Step 3: Polygons ===
+        with gr.Group(visible=False) as step3_group:
+            components["step3_group"] = step3_group
+            gr.Markdown("### Step 3: Polygon Editing")
+            gr.Markdown("Add Include (green) or Exclude (red) regions.")
+
+            # Create polygon editor
+            self._poly_editor = PolygonEditor(self.i18n)
+            poly_components = self._poly_editor.build()
+            for key, comp in poly_components.items():
+                components[f"poly_{key}"] = comp
+
+            # Apply polygons button
+            components["apply_polys_btn"] = gr.Button(
+                "Apply Polygons to Mask", size="sm"
+            )
+
+        # === Step 4: Brush ===
+        with gr.Group(visible=False) as step4_group:
+            components["step4_group"] = step4_group
+            # Main canvas area
+            with gr.Row():
+                # Image editor for brush operations
+                with gr.Column(scale=2):
+                    components["editor"] = gr.ImageEditor(
+                        label=self.i18n.t("mask_editor.canvas.label"),
+                        type="numpy",
+                        height=400,
+                        brush=gr.Brush(
+                            colors=["#FFFFFF", "#000000"],
+                            default_color="#FFFFFF",
+                            default_size=20,
+                        ),
+                        eraser=gr.Eraser(default_size=20),
+                        layers=False,
+                    )
+
+                # Preview column
+                with gr.Column(scale=1):
+                    components["preview"] = gr.Image(
+                        label=self.i18n.t("mask_editor.canvas.preview"),
+                        height=200,
+                        interactive=False,
+                    )
+                    components["mask_only"] = gr.Image(
+                        label=self.i18n.t("mask_editor.canvas.mask_only"),
+                        height=200,
+                        interactive=False,
+                    )
+
+        # === Step 5: Refine ===
+        with gr.Group(visible=False) as step5_group:
+            components["step5_group"] = step5_group
+            # Refinement controls
+            with gr.Accordion(self.i18n.t("mask_editor.refine.title"), open=True):
+                with gr.Row():
+                    components["erode_slider"] = gr.Slider(
+                        label=self.i18n.t("mask_editor.refine.erode"),
+                        minimum=0,
+                        maximum=20,
+                        value=0,
+                        step=1,
+                    )
+                    components["dilate_slider"] = gr.Slider(
+                        label=self.i18n.t("mask_editor.refine.dilate"),
+                        minimum=0,
+                        maximum=20,
+                        value=0,
+                        step=1,
+                    )
+                    components["blur_slider"] = gr.Slider(
+                        label=self.i18n.t("mask_editor.refine.blur"),
+                        minimum=0,
+                        maximum=50,
+                        value=0,
+                        step=2,
+                    )
+
+                with gr.Row():
+                    components["apply_refine_btn"] = gr.Button(
+                        self.i18n.t("common.apply"), size="sm"
+                    )
+                    components["reset_btn"] = gr.Button(
+                        self.i18n.t("mask_editor.canvas.reset"), size="sm"
+                    )
+
+        # === Step 6: Preview ===
+        with gr.Group(visible=False) as step6_group:
+            components["step6_group"] = step6_group
+            gr.Markdown("### Step 6: Preview & Save")
+
+            # Preview mode selector
+            with gr.Row():
+                components["preview_mode"] = gr.Radio(
+                    label="Preview Mode",
+                    choices=[
+                        "Original",
+                        "Overlay",
+                        "Masked",
+                        "Mask Only",
+                        "Inverted",
+                        "Side by Side",
+                    ],
+                    value="Overlay",
+                )
+
+            # Final preview
+            with gr.Row():
+                components["final_preview"] = gr.Image(
+                    label="Final Preview",
                     height=400,
-                    brush=gr.Brush(
-                        colors=["#FFFFFF", "#000000"],
-                        default_color="#FFFFFF",
-                        default_size=20,
-                    ),
-                    eraser=gr.Eraser(default_size=20),
-                    layers=False,
-                )
-
-            # Preview column
-            with gr.Column(scale=1):
-                components["preview"] = gr.Image(
-                    label=self.i18n.t("mask_editor.canvas.preview"),
-                    height=200,
-                    interactive=False,
-                )
-                components["mask_only"] = gr.Image(
-                    label=self.i18n.t("mask_editor.canvas.mask_only"),
-                    height=200,
                     interactive=False,
                 )
 
-        # Refinement controls
-        with gr.Accordion(self.i18n.t("mask_editor.refine.title"), open=False):
-            with gr.Row():
-                components["erode_slider"] = gr.Slider(
-                    label=self.i18n.t("mask_editor.refine.erode"),
-                    minimum=0,
-                    maximum=20,
-                    value=0,
-                    step=1,
-                )
-                components["dilate_slider"] = gr.Slider(
-                    label=self.i18n.t("mask_editor.refine.dilate"),
-                    minimum=0,
-                    maximum=20,
-                    value=0,
-                    step=1,
-                )
-                components["blur_slider"] = gr.Slider(
-                    label=self.i18n.t("mask_editor.refine.blur"),
-                    minimum=0,
-                    maximum=50,
-                    value=0,
-                    step=2,
-                )
-
-            with gr.Row():
-                components["apply_refine_btn"] = gr.Button(
-                    self.i18n.t("common.apply"), size="sm"
-                )
-                components["reset_btn"] = gr.Button(
-                    self.i18n.t("mask_editor.canvas.reset"), size="sm"
-                )
-
-        # Undo/Redo
+        # Undo/Redo (always visible)
         with gr.Row():
             components["undo_btn"] = gr.Button("Undo", size="sm")
             components["redo_btn"] = gr.Button("Redo", size="sm")
@@ -353,6 +447,72 @@ class MaskCanvas:
             components: Dictionary of Gradio components from build().
             face_selector: Optional face gallery/selector component.
         """
+        # Step group references
+        step_groups = [
+            components.get("step1_group"),
+            components.get("step2_group"),
+            components.get("step3_group"),
+            components.get("step4_group"),
+            components.get("step5_group"),
+            components.get("step6_group"),
+        ]
+
+        # Workflow navigation handlers
+        def handle_next_step():
+            self._workflow.state.next_step()
+            visibility = self._workflow.get_step_visibility()
+            buttons = self._workflow.get_button_states()
+            indicator = self._workflow.state.get_step_indicator()
+
+            updates = []
+            for step in STEP_ORDER:
+                updates.append(gr.update(visible=visibility.get(step, False)))
+
+            return (
+                indicator,
+                gr.update(interactive=buttons["prev_enabled"]),
+                gr.update(interactive=buttons["next_enabled"]),
+                *updates,
+            )
+
+        def handle_prev_step():
+            self._workflow.state.prev_step()
+            visibility = self._workflow.get_step_visibility()
+            buttons = self._workflow.get_button_states()
+            indicator = self._workflow.state.get_step_indicator()
+
+            updates = []
+            for step in STEP_ORDER:
+                updates.append(gr.update(visible=visibility.get(step, False)))
+
+            return (
+                indicator,
+                gr.update(interactive=buttons["prev_enabled"]),
+                gr.update(interactive=buttons["next_enabled"]),
+                *updates,
+            )
+
+        # Connect navigation buttons
+        components["next_step_btn"].click(
+            fn=handle_next_step,
+            outputs=[
+                components["step_indicator"],
+                components["prev_step_btn"],
+                components["next_step_btn"],
+                *step_groups,
+            ],
+        )
+
+        components["prev_step_btn"].click(
+            fn=handle_prev_step,
+            outputs=[
+                components["step_indicator"],
+                components["prev_step_btn"],
+                components["next_step_btn"],
+                *step_groups,
+            ],
+        )
+
         # Get all toggle components
         toggle_keys = [k for k in components if k.startswith("toggle_")]
         toggles = [components[k] for k in toggle_keys]
@@ -421,6 +581,34 @@ class MaskCanvas:
             outputs=[components["preview"], components["mask_only"]],
         )
 
+        # Preview mode change
+        components["preview_mode"].change(
+            fn=self._on_preview_mode_change,
+            inputs=[components["preview_mode"]],
+            outputs=[components.get("final_preview") or components["preview"]],
+        )
+
+        # Polygon editor events
+        if self._poly_editor is not None:
+            # Get polygon editor components
+            poly_components = {
+                k.replace("poly_", ""): v
+                for k, v in components.items()
+                if k.startswith("poly_")
+            }
+            self._poly_editor.setup_events(poly_components)
+
+        # Apply polygons to mask
+        if "apply_polys_btn" in components:
+            components["apply_polys_btn"].click(
+                fn=self._apply_polygons,
+                outputs=[
+                    components["editor"],
+                    components["preview"],
+                    components["mask_only"],
+                ],
+            )
+
     def load_face(self, face_image: np.ndarray) -> tuple[dict, np.ndarray, np.ndarray]:
         """
         Load a face image and generate initial mask.
@@ -483,10 +671,21 @@ class MaskCanvas:
             "composite": mask_rgb,
         }
 
-        # Preview with overlay
-        preview = self._create_preview_overlay(image_rgb, mask)
+        # Preview with overlay (using current preview mode)
+        preview = self._create_preview_with_mode(image_rgb, mask)
 
         return editor_data, preview, mask
+
+    def _create_preview_with_mode(
+        self,
+        image: np.ndarray,
+        mask: np.ndarray,
+    ) -> np.ndarray:
+        """Create preview using current preview mode."""
+        if image is None or mask is None:
+            return image
+
+        return self._preview_generator.generate(image, mask, self._state.preview_mode)
 
     def _create_preview_overlay(
         self,
@@ -494,7 +693,7 @@ class MaskCanvas:
         mask: np.ndarray,
         alpha: float = 0.5,
     ) -> np.ndarray:
-        """Create preview with mask overlay."""
+        """Create preview with mask overlay (legacy method)."""
         if image is None or mask is None:
             return image
 
@@ -515,6 +714,29 @@ class MaskCanvas:
         cv2.drawContours(result, contours, -1, (0, 255, 0), 2)
 
         return result
+
+    def _on_preview_mode_change(self, mode_name: str) -> np.ndarray | None:
+        """Handle preview mode change."""
+        # Map display name to PreviewMode
+        mode_map = {
+            "Original": PreviewMode.ORIGINAL,
+            "Overlay": PreviewMode.OVERLAY,
+            "Masked": PreviewMode.MASKED_RESULT,
+            "Mask Only": PreviewMode.MASK_ONLY,
+            "Inverted": PreviewMode.INVERTED,
+            "Side by Side": PreviewMode.SIDE_BY_SIDE,
+        }
+        self._state.preview_mode = mode_map.get(mode_name, PreviewMode.OVERLAY)
+
+        # Regenerate preview
+        if (
+            self._state.current_image is not None
+            and self._state.current_mask is not None
+        ):
+            image_rgb = cv2.cvtColor(self._state.current_image, cv2.COLOR_BGR2RGB)
+            return self._create_preview_with_mode(image_rgb, self._state.current_mask)
+
+        return None
 
     def _get_selected_components(self, *toggle_values: bool) -> set[str]:
         """Get set of selected component names from toggle values."""
@@ -634,7 +856,7 @@ class MaskCanvas:
         preview = None
         if self._state.current_image is not None:
             image_rgb = cv2.cvtColor(self._state.current_image, cv2.COLOR_BGR2RGB)
-            preview = self._create_preview_overlay(image_rgb, mask)
+            preview = self._create_preview_with_mode(image_rgb, mask)
 
         return preview, mask
 
@@ -677,3 +899,37 @@ class MaskCanvas:
             if self._state.current_image is not None
             else None
         )
+
+    def _apply_polygons(self) -> tuple[dict, np.ndarray, np.ndarray]:
+        """Apply polygon edits to current mask."""
+        if self._state.current_image is None or self._state.current_mask is None:
+            return self._create_outputs(None, None)
+
+        if self._poly_editor is None:
+            return self._create_outputs(
+                self._state.current_image, self._state.current_mask
+            )
+
+        # Get polygons from editor
+        polys = self._poly_editor.get_polygons()
+        self._state.polygons = polys
+
+        # Apply polygons to current mask
+        if polys.has_polys():
+            modified_mask = polys.overlay_on_mask(self._state.current_mask)
+            self._state.current_mask = modified_mask
+            self._state.history.push(modified_mask)
+        else:
+            modified_mask = self._state.current_mask
+
+        return self._create_outputs(self._state.current_image, modified_mask)
+
+    def get_polygons(self) -> PolygonSet:
+        """Get current polygon set."""
+        return self._state.polygons
+
+    def set_polygons(self, polys: PolygonSet) -> None:
+        """Set polygon set."""
+        self._state.polygons = polys
+        if self._poly_editor is not None:
+            self._poly_editor.load_polygons(polys)

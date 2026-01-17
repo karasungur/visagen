@@ -5,14 +5,19 @@ Read and write DeepFaceLab metadata embedded in JPEG APP15 chunks.
 Provides backward compatibility with legacy DFLJPG format.
 """
 
+from __future__ import annotations
+
 import pickle
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
+
+if TYPE_CHECKING:
+    from visagen.vision.polys import PolygonSet
 
 
 @dataclass
@@ -69,7 +74,7 @@ class FaceMetadata:
         return data
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "FaceMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> FaceMetadata:
         """Create from legacy DFL dictionary format."""
         return cls(
             landmarks=np.array(data["landmarks"]),
@@ -423,3 +428,38 @@ class DFLImage:
                 return
 
         raise ValueError("Unable to compress mask within size limit")
+
+    @staticmethod
+    def get_seg_ie_polys(metadata: FaceMetadata) -> PolygonSet | None:
+        """
+        Get Include/Exclude polygons from metadata.
+
+        Args:
+            metadata: Face metadata containing polygon data.
+
+        Returns:
+            PolygonSet instance or None if no polygons.
+        """
+        from visagen.vision.polys import PolygonSet
+
+        if metadata.seg_ie_polys is None:
+            return None
+
+        return PolygonSet.from_dict(metadata.seg_ie_polys)
+
+    @staticmethod
+    def set_seg_ie_polys(
+        metadata: FaceMetadata,
+        polys: PolygonSet | None,
+    ) -> None:
+        """
+        Set Include/Exclude polygons in metadata.
+
+        Args:
+            metadata: Face metadata to update.
+            polys: PolygonSet to store, or None to clear.
+        """
+        if polys is None or not polys.has_polys():
+            metadata.seg_ie_polys = None
+        else:
+            metadata.seg_ie_polys = polys.to_dict()

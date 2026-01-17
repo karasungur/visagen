@@ -43,6 +43,9 @@ class SegFormerFinetuneConfig:
         val_split: Validation data fraction. Default: 0.1.
         num_workers: DataLoader workers. Default: 0.
         target_size: Training image size. Default: 512.
+        num_classes: Number of output classes. Default: 2 (binary).
+            Use 19 for full CelebAMask-HQ multi-class training.
+        mask_mode: Training mask mode ("binary" or "multiclass"). Default: "binary".
     """
 
     learning_rate: float = 1e-4
@@ -56,6 +59,8 @@ class SegFormerFinetuneConfig:
     val_split: float = 0.1
     num_workers: int = 0
     target_size: int = 512
+    num_classes: int = 2
+    mask_mode: str = "binary"
 
 
 class DiceLoss(nn.Module):

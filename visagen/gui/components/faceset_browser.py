@@ -96,7 +96,6 @@ class FacesetBrowser:
                 rows=self.config.rows,
                 height=self.config.height,
                 allow_preview=True,
-                show_share_button=False,
             )
 
             # Pagination
