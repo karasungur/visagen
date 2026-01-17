@@ -4,10 +4,17 @@ Polygon Rendering Utilities.
 Provides visualization and interaction utilities for polygons.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import cv2
 import numpy as np
 
 from visagen.vision.polys import Polygon, PolygonSet, PolyType
+
+if TYPE_CHECKING:
+    from visagen.vision.poly_spatial_index import PolygonSpatialIndex
 
 # Default colors for polygon visualization (BGR format)
 DEFAULT_INCLUDE_COLOR = (0, 255, 0)  # Green
@@ -148,6 +155,7 @@ def find_nearest_point(
     x: int,
     y: int,
     threshold: float = 15.0,
+    spatial_index: PolygonSpatialIndex | None = None,
 ) -> tuple[int, int, float]:
     """
     Find the nearest point in any polygon to given coordinates.
@@ -157,11 +165,17 @@ def find_nearest_point(
         x: X coordinate to search from.
         y: Y coordinate to search from.
         threshold: Maximum distance to consider.
+        spatial_index: Optional spatial index for O(log n) lookup.
 
     Returns:
         Tuple of (polygon_idx, point_idx, distance).
         If no point found within threshold, returns (-1, -1, inf).
     """
+    # Use spatial index if available (O(log n))
+    if spatial_index is not None:
+        return spatial_index.find_nearest_point(x, y, threshold)
+
+    # Fallback: brute force (O(n×m))
     target = np.array([x, y], dtype=np.float32)
     best_poly_idx = -1
     best_point_idx = -1
