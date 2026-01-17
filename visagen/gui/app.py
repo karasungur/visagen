@@ -26,6 +26,7 @@ from visagen.gui.tabs import (
     VideoToolsTab,
     WizardTab,
 )
+from visagen.gui.tabs.mask_editor import MaskEditorTab
 from visagen.gui.theme import create_visagen_theme, get_theme_css
 
 
@@ -60,6 +61,7 @@ def create_app(
         ExtractTab,  # 1. Video → Frames → Faces
         SortTab,  # 2. Filter/sort faces
         FacesetToolsTab,  # 2.5. Face set utilities
+        MaskEditorTab,  # 2.6. Mask editing with LoRA fine-tuning
         TrainingTab,  # 3. Train model
         InferenceTab,  # 3.5. Single image test
         CompareTab,  # 3.6. Model comparison
