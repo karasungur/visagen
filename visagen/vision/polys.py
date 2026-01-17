@@ -32,6 +32,8 @@ class Polygon:
         points: Array of (x, y) coordinates, shape (N, 2).
     """
 
+    MAX_UNDO_HISTORY = 100
+
     def __init__(self, poly_type: PolyType = PolyType.INCLUDE) -> None:
         """
         Initialize polygon with optional type.
@@ -70,6 +72,7 @@ class Polygon:
         Add a point to the polygon with undo support.
 
         Truncates any redo history when adding new point.
+        Limits undo buffer to MAX_UNDO_HISTORY entries.
 
         Args:
             x: X coordinate.
@@ -80,6 +83,12 @@ class Polygon:
             self._points[: self._n], [[float(x), float(y)]], axis=0
         ).astype(np.float32)
         self._n += 1
+
+        # Limit undo buffer to prevent memory leak
+        if len(self._points) > self.MAX_UNDO_HISTORY:
+            start_idx = len(self._points) - self.MAX_UNDO_HISTORY
+            self._points = self._points[start_idx:].copy()
+            self._n = min(self._n, self.MAX_UNDO_HISTORY)
 
     def undo(self) -> bool:
         """
