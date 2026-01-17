@@ -11,12 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import LambdaLR
 from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
 
 from visagen.data.mask_dataset import MaskDataModule
@@ -48,6 +50,9 @@ class SegFormerFinetuneConfig:
         mask_mode: Training mask mode ("binary" or "multiclass"). Default: "binary".
         precision: Training precision. Default: "16-mixed".
             Options: "32" (full), "16-mixed" (FP16 AMP), "bf16-mixed" (BF16 AMP).
+        early_stopping_patience: Epochs to wait before early stopping. Default: 10.
+        save_top_k: Number of best checkpoints to keep. Default: 3.
+        warmup_epochs: Number of epochs for learning rate warmup. Default: 3.
     """
 
     learning_rate: float = 1e-4
@@ -64,6 +69,9 @@ class SegFormerFinetuneConfig:
     num_classes: int = 2
     mask_mode: str = "binary"
     precision: str = "16-mixed"
+    early_stopping_patience: int = 10
+    save_top_k: int = 3
+    warmup_epochs: int = 3
 
 
 class DiceLoss(nn.Module):
@@ -239,7 +247,7 @@ class SegFormerFinetuneModule(pl.LightningModule):
         batch_idx: int,
     ) -> torch.Tensor:
         """
-        Validation step.
+        Validation step with comprehensive metrics.
 
         Args:
             batch: Dictionary with pixel_values and labels.
@@ -267,11 +275,16 @@ class SegFormerFinetuneModule(pl.LightningModule):
             self.config.ce_weight * ce_loss + self.config.dice_weight * dice_loss
         )
 
-        # Compute IoU metric
-        iou = self._compute_iou(logits, labels)
+        # Compute comprehensive metrics
+        metrics = self._compute_metrics(logits, labels)
 
         self.log("val_loss", total_loss, prog_bar=True)
-        self.log("val_iou", iou, prog_bar=True)
+        self.log("val_iou", metrics["iou_binary"], prog_bar=True)
+        self.log("val_dice", metrics["dice"], prog_bar=True)
+        self.log("val_pixel_acc", metrics["pixel_acc"])
+
+        if "miou" in metrics:
+            self.log("val_miou", metrics["miou"], prog_bar=True)
 
         return total_loss
 
@@ -280,7 +293,7 @@ class SegFormerFinetuneModule(pl.LightningModule):
         logits: torch.Tensor,
         labels: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute mean Intersection over Union."""
+        """Compute mean Intersection over Union (binary foreground)."""
         preds = logits.argmax(dim=1)
 
         # Binary mask comparison (foreground vs background)
@@ -293,8 +306,48 @@ class SegFormerFinetuneModule(pl.LightningModule):
         iou = (intersection + 1e-6) / (union + 1e-6)
         return iou
 
+    def _compute_metrics(
+        self, logits: torch.Tensor, labels: torch.Tensor
+    ) -> dict[str, float]:
+        """Compute comprehensive segmentation metrics."""
+        preds = logits.argmax(dim=1)
+
+        metrics = {}
+
+        # Binary IoU (backward compat)
+        pred_fg = (preds > 0).float()
+        label_fg = (labels > 0).float()
+        intersection = (pred_fg * label_fg).sum()
+        union = pred_fg.sum() + label_fg.sum() - intersection
+        metrics["iou_binary"] = float((intersection + 1e-6) / (union + 1e-6))
+
+        # Per-class IoU (for multiclass)
+        num_classes = logits.shape[1]
+        if num_classes > 2:
+            class_ious = []
+            for c in range(num_classes):
+                pred_c = (preds == c).float()
+                label_c = (labels == c).float()
+                inter = (pred_c * label_c).sum()
+                uni = pred_c.sum() + label_c.sum() - inter
+                if uni > 0:
+                    class_ious.append(float((inter + 1e-6) / (uni + 1e-6)))
+            metrics["miou"] = np.mean(class_ious) if class_ious else 0.0
+
+        # Dice score
+        dice_inter = (pred_fg * label_fg).sum() * 2
+        dice_union = pred_fg.sum() + label_fg.sum()
+        metrics["dice"] = float((dice_inter + 1e-6) / (dice_union + 1e-6))
+
+        # Pixel accuracy
+        correct = (preds == labels).float().sum()
+        total = labels.numel()
+        metrics["pixel_acc"] = float(correct / total)
+
+        return metrics
+
     def configure_optimizers(self) -> dict[str, Any]:
-        """Configure optimizer and scheduler."""
+        """Configure optimizer with warmup + cosine annealing scheduler."""
         # Only optimize LoRA parameters
         optimizer = AdamW(
             self.lora_model.get_trainable_params(),
@@ -302,11 +355,20 @@ class SegFormerFinetuneModule(pl.LightningModule):
             weight_decay=0.01,
         )
 
-        scheduler = CosineAnnealingLR(
-            optimizer,
-            T_max=self.config.max_epochs,
-            eta_min=1e-6,
-        )
+        # Warmup + Cosine annealing
+        warmup_epochs = self.config.warmup_epochs
+        total_epochs = self.config.max_epochs
+
+        def lr_lambda(epoch: int) -> float:
+            if epoch < warmup_epochs:
+                # Linear warmup
+                return (epoch + 1) / warmup_epochs
+            else:
+                # Cosine annealing
+                progress = (epoch - warmup_epochs) / (total_epochs - warmup_epochs)
+                return 0.5 * (1 + np.cos(np.pi * progress))
+
+        scheduler = LambdaLR(optimizer, lr_lambda)
 
         return {
             "optimizer": optimizer,
@@ -406,6 +468,26 @@ class SegFormerTrainer:
                 _ProgressCallback(progress_callback, self.config.max_epochs)
             )
 
+        # Early stopping
+        early_stop = EarlyStopping(
+            monitor="val_loss",
+            patience=self.config.early_stopping_patience,
+            mode="min",
+            verbose=True,
+        )
+        callbacks.append(early_stop)
+
+        # Model checkpointing
+        checkpoint = ModelCheckpoint(
+            dirpath=output_dir,
+            filename="segformer-{epoch:02d}-{val_loss:.4f}",
+            monitor="val_loss",
+            mode="min",
+            save_top_k=self.config.save_top_k,
+            save_last=True,
+        )
+        callbacks.append(checkpoint)
+
         # Configure trainer
         self._trainer = pl.Trainer(
             max_epochs=self.config.max_epochs,
@@ -413,7 +495,7 @@ class SegFormerTrainer:
             accelerator="auto",
             devices=1,
             callbacks=callbacks,
-            enable_checkpointing=False,  # We save LoRA weights manually
+            enable_checkpointing=True,
             enable_progress_bar=progress_callback is None,
             logger=False,
         )
