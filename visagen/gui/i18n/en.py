@@ -249,6 +249,29 @@ TRANSLATIONS = {
         "log": {
             "label": "Extraction Log",
         },
+        "preview": {
+            "title": "Extraction Preview",
+            "show_mask": "Show Mask Overlay",
+            "show_mask_info": "Display face mask as semi-transparent overlay",
+            "last_face": "Last Extracted Face",
+            "face_info": "Face Info",
+            "gallery": {"label": "Extracted Faces"},
+        },
+        "status": {"label": "Status"},
+    },
+    # Faceset Browser
+    "faceset_browser": {
+        "title": "Faceset Browser",
+        "directory": "Directory",
+        "load": "Load",
+        "refresh": "Refresh",
+        "faces": "Faces",
+        "show_masks": "Show Masks",
+        "sort_by": "Sort By",
+        "selected": "Selected Face",
+        "metadata": "Metadata",
+        "no_directory": "No directory specified",
+        "not_found": "Directory not found",
     },
     # Settings tab
     "settings": {
@@ -911,6 +934,71 @@ TRANSLATIONS = {
         },
         "nct_strength": {"label": "Transfer Strength"},
         "nct_preserve": {"label": "Preserve Luminance"},
+    },
+    # Mask Editor tab
+    "mask_editor": {
+        "title": "Mask Editor",
+        "description": "Edit face segmentation masks with LoRA fine-tuning",
+        "tabs": {
+            "editor": "Edit Masks",
+            "training": "LoRA Training",
+            "batch": "Batch Apply",
+        },
+        "components": {
+            "title": "Face Components",
+        },
+        "canvas": {
+            "title": "Mask Canvas",
+            "label": "Draw/Erase Mask",
+            "preview": "Preview",
+            "mask_only": "Mask Only",
+            "rebuild": "Rebuild Mask",
+            "reset": "Reset",
+        },
+        "refine": {
+            "title": "Refinement",
+            "erode": "Erode",
+            "dilate": "Dilate",
+            "blur": "Blur",
+        },
+        "editor": {
+            "faceset_dir": "Faceset Directory",
+            "faces": "Faces",
+            "selected": "Selected",
+            "samples_count": "Training Samples",
+            "status": "Status",
+        },
+        "actions": {
+            "save_mask": "Save Mask to Image",
+            "save_sample": "Add to Training Set",
+        },
+        "lora": {
+            "title": "LoRA Fine-tuning",
+            "samples_dir": "Samples Directory",
+            "output_dir": "Output Directory",
+            "epochs": "Epochs",
+            "rank": "LoRA Rank",
+            "learning_rate": "Learning Rate",
+            "start": "Start Training",
+            "stop": "Stop Training",
+            "progress": "Progress",
+            "log": "Training Log",
+        },
+        "batch": {
+            "title": "Batch Apply",
+            "input_dir": "Input Directory",
+            "output_dir": "Output Directory",
+            "use_lora": "Use LoRA Adapter",
+            "lora_weights": "LoRA Weights Path",
+            "components": "Mask Components",
+            "refinement": "Refinement Settings",
+            "preview_before_save": "Preview before saving",
+            "apply": "Apply to Faceset",
+            "confirm": "Confirm & Save All",
+            "cancel": "Cancel",
+            "preview_gallery": "Preview",
+            "progress": "Progress",
+        },
     },
     # Wizard tab
     "wizard": {

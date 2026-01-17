@@ -1,8 +1,7 @@
 """
 Face Type definitions for Visagen.
 
-Defines different face crop types with their padding values,
-matching the legacy DeepFaceLab format for backward compatibility.
+Defines different face crop types with their padding values.
 """
 
 from enum import IntEnum

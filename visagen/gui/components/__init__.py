@@ -3,12 +3,16 @@
 from .base import BaseComponent, ComponentConfig
 from .controls import ActionButton, ButtonConfig, ProcessControl
 from .displays import (
+    GalleryPreview,
+    GalleryPreviewConfig,
     ImagePreview,
     ImagePreviewConfig,
     LogOutput,
     LogOutputConfig,
     StatusDisplay,
+    create_mask_overlay,
 )
+from .faceset_browser import FacesetBrowser, FacesetBrowserConfig
 from .inputs import (
     DropdownConfig,
     DropdownInput,
@@ -53,6 +57,10 @@ __all__ = [
     "ComponentConfig",
     "DropdownConfig",
     "DropdownInput",
+    "FacesetBrowser",
+    "FacesetBrowserConfig",
+    "GalleryPreview",
+    "GalleryPreviewConfig",
     "ImagePreview",
     "ImagePreviewConfig",
     "LogOutput",
@@ -76,6 +84,7 @@ __all__ = [
     "WorkflowIndicator",
     "WorkflowStep",
     "create_indeterminate_progress",
+    "create_mask_overlay",
     "create_simple_workflow_header",
     "create_status_banner",
     "get_system_stats_text",

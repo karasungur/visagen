@@ -249,6 +249,29 @@ TRANSLATIONS = {
         "log": {
             "label": "Çıkarma Logu",
         },
+        "preview": {
+            "title": "Çıkarma Önizlemesi",
+            "show_mask": "Maske Katmanını Göster",
+            "show_mask_info": "Yüz maskesini yarı saydam katman olarak göster",
+            "last_face": "Son Çıkarılan Yüz",
+            "face_info": "Yüz Bilgisi",
+            "gallery": {"label": "Çıkarılan Yüzler"},
+        },
+        "status": {"label": "Durum"},
+    },
+    # Yüz Seti Tarayıcı
+    "faceset_browser": {
+        "title": "Yüz Seti Tarayıcı",
+        "directory": "Dizin",
+        "load": "Yükle",
+        "refresh": "Yenile",
+        "faces": "Yüzler",
+        "show_masks": "Maskeleri Göster",
+        "sort_by": "Sıralama",
+        "selected": "Seçili Yüz",
+        "metadata": "Meta Veri",
+        "no_directory": "Dizin belirtilmedi",
+        "not_found": "Dizin bulunamadı",
     },
     # Ayarlar sekmesi
     "settings": {
@@ -911,6 +934,71 @@ TRANSLATIONS = {
         },
         "nct_strength": {"label": "Transfer Gücü"},
         "nct_preserve": {"label": "Parlaklığı Koru"},
+    },
+    # Maske Düzenleyici sekmesi
+    "mask_editor": {
+        "title": "Maske Düzenleyici",
+        "description": "LoRA ince ayar ile yüz segmentasyon maskelerini düzenleyin",
+        "tabs": {
+            "editor": "Maskeleri Düzenle",
+            "training": "LoRA Eğitimi",
+            "batch": "Toplu Uygula",
+        },
+        "components": {
+            "title": "Yüz Bileşenleri",
+        },
+        "canvas": {
+            "title": "Maske Kanvası",
+            "label": "Çiz/Sil Maske",
+            "preview": "Önizleme",
+            "mask_only": "Sadece Maske",
+            "rebuild": "Maskeyi Yeniden Oluştur",
+            "reset": "Sıfırla",
+        },
+        "refine": {
+            "title": "İyileştirme",
+            "erode": "Aşındır",
+            "dilate": "Genişlet",
+            "blur": "Bulanıklaştır",
+        },
+        "editor": {
+            "faceset_dir": "Yüz Seti Dizini",
+            "faces": "Yüzler",
+            "selected": "Seçili",
+            "samples_count": "Eğitim Örnekleri",
+            "status": "Durum",
+        },
+        "actions": {
+            "save_mask": "Maskeyi Görüntüye Kaydet",
+            "save_sample": "Eğitim Setine Ekle",
+        },
+        "lora": {
+            "title": "LoRA İnce Ayar",
+            "samples_dir": "Örnekler Dizini",
+            "output_dir": "Çıktı Dizini",
+            "epochs": "Epoch",
+            "rank": "LoRA Rank",
+            "learning_rate": "Öğrenme Oranı",
+            "start": "Eğitimi Başlat",
+            "stop": "Eğitimi Durdur",
+            "progress": "İlerleme",
+            "log": "Eğitim Logu",
+        },
+        "batch": {
+            "title": "Toplu Uygula",
+            "input_dir": "Girdi Dizini",
+            "output_dir": "Çıktı Dizini",
+            "use_lora": "LoRA Adaptörü Kullan",
+            "lora_weights": "LoRA Ağırlık Dosyası",
+            "components": "Maske Bileşenleri",
+            "refinement": "İyileştirme Ayarları",
+            "preview_before_save": "Kaydetmeden önce önizle",
+            "apply": "Yüz Setine Uygula",
+            "confirm": "Onayla ve Tümünü Kaydet",
+            "cancel": "İptal",
+            "preview_gallery": "Önizleme",
+            "progress": "İlerleme",
+        },
     },
     # Wizard sekmesi
     "wizard": {

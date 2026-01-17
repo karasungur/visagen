@@ -616,3 +616,80 @@ class FaceAligner:
         ]
 
         return landmarks_106[idx_map]
+
+    def get_face_type_transform_mat(
+        self,
+        landmarks: np.ndarray,
+        output_size: int,
+        source_face_type: FaceType,
+        target_face_type: FaceType,
+    ) -> np.ndarray:
+        """
+        Compute transformation matrix between face types.
+
+        Used when the model was trained on a different face type than
+        the input image. Transforms from source face type space to
+        target face type space.
+
+        Args:
+            landmarks: 68-point facial landmarks.
+            output_size: Output image size (square).
+            source_face_type: Face type of the input image.
+            target_face_type: Target face type to transform to.
+
+        Returns:
+            Affine transform matrix of shape (2, 3).
+        """
+        if source_face_type == target_face_type:
+            return np.eye(2, 3, dtype=np.float32)
+
+        # Get transform matrices for both face types
+        source_mat = self.get_transform_mat(landmarks, output_size, source_face_type)
+        target_mat = self.get_transform_mat(landmarks, output_size, target_face_type)
+
+        # Transform corners from target space to global, then to source space
+        corners = np.float32([(0, 0), (output_size, 0), (0, output_size)])
+
+        # Target corners in global space
+        global_pts = transform_points(corners, target_mat, invert=True)
+
+        # Global points in source space
+        source_pts = transform_points(global_pts, source_mat)
+
+        # Affine transform from source_pts to corners
+        return cv2.getAffineTransform(source_pts, corners)
+
+    def warp_between_face_types(
+        self,
+        image: np.ndarray,
+        landmarks: np.ndarray,
+        source_face_type: FaceType,
+        target_face_type: FaceType,
+    ) -> np.ndarray:
+        """
+        Warp image from one face type space to another.
+
+        Args:
+            image: Input image aligned to source_face_type.
+            landmarks: 68-point landmarks in source image space.
+            source_face_type: Current face type of the image.
+            target_face_type: Desired face type after warping.
+
+        Returns:
+            Warped image in target face type space.
+        """
+        if source_face_type == target_face_type:
+            return image.copy()
+
+        h, w = image.shape[:2]
+        mat = self.get_face_type_transform_mat(
+            landmarks, w, source_face_type, target_face_type
+        )
+
+        return cv2.warpAffine(
+            image,
+            mat,
+            (w, w),
+            flags=cv2.INTER_LANCZOS4,
+            borderMode=cv2.BORDER_REPLICATE,
+        )

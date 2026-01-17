@@ -98,6 +98,7 @@ dmypy.json
 *.h5
 *.hdf5
 *.safetensors
+!models/**/*.safetensors
 checkpoints/
 saved_models/
 weights/
