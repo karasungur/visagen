@@ -6,6 +6,7 @@ computations for the same images.
 """
 
 import hashlib
+import threading
 from collections import OrderedDict
 from typing import Any, TypeVar
 
@@ -35,6 +36,7 @@ class LRUCache:
         self._cache: OrderedDict[str, Any] = OrderedDict()
         self._hits = 0
         self._misses = 0
+        self._lock = threading.RLock()
 
     def _compute_hash(self, image: np.ndarray, config_str: str = "") -> str:
         """
@@ -67,13 +69,14 @@ class LRUCache:
             Cached value if found, None otherwise.
         """
         key = self._compute_hash(image, config_str)
-        if key in self._cache:
-            # Move to end (most recently used)
-            self._cache.move_to_end(key)
-            self._hits += 1
-            return self._cache[key]
-        self._misses += 1
-        return None
+        with self._lock:
+            if key in self._cache:
+                # Move to end (most recently used)
+                self._cache.move_to_end(key)
+                self._hits += 1
+                return self._cache[key]
+            self._misses += 1
+            return None
 
     def put(self, image: np.ndarray, value: Any, config_str: str = "") -> None:
         """
@@ -86,18 +89,20 @@ class LRUCache:
         """
         key = self._compute_hash(image, config_str)
 
-        # Evict if necessary
-        while len(self._cache) >= self.max_size:
-            self._cache.popitem(last=False)
+        with self._lock:
+            # Evict if necessary
+            while len(self._cache) >= self.max_size:
+                self._cache.popitem(last=False)
 
-        self._cache[key] = value
-        self._cache.move_to_end(key)
+            self._cache[key] = value
+            self._cache.move_to_end(key)
 
     def clear(self) -> None:
         """Clear all cached items."""
-        self._cache.clear()
-        self._hits = 0
-        self._misses = 0
+        with self._lock:
+            self._cache.clear()
+            self._hits = 0
+            self._misses = 0
 
     def __len__(self) -> int:
         """Return number of cached items."""
@@ -110,21 +115,25 @@ class LRUCache:
     @property
     def hit_rate(self) -> float:
         """Get cache hit rate (0.0 to 1.0)."""
-        total = self._hits + self._misses
-        if total == 0:
-            return 0.0
-        return self._hits / total
+        with self._lock:
+            total = self._hits + self._misses
+            if total == 0:
+                return 0.0
+            return self._hits / total
 
     @property
     def stats(self) -> dict[str, int | float]:
         """Get cache statistics."""
-        return {
-            "size": len(self._cache),
-            "max_size": self.max_size,
-            "hits": self._hits,
-            "misses": self._misses,
-            "hit_rate": self.hit_rate,
-        }
+        with self._lock:
+            total = self._hits + self._misses
+            hit_rate = self._hits / total if total > 0 else 0.0
+            return {
+                "size": len(self._cache),
+                "max_size": self.max_size,
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate": hit_rate,
+            }
 
 
 class SegmentationCache(LRUCache):
@@ -158,6 +167,9 @@ class SegmentationCache(LRUCache):
         image: np.ndarray,
         result: Any,
         return_soft_mask: bool = False,
+        anti_alias: bool = False,
+        threshold_mode: str = "fixed",
+        threshold_value: float = 0.5,
     ) -> None:
         """
         Store segmentation result with automatic config string.
@@ -166,14 +178,25 @@ class SegmentationCache(LRUCache):
             image: Input image.
             result: Segmentation result.
             return_soft_mask: Whether soft mask was requested.
+            anti_alias: Whether anti-aliasing was applied.
+            threshold_mode: Threshold mode used.
+            threshold_value: Threshold value used.
         """
-        config_str = f"soft={return_soft_mask}"
+        config_str = (
+            f"soft={return_soft_mask},"
+            f"aa={anti_alias},"
+            f"tm={threshold_mode},"
+            f"tv={threshold_value:.2f}"
+        )
         self.put(image, result, config_str)
 
     def get_result(
         self,
         image: np.ndarray,
         return_soft_mask: bool = False,
+        anti_alias: bool = False,
+        threshold_mode: str = "fixed",
+        threshold_value: float = 0.5,
     ) -> Any | None:
         """
         Get cached segmentation result.
@@ -181,11 +204,19 @@ class SegmentationCache(LRUCache):
         Args:
             image: Input image.
             return_soft_mask: Whether soft mask is requested.
+            anti_alias: Whether anti-aliasing is requested.
+            threshold_mode: Threshold mode requested.
+            threshold_value: Threshold value requested.
 
         Returns:
             Cached result if found, None otherwise.
         """
-        config_str = f"soft={return_soft_mask}"
+        config_str = (
+            f"soft={return_soft_mask},"
+            f"aa={anti_alias},"
+            f"tm={threshold_mode},"
+            f"tv={threshold_value:.2f}"
+        )
         return self.get(image, config_str)
 
 

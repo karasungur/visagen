@@ -220,7 +220,13 @@ class FaceSegmenter:
         """
         # Check cache first
         if use_cache and self._cache is not None:
-            cached = self._cache.get_result(face_image, return_soft_mask)
+            cached = self._cache.get_result(
+                face_image,
+                return_soft_mask,
+                anti_alias,
+                threshold_mode.value,
+                threshold_value,
+            )
             if cached is not None:
                 return cached
 
@@ -305,7 +311,14 @@ class FaceSegmenter:
 
         # Store in cache
         if use_cache and self._cache is not None:
-            self._cache.put_result(face_image, result, return_soft_mask)
+            self._cache.put_result(
+                face_image,
+                result,
+                return_soft_mask,
+                anti_alias,
+                threshold_mode.value,
+                threshold_value,
+            )
 
         return result
 
