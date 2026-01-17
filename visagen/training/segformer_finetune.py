@@ -46,6 +46,8 @@ class SegFormerFinetuneConfig:
         num_classes: Number of output classes. Default: 2 (binary).
             Use 19 for full CelebAMask-HQ multi-class training.
         mask_mode: Training mask mode ("binary" or "multiclass"). Default: "binary".
+        precision: Training precision. Default: "16-mixed".
+            Options: "32" (full), "16-mixed" (FP16 AMP), "bf16-mixed" (BF16 AMP).
     """
 
     learning_rate: float = 1e-4
@@ -61,6 +63,7 @@ class SegFormerFinetuneConfig:
     target_size: int = 512
     num_classes: int = 2
     mask_mode: str = "binary"
+    precision: str = "16-mixed"
 
 
 class DiceLoss(nn.Module):
@@ -406,6 +409,7 @@ class SegFormerTrainer:
         # Configure trainer
         self._trainer = pl.Trainer(
             max_epochs=self.config.max_epochs,
+            precision=self.config.precision,
             accelerator="auto",
             devices=1,
             callbacks=callbacks,
