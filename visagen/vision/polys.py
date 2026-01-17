@@ -20,61 +20,119 @@ class PolyType(IntEnum):
     INCLUDE = 1  # Add to mask (paint white)
 
 
-@dataclass
 class Polygon:
     """
     Single polygon with type and points.
 
     Represents a closed polygon that either adds to or
-    subtracts from a mask.
+    subtracts from a mask. Supports undo/redo for point editing.
 
     Attributes:
         type: INCLUDE to add to mask, EXCLUDE to subtract.
         points: Array of (x, y) coordinates, shape (N, 2).
     """
 
-    type: PolyType
-    points: np.ndarray = field(
-        default_factory=lambda: np.empty((0, 2), dtype=np.float32)
-    )
+    def __init__(self, poly_type: PolyType = PolyType.INCLUDE) -> None:
+        """
+        Initialize polygon with optional type.
 
-    def __post_init__(self) -> None:
-        """Ensure points array is proper type."""
-        if not isinstance(self.points, np.ndarray):
-            self.points = np.array(self.points, dtype=np.float32)
-        if self.points.dtype != np.float32:
-            self.points = self.points.astype(np.float32)
-        if len(self.points.shape) == 1:
-            self.points = self.points.reshape(-1, 2)
+        Args:
+            poly_type: Type of polygon (INCLUDE or EXCLUDE).
+        """
+        self.type = poly_type
+        self._points = np.empty((0, 2), dtype=np.float32)
+        self._n = 0  # Current position (undo pointer)
+
+    @property
+    def points(self) -> np.ndarray:
+        """Get current valid points."""
+        return self._points[: self._n].copy()
+
+    @points.setter
+    def points(self, value: np.ndarray) -> None:
+        """Set points directly (for compatibility)."""
+        if not isinstance(value, np.ndarray):
+            value = np.array(value, dtype=np.float32)
+        if value.dtype != np.float32:
+            value = value.astype(np.float32)
+        if len(value.shape) == 1 and len(value) > 0:
+            value = value.reshape(-1, 2)
+        self._points = value
+        self._n = len(value)
+
+    @property
+    def n(self) -> int:
+        """Current point count."""
+        return self._n
 
     def add_point(self, x: float, y: float) -> None:
         """
-        Add a point to the polygon.
+        Add a point to the polygon with undo support.
+
+        Truncates any redo history when adding new point.
 
         Args:
             x: X coordinate.
             y: Y coordinate.
         """
-        new_point = np.array([[x, y]], dtype=np.float32)
-        self.points = np.concatenate([self.points, new_point], axis=0)
+        # Truncate redo history and add new point
+        self._points = np.append(
+            self._points[: self._n], [[float(x), float(y)]], axis=0
+        ).astype(np.float32)
+        self._n += 1
+
+    def undo(self) -> bool:
+        """
+        Undo last point addition.
+
+        Returns:
+            True if undo was successful, False if no points to undo.
+        """
+        if self._n > 0:
+            self._n -= 1
+            return True
+        return False
+
+    def redo(self) -> bool:
+        """
+        Redo undone point addition.
+
+        Returns:
+            True if redo was successful, False if no points to redo.
+        """
+        if self._n < len(self._points):
+            self._n += 1
+            return True
+        return False
+
+    def can_undo(self) -> bool:
+        """Check if undo is available."""
+        return self._n > 0
+
+    def can_redo(self) -> bool:
+        """Check if redo is available."""
+        return self._n < len(self._points)
 
     def insert_point(self, idx: int, x: float, y: float) -> None:
         """
         Insert a point at specific index.
+
+        Clears redo history after insertion.
 
         Args:
             idx: Index to insert at.
             x: X coordinate.
             y: Y coordinate.
         """
-        if idx < 0 or idx > len(self.points):
+        if idx < 0 or idx > self._n:
             raise IndexError(
-                f"Index {idx} out of range for polygon with {len(self.points)} points"
+                f"Index {idx} out of range for polygon with {self._n} points"
             )
         new_point = np.array([[x, y]], dtype=np.float32)
-        self.points = np.concatenate(
-            [self.points[:idx], new_point, self.points[idx:]], axis=0
+        self._points = np.concatenate(
+            [self._points[:idx], new_point, self._points[idx : self._n]], axis=0
         )
+        self._n += 1
 
     def remove_point(self, idx: int) -> None:
         """
@@ -83,13 +141,14 @@ class Polygon:
         Args:
             idx: Index of point to remove.
         """
-        if idx < 0 or idx >= len(self.points):
+        if idx < 0 or idx >= self._n:
             raise IndexError(
-                f"Index {idx} out of range for polygon with {len(self.points)} points"
+                f"Index {idx} out of range for polygon with {self._n} points"
             )
-        self.points = np.concatenate(
-            [self.points[:idx], self.points[idx + 1 :]], axis=0
+        self._points = np.concatenate(
+            [self._points[:idx], self._points[idx + 1 : self._n]], axis=0
         )
+        self._n -= 1
 
     def set_point(self, idx: int, x: float, y: float) -> None:
         """
@@ -100,9 +159,9 @@ class Polygon:
             x: New X coordinate.
             y: New Y coordinate.
         """
-        if idx < 0 or idx >= len(self.points):
+        if idx < 0 or idx >= self._n:
             raise IndexError(f"Index {idx} out of range")
-        self.points[idx] = [x, y]
+        self._points[idx] = [x, y]
 
     def scale(self, factor: float) -> "Polygon":
         """
@@ -114,10 +173,9 @@ class Polygon:
         Returns:
             New scaled Polygon instance.
         """
-        return Polygon(
-            type=self.type,
-            points=self.points * factor,
-        )
+        new_poly = Polygon(self.type)
+        new_poly.points = self.points * factor
+        return new_poly
 
     def translate(self, dx: float, dy: float) -> "Polygon":
         """
@@ -130,16 +188,16 @@ class Polygon:
         Returns:
             New translated Polygon instance.
         """
-        return Polygon(
-            type=self.type,
-            points=self.points + np.array([dx, dy], dtype=np.float32),
-        )
+        new_poly = Polygon(self.type)
+        new_poly.points = self.points + np.array([dx, dy], dtype=np.float32)
+        return new_poly
 
     def get_centroid(self) -> tuple[float, float]:
         """Get polygon centroid."""
-        if len(self.points) == 0:
+        if self._n == 0:
             return (0.0, 0.0)
-        return (float(self.points[:, 0].mean()), float(self.points[:, 1].mean()))
+        pts = self._points[: self._n]
+        return (float(pts[:, 0].mean()), float(pts[:, 1].mean()))
 
     def get_bounding_box(self) -> tuple[float, float, float, float]:
         """
@@ -148,18 +206,19 @@ class Polygon:
         Returns:
             Tuple of (x_min, y_min, x_max, y_max).
         """
-        if len(self.points) == 0:
+        if self._n == 0:
             return (0.0, 0.0, 0.0, 0.0)
+        pts = self._points[: self._n]
         return (
-            float(self.points[:, 0].min()),
-            float(self.points[:, 1].min()),
-            float(self.points[:, 0].max()),
-            float(self.points[:, 1].max()),
+            float(pts[:, 0].min()),
+            float(pts[:, 1].min()),
+            float(pts[:, 0].max()),
+            float(pts[:, 1].max()),
         )
 
     def is_valid(self) -> bool:
         """Check if polygon has enough points to be rendered."""
-        return len(self.points) >= 3
+        return self._n >= 3
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -179,14 +238,13 @@ class Polygon:
 
         Compatible with legacy DFL format.
         """
-        return cls(
-            type=PolyType(data["type"]),
-            points=np.array(data.get("pts", []), dtype=np.float32),
-        )
+        poly = cls(poly_type=PolyType(data["type"]))
+        poly.points = np.array(data.get("pts", []), dtype=np.float32)
+        return poly
 
     def __len__(self) -> int:
         """Return number of points."""
-        return len(self.points)
+        return self._n
 
 
 @dataclass

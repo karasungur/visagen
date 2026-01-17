@@ -16,6 +16,7 @@ import gradio as gr
 import numpy as np
 
 from visagen.vision.poly_render import (
+    find_nearest_edge,
     find_nearest_point,
     find_polygon_at_point,
     overlay_polygons_on_image,
@@ -24,6 +25,67 @@ from visagen.vision.polys import PolygonSet, PolyType
 
 if TYPE_CHECKING:
     from visagen.gui.i18n import I18n
+
+
+# Keyboard shortcuts JavaScript
+KEYBOARD_SHORTCUTS_JS = """
+<script>
+(function() {
+    // Avoid duplicate listeners
+    if (window._polyEditorShortcutsRegistered) return;
+    window._polyEditorShortcutsRegistered = true;
+
+    document.addEventListener('keydown', function(e) {
+        // Only if not in an input field
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        // Q = Add Include polygon
+        if ((e.key === 'q' || e.key === 'Q') && !e.ctrlKey && !e.metaKey) {
+            var btn = document.querySelector('#poly-include-btn');
+            if (btn) btn.click();
+        }
+
+        // W = Add Exclude polygon
+        if ((e.key === 'w' || e.key === 'W') && !e.ctrlKey && !e.metaKey) {
+            var btn = document.querySelector('#poly-exclude-btn');
+            if (btn) btn.click();
+        }
+
+        // E = Edit mode
+        if ((e.key === 'e' || e.key === 'E') && !e.ctrlKey && !e.metaKey) {
+            var btn = document.querySelector('#poly-edit-btn');
+            if (btn) btn.click();
+        }
+
+        // Ctrl+Z = Undo
+        if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            var btn = document.querySelector('#poly-undo-btn');
+            if (btn) btn.click();
+        }
+
+        // Ctrl+Y or Ctrl+Shift+Z = Redo
+        if (e.ctrlKey && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+            e.preventDefault();
+            var btn = document.querySelector('#poly-redo-btn');
+            if (btn) btn.click();
+        }
+
+        // Delete = Delete polygon
+        if (e.key === 'Delete') {
+            var btn = document.querySelector('#poly-delete-btn');
+            if (btn) btn.click();
+        }
+
+        // Escape = Finish polygon
+        if (e.key === 'Escape') {
+            var btn = document.querySelector('#poly-finish-btn');
+            if (btn) btn.click();
+        }
+    });
+})();
+</script>
+"""
 
 
 class PolygonEditorMode(Enum):
@@ -97,13 +159,24 @@ class PolygonEditor:
         """
         components: dict[str, Any] = {}
 
+        # Keyboard shortcuts injection
+        components["shortcuts_html"] = gr.HTML(KEYBOARD_SHORTCUTS_JS, visible=False)
+
         # Mode selection
         with gr.Row():
             components["mode_view"] = gr.Button("View", size="sm", variant="primary")
-            components["mode_include"] = gr.Button("Add Include", size="sm")
-            components["mode_exclude"] = gr.Button("Add Exclude", size="sm")
-            components["mode_edit"] = gr.Button("Edit Points", size="sm")
-            components["mode_delete"] = gr.Button("Delete", size="sm")
+            components["mode_include"] = gr.Button(
+                "Add Include", size="sm", elem_id="poly-include-btn"
+            )
+            components["mode_exclude"] = gr.Button(
+                "Add Exclude", size="sm", elem_id="poly-exclude-btn"
+            )
+            components["mode_edit"] = gr.Button(
+                "Edit Points", size="sm", elem_id="poly-edit-btn"
+            )
+            components["mode_delete"] = gr.Button(
+                "Delete", size="sm", elem_id="poly-delete-btn"
+            )
 
         # Canvas for polygon editing (clickable image)
         components["canvas"] = gr.Image(
@@ -123,12 +196,21 @@ class PolygonEditor:
         # Polygon actions
         with gr.Row():
             components["finish_poly_btn"] = gr.Button(
-                self.t("finish_polygon"), size="sm"
+                self.t("finish_polygon"), size="sm", elem_id="poly-finish-btn"
             )
             components["cancel_poly_btn"] = gr.Button(
                 self.t("cancel_polygon"), size="sm"
             )
             components["clear_all_btn"] = gr.Button(self.t("clear_all"), size="sm")
+
+        # Undo/Redo buttons for point editing
+        with gr.Row():
+            components["undo_point_btn"] = gr.Button(
+                "↩ Undo Point", size="sm", elem_id="poly-undo-btn"
+            )
+            components["redo_point_btn"] = gr.Button(
+                "↪ Redo Point", size="sm", elem_id="poly-redo-btn"
+            )
 
         # Polygon list
         components["poly_list"] = gr.Dataframe(
@@ -204,6 +286,23 @@ class PolygonEditor:
 
         components["clear_all_btn"].click(
             fn=self._clear_all,
+            outputs=[
+                components["canvas"],
+                components["poly_list"],
+            ],
+        )
+
+        # Undo/Redo point handlers
+        components["undo_point_btn"].click(
+            fn=self._undo_point,
+            outputs=[
+                components["canvas"],
+                components["poly_list"],
+            ],
+        )
+
+        components["redo_point_btn"].click(
+            fn=self._redo_point,
             outputs=[
                 components["canvas"],
                 components["poly_list"],
@@ -292,8 +391,20 @@ class PolygonEditor:
                 self._state.selected_poly_idx = poly_idx
                 self._state.selected_point_idx = point_idx
             else:
-                self._state.selected_poly_idx = -1
-                self._state.selected_point_idx = -1
+                # No point found - try to find nearest edge for insertion
+                edge_result = find_nearest_edge(
+                    self._state.polygons, x, y, threshold=10.0
+                )
+                if edge_result[0] >= 0:
+                    edge_poly_idx, edge_idx, _, proj_point = edge_result
+                    # Insert point on the edge
+                    poly = self._state.polygons.polygons[edge_poly_idx]
+                    poly.insert_point(edge_idx + 1, proj_point[0], proj_point[1])
+                    self._state.selected_poly_idx = edge_poly_idx
+                    self._state.selected_point_idx = edge_idx + 1
+                else:
+                    self._state.selected_poly_idx = -1
+                    self._state.selected_point_idx = -1
 
         elif self._state.mode == PolygonEditorMode.DELETE_POLY:
             # Delete polygon at click location
@@ -388,3 +499,24 @@ class PolygonEditor:
             type_str = "Include" if poly.type == PolyType.INCLUDE else "Exclude"
             data.append([i + 1, type_str, len(poly)])
         return data
+
+    def _undo_point(self) -> tuple[np.ndarray, list]:
+        """Undo last point addition in selected polygon."""
+        # If no polygon selected, try the last polygon
+        if self._state.selected_poly_idx < 0:
+            if len(self._state.polygons) > 0:
+                self._state.selected_poly_idx = len(self._state.polygons) - 1
+
+        if self._state.selected_poly_idx >= 0:
+            poly = self._state.polygons.polygons[self._state.selected_poly_idx]
+            poly.undo()
+
+        return self._render_canvas(), self._get_poly_list_data()
+
+    def _redo_point(self) -> tuple[np.ndarray, list]:
+        """Redo undone point in selected polygon."""
+        if self._state.selected_poly_idx >= 0:
+            poly = self._state.polygons.polygons[self._state.selected_poly_idx]
+            poly.redo()
+
+        return self._render_canvas(), self._get_poly_list_data()
