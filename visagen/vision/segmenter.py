@@ -84,6 +84,14 @@ class InterpolationMode(Enum):
     AREA = "area"  # Best for downsampling
 
 
+class ThresholdMode(Enum):
+    """Threshold modes for binary mask generation."""
+
+    FIXED = "fixed"  # Fixed threshold (default 0.5)
+    OTSU = "otsu"  # Otsu's automatic threshold selection
+    ADAPTIVE = "adaptive"  # Gaussian adaptive thresholding
+
+
 @dataclass
 class SegmentationResult:
     """
@@ -192,6 +200,8 @@ class FaceSegmenter:
         return_soft_mask: bool = False,
         use_cache: bool = True,
         anti_alias: bool = False,
+        threshold_mode: ThresholdMode = ThresholdMode.FIXED,
+        threshold_value: float = 0.5,
     ) -> SegmentationResult:
         """
         Segment face from aligned face image.
@@ -202,6 +212,8 @@ class FaceSegmenter:
                 Default: False.
             use_cache: Use cache if enabled. Default: True.
             anti_alias: Apply anti-aliasing to binary mask edges. Default: False.
+            threshold_mode: Threshold mode for binary mask. Default: FIXED.
+            threshold_value: Threshold value for FIXED mode. Default: 0.5.
 
         Returns:
             SegmentationResult with binary mask and full parsing.
@@ -260,7 +272,25 @@ class FaceSegmenter:
 
         # Convert to binary mask
         if not return_soft_mask:
-            face_mask = (face_mask > 0.5).astype(np.uint8) * 255
+            if threshold_mode == ThresholdMode.OTSU:
+                # Otsu's automatic threshold
+                mask_uint8 = (face_mask * 255).astype(np.uint8)
+                _, face_mask = cv2.threshold(
+                    mask_uint8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+                )
+            elif threshold_mode == ThresholdMode.ADAPTIVE:
+                # Gaussian adaptive threshold
+                mask_uint8 = (face_mask * 255).astype(np.uint8)
+                face_mask = cv2.adaptiveThreshold(
+                    mask_uint8,
+                    255,
+                    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                    cv2.THRESH_BINARY,
+                    11,
+                    2,
+                )
+            else:  # FIXED
+                face_mask = (face_mask > threshold_value).astype(np.uint8) * 255
 
             # Apply anti-aliasing if requested
             if anti_alias:
