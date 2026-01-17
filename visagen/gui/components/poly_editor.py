@@ -82,6 +82,24 @@ KEYBOARD_SHORTCUTS_JS = """
             var btn = document.querySelector('#poly-finish-btn');
             if (btn) btn.click();
         }
+
+        // + or = = Zoom in
+        if (e.key === '+' || e.key === '=') {
+            var btn = document.querySelector('#zoom-in-btn');
+            if (btn) btn.click();
+        }
+
+        // - or _ = Zoom out
+        if (e.key === '-' || e.key === '_') {
+            var btn = document.querySelector('#zoom-out-btn');
+            if (btn) btn.click();
+        }
+
+        // 0 = Reset view
+        if (e.key === '0' && !e.ctrlKey && !e.metaKey) {
+            var btn = document.querySelector('#zoom-reset-btn');
+            if (btn) btn.click();
+        }
     });
 })();
 </script>
@@ -109,6 +127,8 @@ class PolygonEditorState:
         selected_poly_idx: Index of selected polygon (-1 for none).
         selected_point_idx: Index of selected point (-1 for none).
         current_image: Current base image.
+        view_scale: Zoom level (1.0 to 10.0).
+        view_offset: Pan offset (x, y) in scaled coordinates.
     """
 
     polygons: PolygonSet = field(default_factory=PolygonSet)
@@ -116,6 +136,8 @@ class PolygonEditorState:
     selected_poly_idx: int = -1
     selected_point_idx: int = -1
     current_image: np.ndarray | None = None
+    view_scale: float = 1.0
+    view_offset: tuple[float, float] = (0.0, 0.0)
 
 
 class PolygonEditor:
@@ -210,6 +232,32 @@ class PolygonEditor:
             )
             components["redo_point_btn"] = gr.Button(
                 "↪ Redo Point", size="sm", elem_id="poly-redo-btn"
+            )
+
+        # Zoom/Pan controls
+        with gr.Accordion("View Controls", open=False):
+            with gr.Row():
+                components["zoom_slider"] = gr.Slider(
+                    label="Zoom",
+                    minimum=1.0,
+                    maximum=10.0,
+                    value=1.0,
+                    step=0.5,
+                )
+                components["zoom_in_btn"] = gr.Button(
+                    "+", size="sm", elem_id="zoom-in-btn"
+                )
+                components["zoom_out_btn"] = gr.Button(
+                    "-", size="sm", elem_id="zoom-out-btn"
+                )
+                components["zoom_reset_btn"] = gr.Button(
+                    "Reset", size="sm", elem_id="zoom-reset-btn"
+                )
+
+            components["zoom_indicator"] = gr.Textbox(
+                value="100%",
+                label="Zoom Level",
+                interactive=False,
             )
 
         # Polygon list
@@ -309,6 +357,43 @@ class PolygonEditor:
             ],
         )
 
+        # Zoom controls
+        components["zoom_slider"].change(
+            fn=self._set_zoom,
+            inputs=[components["zoom_slider"]],
+            outputs=[
+                components["canvas"],
+                components["zoom_indicator"],
+            ],
+        )
+
+        components["zoom_in_btn"].click(
+            fn=self._zoom_in,
+            outputs=[
+                components["canvas"],
+                components["zoom_slider"],
+                components["zoom_indicator"],
+            ],
+        )
+
+        components["zoom_out_btn"].click(
+            fn=self._zoom_out,
+            outputs=[
+                components["canvas"],
+                components["zoom_slider"],
+                components["zoom_indicator"],
+            ],
+        )
+
+        components["zoom_reset_btn"].click(
+            fn=self._zoom_reset,
+            outputs=[
+                components["canvas"],
+                components["zoom_slider"],
+                components["zoom_indicator"],
+            ],
+        )
+
     def load_image(self, image: np.ndarray) -> tuple[np.ndarray, list]:
         """
         Load image into editor.
@@ -324,6 +409,8 @@ class PolygonEditor:
         self._state.selected_poly_idx = -1
         self._state.selected_point_idx = -1
         self._state.mode = PolygonEditorMode.VIEW
+        self._state.view_scale = 1.0
+        self._state.view_offset = (0.0, 0.0)
 
         return self._render_canvas(), self._get_poly_list_data()
 
@@ -474,23 +561,78 @@ class PolygonEditor:
         return self._render_canvas(), self._get_poly_list_data()
 
     def _render_canvas(self) -> np.ndarray:
-        """Render current state to canvas image."""
+        """Render current state to canvas image with zoom support."""
         if self._state.current_image is None:
             return np.zeros((400, 400, 3), dtype=np.uint8)
 
         # Convert BGR to RGB for display
         image = cv2.cvtColor(self._state.current_image, cv2.COLOR_BGR2RGB)
+        h, w = image.shape[:2]
 
-        # Overlay polygons
+        # Apply zoom
+        scale = self._state.view_scale
+        if scale != 1.0:
+            new_h, new_w = int(h * scale), int(w * scale)
+            image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+            # Extract viewport (centered)
+            ox, oy = self._state.view_offset
+            cx, cy = new_w // 2 + int(ox), new_h // 2 + int(oy)
+
+            x1 = max(0, cx - w // 2)
+            y1 = max(0, cy - h // 2)
+            x2 = min(new_w, x1 + w)
+            y2 = min(new_h, y1 + h)
+
+            viewport = image[y1:y2, x1:x2]
+
+            # Pad if needed
+            if viewport.shape[:2] != (h, w):
+                padded = np.zeros((h, w, 3), dtype=np.uint8)
+                ph, pw = viewport.shape[:2]
+                padded[:ph, :pw] = viewport
+                viewport = padded
+
+            image = viewport
+
+        # Overlay polygons (scale coordinates for zoomed view)
         if self._state.polygons.has_polys() or self._state.selected_poly_idx >= 0:
+            scaled_polys = self._get_scaled_polygons_for_view()
             image = overlay_polygons_on_image(
                 image,
-                self._state.polygons,
+                scaled_polys,
                 selected_idx=self._state.selected_poly_idx,
                 selected_point_idx=self._state.selected_point_idx,
             )
 
         return image
+
+    def _get_scaled_polygons_for_view(self) -> PolygonSet:
+        """Get polygons with coordinates scaled for current view."""
+        if self._state.view_scale == 1.0:
+            return self._state.polygons
+
+        scale = self._state.view_scale
+        h, w = self._state.current_image.shape[:2]
+        ox, oy = self._state.view_offset
+
+        # Calculate viewport offset
+        new_w, new_h = int(w * scale), int(h * scale)
+        cx, cy = new_w // 2 + int(ox), new_h // 2 + int(oy)
+        x1 = max(0, cx - w // 2)
+        y1 = max(0, cy - h // 2)
+
+        scaled_polys = PolygonSet()
+        for poly in self._state.polygons:
+            import copy
+
+            new_poly = copy.deepcopy(poly)
+            # Scale and offset coordinates
+            scaled_points = poly.points * scale - np.array([x1, y1], dtype=np.float32)
+            new_poly.points = scaled_points
+            scaled_polys.polygons.append(new_poly)
+
+        return scaled_polys
 
     def _get_poly_list_data(self) -> list[list]:
         """Get polygon list data for display."""
@@ -520,3 +662,26 @@ class PolygonEditor:
             poly.redo()
 
         return self._render_canvas(), self._get_poly_list_data()
+
+    def _set_zoom(self, zoom_value: float) -> tuple[np.ndarray, str]:
+        """Set zoom level from slider."""
+        self._state.view_scale = zoom_value
+        return self._render_canvas(), f"{int(zoom_value * 100)}%"
+
+    def _zoom_in(self) -> tuple[np.ndarray, float, str]:
+        """Increase zoom level."""
+        new_scale = min(10.0, self._state.view_scale + 0.5)
+        self._state.view_scale = new_scale
+        return self._render_canvas(), new_scale, f"{int(new_scale * 100)}%"
+
+    def _zoom_out(self) -> tuple[np.ndarray, float, str]:
+        """Decrease zoom level."""
+        new_scale = max(1.0, self._state.view_scale - 0.5)
+        self._state.view_scale = new_scale
+        return self._render_canvas(), new_scale, f"{int(new_scale * 100)}%"
+
+    def _zoom_reset(self) -> tuple[np.ndarray, float, str]:
+        """Reset zoom to 100%."""
+        self._state.view_scale = 1.0
+        self._state.view_offset = (0.0, 0.0)
+        return self._render_canvas(), 1.0, "100%"
