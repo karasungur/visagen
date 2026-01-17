@@ -68,6 +68,76 @@ COMPONENT_LABELS = {
 }
 
 
+class NavigationImageCache:
+    """
+    LRU cache for fast prev/next navigation.
+
+    Preloads images around current position for smoother navigation.
+    Maintains a window of cached images: prev_count before and
+    next_count after the current index.
+
+    Args:
+        prev_count: Number of previous images to cache. Default: 5.
+        next_count: Number of next images to cache. Default: 5.
+    """
+
+    def __init__(self, prev_count: int = 5, next_count: int = 5) -> None:
+        self.prev_count = prev_count
+        self.next_count = next_count
+        self._cache: dict[str, np.ndarray] = {}
+
+    def update(self, current_idx: int, image_paths: list) -> None:
+        """
+        Update cache around current position.
+
+        Loads images in the window [current - prev_count, current + next_count]
+        and removes images outside this range.
+
+        Args:
+            current_idx: Current image index.
+            image_paths: List of all image paths.
+        """
+        if not image_paths:
+            return
+
+        start = max(0, current_idx - self.prev_count)
+        end = min(len(image_paths), current_idx + self.next_count + 1)
+        keep_paths = {str(p) for p in image_paths[start:end]}
+
+        # Remove entries outside the window
+        for key in list(self._cache.keys()):
+            if key not in keep_paths:
+                del self._cache[key]
+
+        # Preload new entries
+        for path in image_paths[start:end]:
+            key = str(path)
+            if key not in self._cache:
+                img = cv2.imread(key)
+                if img is not None:
+                    self._cache[key] = img
+
+    def get(self, path) -> np.ndarray | None:
+        """
+        Get cached image.
+
+        Args:
+            path: Image path.
+
+        Returns:
+            Cached image or None if not in cache.
+        """
+        return self._cache.get(str(path))
+
+    def clear(self) -> None:
+        """Clear all cached images."""
+        self._cache.clear()
+
+    def __len__(self) -> int:
+        """Return number of cached images."""
+        return len(self._cache)
+
+
 class MaskHistory:
     """
     Undo/redo stack for mask edits.
@@ -210,6 +280,7 @@ class MaskCanvas:
         self._preview_generator = MaskPreviewGenerator()
         self._workflow = WorkflowManager()
         self._poly_editor: PolygonEditor | None = None
+        self._nav_cache = NavigationImageCache()
 
     def t(self, key: str) -> str:
         """Get translation."""

@@ -40,20 +40,20 @@ class LRUCache:
         """
         Compute hash for image and config combination.
 
-        Uses a fast hash combining image content and config string.
+        Uses SHA-256 for secure and collision-resistant hashing.
 
         Args:
             image: Image array to hash.
             config_str: Optional configuration string to include.
 
         Returns:
-            MD5 hash string.
+            SHA-256 hash string.
         """
         # Use image bytes and shape for hashing
         image_bytes = image.tobytes()
         shape_bytes = str(image.shape).encode()
         combined = image_bytes + shape_bytes + config_str.encode()
-        return hashlib.md5(combined).hexdigest()
+        return hashlib.sha256(combined).hexdigest()
 
     def get(self, image: np.ndarray, config_str: str = "") -> Any | None:
         """
