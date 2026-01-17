@@ -86,8 +86,8 @@ class MaskDataset(Dataset):
         >>> print(sample["pixel_values"].shape)  # (3, 512, 512)
     """
 
-    # Augmentation variants (8x data expansion)
-    NUM_AUGMENT_VARIANTS = 8
+    # Augmentation variants (9x data expansion with background mixing)
+    NUM_AUGMENT_VARIANTS = 9
 
     def __init__(
         self,
@@ -229,17 +229,24 @@ class MaskDataset(Dataset):
             5: Flip + rotation
             6: Brightness + rotation
             7: All combined
+            8: Background mixing (if multiple samples available)
 
         Args:
             image: Input RGB image.
             mask: Input mask.
-            variant: Augmentation variant (0-7).
+            variant: Augmentation variant (0-8).
 
         Returns:
             Tuple of (augmented_image, augmented_mask).
         """
         aug_image = image.copy()
         aug_mask = mask.copy()
+
+        # Background mixing (variant 8)
+        if variant == 8:
+            if len(self.samples) > 1:
+                aug_image = self._apply_background_mixing(aug_image, aug_mask)
+            return aug_image, aug_mask
 
         # Horizontal flip (variants 1, 3, 5, 7)
         if variant in [1, 3, 5, 7]:
@@ -256,6 +263,61 @@ class MaskDataset(Dataset):
             aug_image, aug_mask = self._rotate(aug_image, aug_mask, angle)
 
         return aug_image, aug_mask
+
+    def _apply_background_mixing(
+        self,
+        image: np.ndarray,
+        mask: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Mix background from another random image.
+
+        Creates synthetic training variety by replacing background
+        while keeping the face region intact.
+
+        Args:
+            image: Input RGB image.
+            mask: Binary mask (255 = face, 0 = background).
+
+        Returns:
+            Image with mixed background.
+        """
+        h, w = image.shape[:2]
+
+        # Select random background image
+        bg_idx = np.random.randint(len(self.samples))
+        bg_sample = self.samples[bg_idx]
+        bg_image = bg_sample.load_image()
+        bg_image = cv2.resize(bg_image, (self.target_size, self.target_size))
+
+        # Random transform background for variety
+        angle = np.random.uniform(-180, 180)
+        scale = np.random.uniform(0.8, 1.2)
+        center = (w // 2, h // 2)
+        M = cv2.getRotationMatrix2D(center, angle, scale)
+        bg_transformed = cv2.warpAffine(
+            bg_image, M, (w, h), borderMode=cv2.BORDER_REFLECT
+        )
+
+        # Create float mask for blending
+        mask_float = mask.astype(np.float32) / 255.0
+        if mask_float.ndim == 2:
+            mask_float = mask_float[..., np.newaxis]
+
+        # Blend ratio for subtle effect
+        blend_ratio = 0.15 + np.random.rand() * 0.85
+
+        # Extract background from transformed image
+        bg_only = bg_transformed * (1 - mask_float)
+
+        # Blend: keep face region, mix background
+        result = (
+            image * mask_float
+            + image * (1 - mask_float) * blend_ratio
+            + bg_only * (1 - blend_ratio)
+        )
+
+        return np.clip(result, 0, 255).astype(np.uint8)
 
     def _adjust_brightness_contrast(self, image: np.ndarray) -> np.ndarray:
         """Apply random brightness and contrast adjustment."""
@@ -405,7 +467,7 @@ class MaskDataModule:
 class _SampleListDataset(Dataset):
     """Internal dataset class that works with a list of MaskSample objects."""
 
-    NUM_AUGMENT_VARIANTS = 8
+    NUM_AUGMENT_VARIANTS = 9
 
     def __init__(
         self,
