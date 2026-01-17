@@ -7,7 +7,7 @@ with augmentation support for LoRA training.
 Features:
 - Binary and multi-class mask modes
 - Configurable label mapping
-- 8x data augmentation
+- 18x data augmentation with advanced transforms
 """
 
 from dataclasses import dataclass
@@ -19,6 +19,18 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from transformers import SegformerImageProcessor
+
+from visagen.data.augmentations import (
+    apply_bg_flare,
+    apply_face_flare,
+    apply_random_gaussian_blur,
+    apply_random_hsv_shift,
+    apply_random_jpeg_compress,
+    apply_random_motion_blur,
+    apply_random_rgb_levels,
+    apply_random_sharpen,
+    random_circle_faded,
+)
 
 
 class MaskMode(Enum):
@@ -86,8 +98,8 @@ class MaskDataset(Dataset):
         >>> print(sample["pixel_values"].shape)  # (3, 512, 512)
     """
 
-    # Augmentation variants (9x data expansion with background mixing)
-    NUM_AUGMENT_VARIANTS = 9
+    # Augmentation variants (18x data expansion with advanced transforms)
+    NUM_AUGMENT_VARIANTS = 18
 
     def __init__(
         self,
@@ -230,11 +242,20 @@ class MaskDataset(Dataset):
             6: Brightness + rotation
             7: All combined
             8: Background mixing (if multiple samples available)
+            9: Sharpen with spatial mask
+            10: Motion blur with spatial mask
+            11: Gaussian blur with spatial mask
+            12: JPEG compression with spatial mask
+            13: Face flare
+            14: Background flare
+            15: HSV shift with spatial mask
+            16: RGB levels with spatial mask
+            17: Combined degradation (blur + jpeg + flare)
 
         Args:
             image: Input RGB image.
             mask: Input mask.
-            variant: Augmentation variant (0-8).
+            variant: Augmentation variant (0-17).
 
         Returns:
             Tuple of (augmented_image, augmented_mask).
@@ -246,6 +267,65 @@ class MaskDataset(Dataset):
         if variant == 8:
             if len(self.samples) > 1:
                 aug_image = self._apply_background_mixing(aug_image, aug_mask)
+            return aug_image, aug_mask
+
+        # Variant 9: Sharpen
+        if variant == 9:
+            spatial_mask = random_circle_faded((aug_image.shape[0], aug_image.shape[1]))
+            aug_image = apply_random_sharpen(aug_image, chance=100, mask=spatial_mask)
+            return aug_image, aug_mask
+
+        # Variant 10: Motion Blur
+        if variant == 10:
+            spatial_mask = random_circle_faded((aug_image.shape[0], aug_image.shape[1]))
+            aug_image = apply_random_motion_blur(
+                aug_image, chance=100, mask=spatial_mask
+            )
+            return aug_image, aug_mask
+
+        # Variant 11: Gaussian Blur
+        if variant == 11:
+            spatial_mask = random_circle_faded((aug_image.shape[0], aug_image.shape[1]))
+            aug_image = apply_random_gaussian_blur(
+                aug_image, chance=100, mask=spatial_mask
+            )
+            return aug_image, aug_mask
+
+        # Variant 12: JPEG Compression
+        if variant == 12:
+            spatial_mask = random_circle_faded((aug_image.shape[0], aug_image.shape[1]))
+            aug_image = apply_random_jpeg_compress(
+                aug_image, chance=100, mask=spatial_mask
+            )
+            return aug_image, aug_mask
+
+        # Variant 13: Face Flare
+        if variant == 13:
+            aug_image = apply_face_flare(aug_image, aug_mask, chance=100)
+            return aug_image, aug_mask
+
+        # Variant 14: Background Flare
+        if variant == 14:
+            aug_image = apply_bg_flare(aug_image, aug_mask, chance=100)
+            return aug_image, aug_mask
+
+        # Variant 15: HSV Shift
+        if variant == 15:
+            spatial_mask = random_circle_faded((aug_image.shape[0], aug_image.shape[1]))
+            aug_image = apply_random_hsv_shift(aug_image, mask=spatial_mask)
+            return aug_image, aug_mask
+
+        # Variant 16: RGB Levels
+        if variant == 16:
+            spatial_mask = random_circle_faded((aug_image.shape[0], aug_image.shape[1]))
+            aug_image = apply_random_rgb_levels(aug_image, mask=spatial_mask)
+            return aug_image, aug_mask
+
+        # Variant 17: Combined degradation (blur + jpeg + flare)
+        if variant == 17:
+            aug_image = apply_random_gaussian_blur(aug_image, chance=50)
+            aug_image = apply_random_jpeg_compress(aug_image, chance=50)
+            aug_image = apply_face_flare(aug_image, aug_mask, chance=50)
             return aug_image, aug_mask
 
         # Horizontal flip (variants 1, 3, 5, 7)
@@ -467,7 +547,7 @@ class MaskDataModule:
 class _SampleListDataset(Dataset):
     """Internal dataset class that works with a list of MaskSample objects."""
 
-    NUM_AUGMENT_VARIANTS = 9
+    NUM_AUGMENT_VARIANTS = 18
 
     def __init__(
         self,

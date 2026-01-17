@@ -8,6 +8,7 @@ Matches legacy DeepFaceLab augmentation behavior.
 import math
 import random
 
+import cv2
 import numpy as np
 import torch
 import torch.nn as nn
@@ -562,3 +563,352 @@ def blur_out_mask(
     result = image * mask + (blurred_bg / blur_norm) * anti_mask
 
     return result
+
+
+# =============================================================================
+# NumPy-based augmentations for MaskDataset training
+# =============================================================================
+
+
+def linear_motion_blur(
+    image: np.ndarray,
+    size: int,
+    angle: float,
+) -> np.ndarray:
+    """
+    Apply linear motion blur at specified angle.
+
+    Args:
+        image: Input image (H, W, C).
+        size: Kernel size for motion blur.
+        angle: Angle of motion in degrees.
+
+    Returns:
+        Motion-blurred image.
+    """
+    k = np.zeros((size, size), dtype=np.float32)
+    k[(size - 1) // 2, :] = np.ones(size, dtype=np.float32)
+    M = cv2.getRotationMatrix2D((size / 2 - 0.5, size / 2 - 0.5), angle, 1.0)
+    k = cv2.warpAffine(k, M, (size, size))
+    k = k / np.sum(k)
+    return cv2.filter2D(image, -1, k)
+
+
+def apply_random_sharpen(
+    image: np.ndarray,
+    chance: int = 25,
+    kernel_max_size: int = 5,
+    mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """
+    Apply random sharpening with spatial masking.
+
+    Uses unsharp masking technique for natural-looking sharpening.
+
+    Args:
+        image: Input image (H, W, C).
+        chance: Probability of applying (0-100).
+        kernel_max_size: Maximum blur kernel size.
+        mask: Optional spatial mask for localized effect.
+
+    Returns:
+        Sharpened image.
+    """
+    if np.random.randint(100) >= chance:
+        return image
+
+    kernel_size = np.random.randint(1, kernel_max_size + 1)
+
+    # Unsharp masking
+    blurred = cv2.GaussianBlur(image, (0, 0), kernel_size)
+    amount = np.random.uniform(0.5, 2.0)
+    result = cv2.addWeighted(image, 1.0 + amount, blurred, -amount, 0)
+
+    if mask is not None:
+        result = image * (1 - mask) + result * mask
+
+    return np.clip(result, 0, 255).astype(np.uint8)
+
+
+def apply_random_motion_blur(
+    image: np.ndarray,
+    chance: int = 25,
+    max_size: int = 5,
+    mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """
+    Apply random motion blur with spatial masking.
+
+    Simulates camera or subject motion for training robustness.
+
+    Args:
+        image: Input image (H, W, C).
+        chance: Probability of applying (0-100).
+        max_size: Maximum kernel size.
+        mask: Optional spatial mask for localized effect.
+
+    Returns:
+        Motion-blurred image.
+    """
+    if np.random.randint(100) >= chance:
+        return image
+
+    kernel_size = np.random.randint(2, max_size + 1)
+    angle = np.random.randint(360)
+
+    result = linear_motion_blur(image, kernel_size, angle)
+
+    if mask is not None:
+        result = image * (1 - mask) + result * mask
+
+    return result.astype(np.uint8)
+
+
+def apply_random_gaussian_blur(
+    image: np.ndarray,
+    chance: int = 25,
+    kernel_max_size: int = 5,
+    mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """
+    Apply random Gaussian blur with spatial masking.
+
+    Args:
+        image: Input image (H, W, C).
+        chance: Probability of applying (0-100).
+        kernel_max_size: Maximum kernel size (will be made odd).
+        mask: Optional spatial mask for localized effect.
+
+    Returns:
+        Blurred image.
+    """
+    if np.random.randint(100) >= chance:
+        return image
+
+    kernel_size = np.random.randint(1, kernel_max_size + 1) * 2 + 1
+    result = cv2.GaussianBlur(image, (kernel_size, kernel_size), 0)
+
+    if mask is not None:
+        result = image * (1 - mask) + result * mask
+
+    return result.astype(np.uint8)
+
+
+def apply_random_jpeg_compress(
+    image: np.ndarray,
+    chance: int = 25,
+    quality_min: int = 10,
+    quality_max: int = 50,
+    mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """
+    Apply random JPEG compression artifacts.
+
+    Simulates low-quality image sources for training robustness.
+
+    Args:
+        image: Input image (H, W, C).
+        chance: Probability of applying (0-100).
+        quality_min: Minimum JPEG quality (more artifacts).
+        quality_max: Maximum JPEG quality (fewer artifacts).
+        mask: Optional spatial mask for localized effect.
+
+    Returns:
+        Compressed/decompressed image with artifacts.
+    """
+    if np.random.randint(100) >= chance:
+        return image
+
+    quality = np.random.randint(quality_min, quality_max + 1)
+
+    # Encode/decode JPEG
+    img_uint8 = np.clip(image, 0, 255).astype(np.uint8)
+    _, encoded = cv2.imencode(".jpg", img_uint8, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    result = cv2.imdecode(encoded, cv2.IMREAD_UNCHANGED)
+
+    if mask is not None:
+        result = image * (1 - mask) + result * mask
+
+    return result.astype(np.uint8)
+
+
+def apply_face_flare(
+    image: np.ndarray,
+    mask: np.ndarray,
+    chance: int = 50,
+) -> np.ndarray:
+    """
+    Apply Gaussian flare on face region.
+
+    Creates a glow effect emanating from the face area.
+
+    Args:
+        image: Input image (H, W, C).
+        mask: Binary mask (255 = face, 0 = background).
+        chance: Probability of applying (0-100).
+
+    Returns:
+        Image with face flare effect.
+    """
+    if np.random.randint(100) >= chance:
+        return image
+
+    h, w = image.shape[:2]
+    kernel_size = np.random.randint(h // 4, h)
+    kernel_size = kernel_size - kernel_size % 2 + 1  # Make odd
+
+    mask_float = mask.astype(np.float32) / 255.0
+    if mask_float.ndim == 2:
+        mask_float = mask_float[..., np.newaxis]
+
+    flare = cv2.GaussianBlur(
+        (image * mask_float).astype(np.float32), (kernel_size, kernel_size), 0
+    )
+    result = image.astype(np.float32) + flare
+
+    return np.clip(result, 0, 255).astype(np.uint8)
+
+
+def apply_bg_flare(
+    image: np.ndarray,
+    mask: np.ndarray,
+    chance: int = 50,
+) -> np.ndarray:
+    """
+    Apply Gaussian flare on background region.
+
+    Creates a glow effect emanating from the background area.
+
+    Args:
+        image: Input image (H, W, C).
+        mask: Binary mask (255 = face, 0 = background).
+        chance: Probability of applying (0-100).
+
+    Returns:
+        Image with background flare effect.
+    """
+    if np.random.randint(100) >= chance:
+        return image
+
+    h, w = image.shape[:2]
+    kernel_size = np.random.randint(h // 4, h)
+    kernel_size = kernel_size - kernel_size % 2 + 1
+
+    mask_float = mask.astype(np.float32) / 255.0
+    if mask_float.ndim == 2:
+        mask_float = mask_float[..., np.newaxis]
+
+    bg_mask = 1.0 - mask_float
+    flare = cv2.GaussianBlur(
+        (image * bg_mask).astype(np.float32), (kernel_size, kernel_size), 0
+    )
+    result = image.astype(np.float32) + flare
+
+    return np.clip(result, 0, 255).astype(np.uint8)
+
+
+def random_circle_faded(size: tuple[int, int]) -> np.ndarray:
+    """
+    Generate random circle-faded mask for localized augmentation.
+
+    Creates a circular gradient mask with random center and fade distances.
+
+    Args:
+        size: Tuple of (height, width).
+
+    Returns:
+        Float mask (H, W, 1) with values 0-1.
+    """
+    h, w = size
+    wh_max = max(w, h)
+
+    # Random center
+    cy = np.random.randint(h)
+    cx = np.random.randint(w)
+
+    # Random fade distances
+    fade_start = np.random.randint(wh_max)
+    fade_end = fade_start + np.random.randint(1, wh_max - fade_start + 1)
+
+    # Create distance map
+    y, x = np.ogrid[:h, :w]
+    distances = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+
+    # Apply fade
+    mask = np.clip((fade_end - distances) / (fade_end - fade_start + 1e-6), 0, 1)
+
+    return mask[..., np.newaxis].astype(np.float32)
+
+
+def apply_random_hsv_shift(
+    image: np.ndarray,
+    mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """
+    Apply random HSV color shift.
+
+    Randomly adjusts hue, saturation, and value channels.
+
+    Args:
+        image: Input BGR image (H, W, C).
+        mask: Optional spatial mask for localized effect.
+
+    Returns:
+        Color-shifted image.
+    """
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32)
+
+    # Random shifts
+    h_shift = np.random.randint(-30, 31)
+    s_shift = np.random.uniform(-0.3, 0.3)
+    v_shift = np.random.uniform(-0.3, 0.3)
+
+    hsv[..., 0] = (hsv[..., 0] + h_shift) % 180
+    hsv[..., 1] = np.clip(hsv[..., 1] * (1 + s_shift), 0, 255)
+    hsv[..., 2] = np.clip(hsv[..., 2] * (1 + v_shift), 0, 255)
+
+    result = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+    if mask is not None:
+        result = image * (1 - mask) + result * mask
+
+    return result.astype(np.uint8)
+
+
+def apply_random_rgb_levels(
+    image: np.ndarray,
+    mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """
+    Apply random RGB levels adjustment per channel.
+
+    Adjusts input/output black/white points and gamma for each RGB channel.
+
+    Args:
+        image: Input image (H, W, C).
+        mask: Optional spatial mask for localized effect.
+
+    Returns:
+        Levels-adjusted image.
+    """
+    result = image.astype(np.float32) / 255.0
+
+    for c in range(3):
+        in_black = np.random.uniform(0, 0.25)
+        in_white = np.random.uniform(0.75, 1.0)
+        gamma = np.random.uniform(0.5, 1.5)
+        out_black = np.random.uniform(0, 0.25)
+        out_white = np.random.uniform(0.75, 1.0)
+
+        channel = result[..., c]
+        channel = np.clip((channel - in_black) / (in_white - in_black), 0, 1)
+        channel = np.power(channel, 1 / gamma)
+        channel = channel * (out_white - out_black) + out_black
+        result[..., c] = channel
+
+    result = np.clip(result * 255, 0, 255).astype(np.uint8)
+
+    if mask is not None:
+        result = image * (1 - mask) + result * mask
+
+    return result.astype(np.uint8)
