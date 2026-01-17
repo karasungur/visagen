@@ -100,6 +100,12 @@ KEYBOARD_SHORTCUTS_JS = """
             var btn = document.querySelector('#zoom-reset-btn');
             if (btn) btn.click();
         }
+
+        // L = Toggle view lock
+        if ((e.key === 'l' || e.key === 'L') && !e.ctrlKey && !e.metaKey) {
+            var checkbox = document.querySelector('#view-lock-checkbox input[type="checkbox"]');
+            if (checkbox) checkbox.click();
+        }
     });
 })();
 </script>
@@ -129,6 +135,7 @@ class PolygonEditorState:
         current_image: Current base image.
         view_scale: Zoom level (1.0 to 10.0).
         view_offset: Pan offset (x, y) in scaled coordinates.
+        view_locked: Whether to preserve view settings across image changes.
     """
 
     polygons: PolygonSet = field(default_factory=PolygonSet)
@@ -138,6 +145,7 @@ class PolygonEditorState:
     current_image: np.ndarray | None = None
     view_scale: float = 1.0
     view_offset: tuple[float, float] = (0.0, 0.0)
+    view_locked: bool = False
 
 
 class PolygonEditor:
@@ -254,11 +262,18 @@ class PolygonEditor:
                     "Reset", size="sm", elem_id="zoom-reset-btn"
                 )
 
-            components["zoom_indicator"] = gr.Textbox(
-                value="100%",
-                label="Zoom Level",
-                interactive=False,
-            )
+            with gr.Row():
+                components["zoom_indicator"] = gr.Textbox(
+                    value="100%",
+                    label="Zoom Level",
+                    interactive=False,
+                )
+                components["view_lock_checkbox"] = gr.Checkbox(
+                    label="View Lock",
+                    value=False,
+                    info="Keep zoom/pan when changing images",
+                    elem_id="view-lock-checkbox",
+                )
 
         # Polygon list
         components["poly_list"] = gr.Dataframe(
@@ -394,9 +409,18 @@ class PolygonEditor:
             ],
         )
 
+        # View lock checkbox
+        components["view_lock_checkbox"].change(
+            fn=self._toggle_view_lock,
+            inputs=[components["view_lock_checkbox"]],
+            outputs=[],
+        )
+
     def load_image(self, image: np.ndarray) -> tuple[np.ndarray, list]:
         """
         Load image into editor.
+
+        If view_locked is True, zoom and pan settings are preserved.
 
         Args:
             image: Image to edit (BGR format).
@@ -409,8 +433,11 @@ class PolygonEditor:
         self._state.selected_poly_idx = -1
         self._state.selected_point_idx = -1
         self._state.mode = PolygonEditorMode.VIEW
-        self._state.view_scale = 1.0
-        self._state.view_offset = (0.0, 0.0)
+
+        # Reset view settings only if view is not locked
+        if not self._state.view_locked:
+            self._state.view_scale = 1.0
+            self._state.view_offset = (0.0, 0.0)
 
         return self._render_canvas(), self._get_poly_list_data()
 
@@ -685,3 +712,43 @@ class PolygonEditor:
         self._state.view_scale = 1.0
         self._state.view_offset = (0.0, 0.0)
         return self._render_canvas(), 1.0, "100%"
+
+    def _toggle_view_lock(self, locked: bool) -> None:
+        """Toggle view lock state."""
+        self._state.view_locked = locked
+
+    def is_view_locked(self) -> bool:
+        """Check if view is locked."""
+        return self._state.view_locked
+
+    def get_view_state(self) -> tuple[float, tuple[float, float], bool]:
+        """
+        Get current view state.
+
+        Returns:
+            Tuple of (scale, offset, locked).
+        """
+        return (
+            self._state.view_scale,
+            self._state.view_offset,
+            self._state.view_locked,
+        )
+
+    def set_view_state(
+        self,
+        scale: float,
+        offset: tuple[float, float],
+        locked: bool | None = None,
+    ) -> None:
+        """
+        Set view state.
+
+        Args:
+            scale: Zoom level.
+            offset: Pan offset.
+            locked: Optional view lock state.
+        """
+        self._state.view_scale = scale
+        self._state.view_offset = offset
+        if locked is not None:
+            self._state.view_locked = locked
