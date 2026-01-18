@@ -397,7 +397,17 @@ class ExtractTab(BaseTab):
 
         finally:
             self._extraction_active = False
+            if self._extractor is not None:
+                self._extractor.cleanup()
             self._extractor = None
+
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
 
     def _add_to_preview(
         self,
