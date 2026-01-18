@@ -170,9 +170,7 @@ class FaceExtractor:
                 continue
 
             if landmarks_106.shape[0] == 5:
-                logger.warning(
-                    f"Skipping face {idx}: only 5-point landmarks available"
-                )
+                logger.warning(f"Skipping face {idx}: only 5-point landmarks available")
                 continue
 
             try:
