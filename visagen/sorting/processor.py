@@ -77,8 +77,8 @@ def _load_and_process_single(
             try:
                 mask = get_face_hull_mask(image.shape, metadata.landmarks)
                 masked_image = (image * mask).astype(np.uint8)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
 
         # Compute sharpness
         sharpness = 0.0
@@ -93,8 +93,8 @@ def _load_and_process_single(
                 size = image.shape[0]
                 p, y, r = aligner.estimate_pitch_yaw_roll(metadata.landmarks, size=size)
                 pitch, yaw = p, y
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
 
         # Compute histogram
         histogram = None

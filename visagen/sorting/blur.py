@@ -4,12 +4,15 @@ Blur-based sorting methods.
 Provides sharpness estimation using Laplacian variance.
 """
 
+import logging
 from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
 
 from visagen.sorting.base import SortMethod
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from visagen.vision.dflimg import FaceMetadata
@@ -90,8 +93,8 @@ class BlurSorter(SortMethod):
             try:
                 mask = get_face_hull_mask(image.shape, metadata.landmarks)
                 image = (image * mask).astype(np.uint8)
-            except Exception:
-                pass  # Fall back to full image
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
 
         return estimate_sharpness(image)
 
@@ -121,8 +124,8 @@ class MotionBlurSorter(SortMethod):
             try:
                 mask = get_face_hull_mask(image.shape, metadata.landmarks)
                 image = (image * mask).astype(np.uint8)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
 
         # Convert to grayscale
         if len(image.shape) == 3:
