@@ -6,6 +6,7 @@ InsightFace detection and SegFormer segmentation.
 """
 
 import argparse
+import logging
 import sys
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -20,6 +21,8 @@ from visagen.vision.detector import FaceDetector
 from visagen.vision.dflimg import DFLImage, FaceMetadata
 from visagen.vision.face_type import FaceType
 from visagen.vision.segmenter import FaceSegmenter
+
+logger = logging.getLogger(__name__)
 
 # Supported image extensions
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -287,6 +290,13 @@ class FaceExtractor:
 
         finally:
             cap.release()
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
 
         return face_count
 
@@ -366,6 +376,13 @@ class FaceExtractor:
 
         finally:
             cap.release()
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
 
         return face_count
 
@@ -425,6 +442,27 @@ class FaceExtractor:
                 continue
 
         return face_count
+
+    def cleanup(self) -> None:
+        """Cleanup GPU resources."""
+        try:
+            if hasattr(self, "detector"):
+                del self.detector
+            if hasattr(self, "aligner"):
+                del self.aligner
+            if hasattr(self, "segmenter") and self.segmenter is not None:
+                del self.segmenter
+
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+    def __del__(self) -> None:
+        """Cleanup on deletion."""
+        self.cleanup()
 
 
 def main() -> int:
