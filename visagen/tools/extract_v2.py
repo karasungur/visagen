@@ -164,7 +164,22 @@ class FaceExtractor:
 
             # Get 68-point landmarks from 106-point
             landmarks_106 = face.landmarks
-            landmarks_68 = self.aligner.convert_106_to_68(landmarks_106)
+
+            if landmarks_106 is None:
+                logger.warning(f"Skipping face {idx}: no landmarks detected")
+                continue
+
+            if landmarks_106.shape[0] == 5:
+                logger.warning(
+                    f"Skipping face {idx}: only 5-point landmarks available"
+                )
+                continue
+
+            try:
+                landmarks_68 = self.aligner.convert_106_to_68(landmarks_106)
+            except ValueError as e:
+                logger.error(f"Landmark conversion failed for face {idx}: {e}")
+                continue
 
             # Align face
             aligned = self.aligner.align_face(
