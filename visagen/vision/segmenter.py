@@ -356,6 +356,12 @@ class FaceSegmenter:
             if progress_callback is not None:
                 progress_callback(len(results), total)
 
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
         return results
 
     def _process_batch(
@@ -438,6 +444,12 @@ class FaceSegmenter:
                     confidence=confidence,
                 )
             )
+
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
         return results
 
@@ -604,3 +616,16 @@ class FaceSegmenter:
             parsing=result.parsing,  # Note: parsing is in model space
             confidence=result.confidence,
         )
+
+    def __del__(self) -> None:
+        """Cleanup GPU resources on deletion."""
+        try:
+            if hasattr(self, "model"):
+                del self.model
+            if hasattr(self, "processor"):
+                del self.processor
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
