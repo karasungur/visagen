@@ -5,10 +5,13 @@ SCRFD (Sample and Computation Redistribution for Face Detection) provides
 fast and accurate face detection, especially for small faces.
 """
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from insightface.app import FaceAnalysis
@@ -191,6 +194,12 @@ class FaceDetector:
                 landmarks = face.landmark_2d_106
             elif hasattr(face, "kps") and face.kps is not None:
                 landmarks = face.kps
+                logger.warning(
+                    "Face detected without 106-point landmarks, falling back to 5-point. "
+                    "Alignment quality may be reduced."
+                )
+            else:
+                logger.warning("Face detected without any landmarks")
 
             detected.append(
                 DetectedFace(
