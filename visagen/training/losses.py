@@ -872,7 +872,8 @@ class StyleLoss(nn.Module):
             x = safe_gaussian_blur2d(x, (kernel_size, kernel_size), (sigma, sigma))
 
         b, c, h, w = x.shape
-        features = x.view(b, c, h * w)
+        # Ensure contiguous memory for efficient matrix multiplication
+        features = x.reshape(b, c, h * w).contiguous()
         gram = torch.bmm(features, features.transpose(1, 2))
         return gram / (c * h * w)
 
