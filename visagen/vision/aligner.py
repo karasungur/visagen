@@ -557,6 +557,18 @@ class FaceAligner:
                 f"Conversion may produce errors."
             )
 
+        # NaN and Inf validation
+        if np.any(np.isnan(landmarks_106)):
+            raise ValueError("Landmarks contain NaN values")
+        if np.any(np.isinf(landmarks_106)):
+            raise ValueError("Landmarks contain infinite values")
+
+        # Bounds check (warning for extreme values)
+        if np.any(landmarks_106 < -10000) or np.any(landmarks_106 > 10000):
+            logger.warning(
+                "Landmarks contain extreme values, results may be unreliable"
+            )
+
         # Mapping from 106 to 68 points
         # This is an approximate mapping
         idx_map = [
