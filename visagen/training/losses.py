@@ -308,6 +308,7 @@ class LPIPSLoss(nn.Module):
         self.net = net
         self._lpips = None
         self._use_gpu = use_gpu
+        self._cached_device = None
 
     def _ensure_lpips(self) -> None:
         """Lazy load LPIPS model."""
@@ -343,9 +344,10 @@ class LPIPSLoss(nn.Module):
         """
         self._ensure_lpips()
 
-        # Move model to same device as input
-        if next(self._lpips.parameters()).device != pred.device:
+        # Only move model if device changed (cache device for efficiency)
+        if self._cached_device != pred.device:
             self._lpips = self._lpips.to(pred.device)
+            self._cached_device = pred.device
 
         return self._lpips(pred, target).mean()
 
@@ -1219,14 +1221,20 @@ class TemporalConsistencyLoss(nn.Module):
             Temporal consistency loss (scalar).
         """
         if self.mode == "ssim":
-            # Use DSSIM between consecutive frames
+            # Vectorized DSSIM: process all frame pairs at once
             B, C, T, H, W = sequence.shape
-            total_dssim = torch.tensor(0.0, device=sequence.device)
-            for t in range(T - 1):
-                frame_t = sequence[:, :, t, :, :]
-                frame_t1 = sequence[:, :, t + 1, :, :]
-                total_dssim = total_dssim + self.dssim_loss(frame_t, frame_t1)
-            loss = total_dssim / max(T - 1, 1)
+            if T < 2:
+                return torch.tensor(0.0, device=sequence.device, requires_grad=True)
+
+            # Reshape to process all frame pairs in single forward
+            # frames_t: (B*(T-1), C, H, W), frames_t1: (B*(T-1), C, H, W)
+            frames_t = (
+                sequence[:, :, :-1].permute(0, 2, 1, 3, 4).reshape(B * (T - 1), C, H, W)
+            )
+            frames_t1 = (
+                sequence[:, :, 1:].permute(0, 2, 1, 3, 4).reshape(B * (T - 1), C, H, W)
+            )
+            loss = self.dssim_loss(frames_t, frames_t1)
         else:
             # Compute frame-to-frame differences
             # sequence[:, :, 1:] - sequence[:, :, :-1] gives T-1 difference frames
