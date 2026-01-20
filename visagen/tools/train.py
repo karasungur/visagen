@@ -332,6 +332,13 @@ Examples:
         help="Disable warp augmentation",
     )
     parser.add_argument(
+        "--color-transfer-mode",
+        type=str,
+        default=None,
+        choices=["rct", "lct", "sot", "mkl", "idt", "mix"],
+        help="Color transfer augmentation mode (default: disabled)",
+    )
+    parser.add_argument(
         "--uniform-yaw",
         action="store_true",
         help="Enable uniform yaw sampling",
@@ -495,6 +502,7 @@ def main() -> int:
         "eg3d_render_resolution": 64,
         "uniform_yaw": False,
         "masked_training": False,
+        "color_transfer_mode": None,
     }
 
     # Load YAML config if provided
@@ -551,6 +559,7 @@ def main() -> int:
             "hsv_shift_amount": 0.1,
             "brightness_range": 0.1,
             "contrast_range": 0.1,
+            "color_transfer_mode": args.color_transfer_mode,
         }
 
     # Create DataModule
