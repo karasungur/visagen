@@ -54,6 +54,7 @@ class ExtractTab(BaseTab):
         super().__init__(*args, **kwargs)
         self._extractor: FaceExtractor | None = None
         self._extraction_active = False
+        self._state_lock = threading.Lock()
         self._preview_buffer: deque[tuple[np.ndarray, str]] = deque(
             maxlen=self.MAX_PREVIEW_ITEMS
         )
@@ -294,8 +295,21 @@ class ExtractTab(BaseTab):
         Yields:
             Tuple of (log_text, status_text, timer).
         """
+        # Concurrent protection
+        with self._state_lock:
+            if self._extraction_active:
+                yield (
+                    self.i18n.t("extract.error.already_running"),
+                    self.i18n.t("status.busy"),
+                    gr.Timer(active=False),
+                )
+                return
+            self._extraction_active = True
+
         # Validate input path
         if not input_path or not Path(input_path).exists():
+            with self._state_lock:
+                self._extraction_active = False
             yield (
                 self.i18n.t("errors.path_not_found"),
                 "Error",
@@ -396,8 +410,19 @@ class ExtractTab(BaseTab):
             yield (log_buffer, "Error", gr.Timer(active=False))
 
         finally:
-            self._extraction_active = False
+            with self._state_lock:
+                self._extraction_active = False
+            if self._extractor is not None:
+                self._extractor.cleanup()
             self._extractor = None
+
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
 
     def _add_to_preview(
         self,
@@ -454,7 +479,8 @@ class ExtractTab(BaseTab):
         Returns:
             Status message indicating whether process was stopped.
         """
-        self._extraction_active = False
-        if self._extractor:
-            self._extractor.request_stop()
+        with self._state_lock:
+            self._extraction_active = False
+            if self._extractor is not None:
+                self._extractor.request_stop()
         return self.i18n.t("status.extraction_stopped")

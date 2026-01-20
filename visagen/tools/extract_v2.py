@@ -6,6 +6,7 @@ InsightFace detection and SegFormer segmentation.
 """
 
 import argparse
+import logging
 import sys
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -20,6 +21,8 @@ from visagen.vision.detector import FaceDetector
 from visagen.vision.dflimg import DFLImage, FaceMetadata
 from visagen.vision.face_type import FaceType
 from visagen.vision.segmenter import FaceSegmenter
+
+logger = logging.getLogger(__name__)
 
 # Supported image extensions
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -55,6 +58,9 @@ class ExtractionProgress:
     faces_extracted: int
     current_face: ExtractedFace | None = None
     source_name: str = ""
+    fps: float = 0.0
+    elapsed_seconds: float = 0.0
+    eta_seconds: float = 0.0
 
 
 class FaceExtractor:
@@ -97,6 +103,54 @@ class FaceExtractor:
         self.detector = FaceDetector(model_name=model_name, device=device)
         self.aligner = FaceAligner()
         self.segmenter: FaceSegmenter | None = None  # Lazy load
+
+        # Performance metrics
+        self._metrics: dict = {
+            "start_time": None,
+            "faces_extracted": 0,
+            "faces_skipped": 0,
+            "frames_processed": 0,
+            "detection_times": [],
+            "alignment_times": [],
+            "segmentation_times": [],
+        }
+
+    def get_metrics(self) -> dict:
+        """Get extraction performance metrics."""
+        import time
+
+        elapsed = (
+            time.time() - self._metrics["start_time"]
+            if self._metrics["start_time"]
+            else 0
+        )
+        total_faces = self._metrics["faces_extracted"] + self._metrics["faces_skipped"]
+        detection_times = self._metrics["detection_times"]
+        return {
+            "elapsed_seconds": elapsed,
+            "faces_extracted": self._metrics["faces_extracted"],
+            "faces_skipped": self._metrics["faces_skipped"],
+            "frames_processed": self._metrics["frames_processed"],
+            "success_rate": self._metrics["faces_extracted"] / max(1, total_faces),
+            "fps": self._metrics["frames_processed"] / max(0.001, elapsed),
+            "avg_detection_ms": (
+                np.mean(detection_times) * 1000 if detection_times else 0
+            ),
+        }
+
+    def reset_metrics(self) -> None:
+        """Reset performance metrics for new extraction."""
+        import time
+
+        self._metrics = {
+            "start_time": time.time(),
+            "faces_extracted": 0,
+            "faces_skipped": 0,
+            "frames_processed": 0,
+            "detection_times": [],
+            "alignment_times": [],
+            "segmentation_times": [],
+        }
 
     def request_stop(self) -> None:
         """Request extraction to stop gracefully."""
@@ -149,19 +203,42 @@ class FaceExtractor:
         with_mask: bool = True,
     ) -> list[ExtractedFace]:
         """Extract faces from numpy array."""
+        import time
+
         results = []
 
-        # Detect faces
+        # Detect faces with timing
+        t0 = time.perf_counter()
         faces = self.detector.detect(image)
+        self._metrics["detection_times"].append(time.perf_counter() - t0)
 
         for idx, face in enumerate(faces):
             # Filter by confidence
             if face.confidence < self.min_confidence:
+                self._metrics["faces_skipped"] += 1
                 continue
 
             # Get 68-point landmarks from 106-point
             landmarks_106 = face.landmarks
-            landmarks_68 = self.aligner.convert_106_to_68(landmarks_106)
+
+            if landmarks_106 is None:
+                logger.warning(f"Skipping face {idx}: no landmarks detected")
+                self._metrics["faces_skipped"] += 1
+                continue
+
+            if landmarks_106.shape[0] == 5:
+                logger.warning(f"Skipping face {idx}: only 5-point landmarks available")
+                self._metrics["faces_skipped"] += 1
+                continue
+
+            try:
+                t0 = time.perf_counter()
+                landmarks_68 = self.aligner.convert_106_to_68(landmarks_106)
+                self._metrics["alignment_times"].append(time.perf_counter() - t0)
+            except ValueError as e:
+                logger.error(f"Landmark conversion failed for face {idx}: {e}")
+                self._metrics["faces_skipped"] += 1
+                continue
 
             # Align face
             aligned = self.aligner.align_face(
@@ -174,8 +251,10 @@ class FaceExtractor:
             # Generate segmentation mask if requested
             xseg_mask = None
             if with_mask:
+                t0 = time.perf_counter()
                 segmenter = self._ensure_segmenter()
                 seg_result = segmenter.segment(aligned.image)
+                self._metrics["segmentation_times"].append(time.perf_counter() - t0)
                 # Compress mask for storage
                 ret, buf = cv2.imencode(".png", seg_result.mask)
                 if ret:
@@ -202,7 +281,9 @@ class FaceExtractor:
                     face_index=idx,
                 )
             )
+            self._metrics["faces_extracted"] += 1
 
+        self._metrics["frames_processed"] += 1
         return results
 
     def extract_from_video(
@@ -239,7 +320,24 @@ class FaceExtractor:
         if not cap.isOpened():
             raise ValueError(f"Failed to open video: {video_path}")
 
+        # Verify video is readable
+        ret, test_frame = cap.read()
+        if not ret or test_frame is None:
+            cap.release()
+            raise ValueError(f"Video file appears corrupted or empty: {video_path}")
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reset to start
+
+        # Validate frame count
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            logger.warning(
+                f"Unknown frame count for {video_path}, using streaming mode"
+            )
+            total_frames = 1  # Fallback to avoid division by zero
+        elif total_frames > 10_000_000:
+            cap.release()
+            raise ValueError(f"Video too large: {total_frames} frames")
+
         if max_frames:
             total_frames = min(total_frames, max_frames * frame_skip)
 
@@ -287,6 +385,13 @@ class FaceExtractor:
 
         finally:
             cap.release()
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
 
         return face_count
 
@@ -316,7 +421,23 @@ class FaceExtractor:
         if not cap.isOpened():
             raise ValueError(f"Failed to open video: {video_path}")
 
+        # Verify video is readable
+        ret, test_frame = cap.read()
+        if not ret or test_frame is None:
+            cap.release()
+            raise ValueError(f"Video file appears corrupted or empty: {video_path}")
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reset to start
+
+        # Validate frame count
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            logger.warning(
+                f"Unknown frame count for {video_path}, using streaming mode"
+            )
+            total_frames = 1  # Fallback to avoid division by zero
+        elif total_frames > 10_000_000:
+            cap.release()
+            raise ValueError(f"Video too large: {total_frames} frames")
 
         if max_frames:
             total_frames = min(total_frames, max_frames * frame_skip)
@@ -366,6 +487,13 @@ class FaceExtractor:
 
         finally:
             cap.release()
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
 
         return face_count
 
@@ -425,6 +553,27 @@ class FaceExtractor:
                 continue
 
         return face_count
+
+    def cleanup(self) -> None:
+        """Cleanup GPU resources."""
+        try:
+            if hasattr(self, "detector"):
+                del self.detector
+            if hasattr(self, "aligner"):
+                del self.aligner
+            if hasattr(self, "segmenter") and self.segmenter is not None:
+                del self.segmenter
+
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+    def __del__(self) -> None:
+        """Cleanup on deletion."""
+        self.cleanup()
 
 
 def main() -> int:

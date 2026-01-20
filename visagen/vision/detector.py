@@ -5,10 +5,14 @@ SCRFD (Sample and Computation Redistribution for Face Detection) provides
 fast and accurate face detection, especially for small faces.
 """
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+import cv2
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from insightface.app import FaceAnalysis
@@ -156,6 +160,18 @@ class FaceDetector:
         )
         self._app.prepare(ctx_id=ctx_id, det_thresh=det_thresh, det_size=det_size)
 
+        # Warm-up inference for stable timing
+        self._warm_up()
+
+    def _warm_up(self) -> None:
+        """Run warm-up inference for stable performance."""
+        try:
+            dummy = np.zeros((640, 640, 3), dtype=np.uint8)
+            _ = self._app.get(dummy)
+            logger.debug("Detector warm-up completed")
+        except Exception as e:
+            logger.warning(f"Detector warm-up failed: {e}")
+
     def _get_providers(self, ctx_id: int) -> list[str]:
         """Get ONNX Runtime execution providers based on device."""
         if ctx_id >= 0:
@@ -179,6 +195,26 @@ class FaceDetector:
         Returns:
             List of DetectedFace objects.
         """
+        # Input validation
+        if image is None or image.size == 0:
+            raise ValueError("Invalid image: empty or None")
+        if image.ndim != 3:
+            raise ValueError(f"Expected 3D image array, got {image.ndim}D")
+        if image.shape[2] != 3:
+            raise ValueError(f"Expected BGR image (H,W,3), got shape {image.shape}")
+
+        # Size limit check
+        h, w = image.shape[:2]
+        max_dim = 4096
+        if max(h, w) > max_dim:
+            scale = max_dim / max(h, w)
+            image = cv2.resize(
+                image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA
+            )
+            logger.info(
+                f"Image downscaled from {w}x{h} to {int(w * scale)}x{int(h * scale)}"
+            )
+
         # Run detection
         faces = self._app.get(image)
 
@@ -191,6 +227,12 @@ class FaceDetector:
                 landmarks = face.landmark_2d_106
             elif hasattr(face, "kps") and face.kps is not None:
                 landmarks = face.kps
+                logger.warning(
+                    "Face detected without 106-point landmarks, falling back to 5-point. "
+                    "Alignment quality may be reduced."
+                )
+            else:
+                logger.warning("Face detected without any landmarks")
 
             detected.append(
                 DetectedFace(

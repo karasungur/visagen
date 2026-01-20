@@ -117,8 +117,8 @@ def resize_single_face(
                 if dfl_metadata is not None:
                     source_face_type = dfl_metadata.face_type
                     metadata = dfl_metadata
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to load metadata from {input_path}: {e}")
 
         # Read image with cv2 (faster than DFLImage.load for non-metadata cases)
         image = cv2.imread(str(input_path))

@@ -5,6 +5,7 @@ Provides face alignment using AntelopeV2 106-point landmarks
 and Umeyama similarity transform, compatible with legacy DFL format.
 """
 
+import logging
 import math
 from dataclasses import dataclass
 
@@ -13,6 +14,8 @@ import numpy as np
 import numpy.linalg as npla
 
 from visagen.vision.face_type import FACE_TYPE_TO_PADDING, FaceType
+
+logger = logging.getLogger(__name__)
 
 # Standard 2D landmarks for alignment (normalized coordinates)
 # These define the "ideal" face position in output image
@@ -534,6 +537,38 @@ class FaceAligner:
         Returns:
             68-point landmarks array.
         """
+        if not isinstance(landmarks_106, np.ndarray):
+            landmarks_106 = np.array(landmarks_106)
+
+        if landmarks_106.ndim != 2 or landmarks_106.shape[1] != 2:
+            raise ValueError(
+                f"landmarks_106 must have shape (N, 2), got {landmarks_106.shape}"
+            )
+
+        num_points = landmarks_106.shape[0]
+        if num_points == 5:
+            raise ValueError(
+                "Received 5-point landmarks instead of 106-point. "
+                "Cannot convert to 68-point format."
+            )
+        elif num_points != 106:
+            logger.warning(
+                f"Expected 106-point landmarks, got {num_points}. "
+                f"Conversion may produce errors."
+            )
+
+        # NaN and Inf validation
+        if np.any(np.isnan(landmarks_106)):
+            raise ValueError("Landmarks contain NaN values")
+        if np.any(np.isinf(landmarks_106)):
+            raise ValueError("Landmarks contain infinite values")
+
+        # Bounds check (warning for extreme values)
+        if np.any(landmarks_106 < -10000) or np.any(landmarks_106 > 10000):
+            logger.warning(
+                "Landmarks contain extreme values, results may be unreliable"
+            )
+
         # Mapping from 106 to 68 points
         # This is an approximate mapping
         idx_map = [

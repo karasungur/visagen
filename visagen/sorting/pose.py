@@ -4,12 +4,15 @@ Pose-based sorting methods.
 Provides sorting by face yaw (left-right) and pitch (up-down) angles.
 """
 
+import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from visagen.sorting.base import SortMethod
 from visagen.vision.aligner import FaceAligner
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from visagen.vision.dflimg import FaceMetadata
@@ -47,7 +50,8 @@ class YawSorter(SortMethod):
                 metadata.landmarks, size=size
             )
             return float(yaw)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             return 0.0
 
 
@@ -83,7 +87,8 @@ class PitchSorter(SortMethod):
                 metadata.landmarks, size=size
             )
             return float(pitch)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             return 0.0
 
 
@@ -117,5 +122,6 @@ class RollSorter(SortMethod):
                 metadata.landmarks, size=size
             )
             return float(roll)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             return 0.0

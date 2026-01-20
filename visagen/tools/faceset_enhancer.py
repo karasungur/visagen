@@ -76,8 +76,8 @@ def enhance_single_face(
             try:
                 _, dfl_metadata = DFLImage.load(input_path)
                 metadata = dfl_metadata
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to load metadata from {input_path}: {e}")
 
         # Enhance face
         enhanced = restorer.restore(image, strength=strength)
