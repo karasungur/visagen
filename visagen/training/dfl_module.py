@@ -664,8 +664,11 @@ class DFLModule(pl.LightningModule):
             logger.error(
                 f"Loss is NaN/Inf at step {self.global_step}. Loss dict: {loss_dict}"
             )
-            # Return a small valid loss to prevent crash
-            return torch.tensor(0.0, device=total_loss.device, requires_grad=True)
+            # Create gradient-safe dummy loss instead of zero
+            dummy_loss = torch.tensor(
+                1e-6, device=total_loss.device, requires_grad=True
+            )
+            return dummy_loss * pred.mean().detach()
 
         # Log all losses
         for name, value in loss_dict.items():

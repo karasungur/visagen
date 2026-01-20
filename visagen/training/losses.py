@@ -9,9 +9,13 @@ Implements modern perceptual loss functions:
 - StyleLoss: Gram matrix based style transfer
 """
 
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Gaussian Blur Utilities (Kornia Fallback)
@@ -395,8 +399,9 @@ class IDLoss(nn.Module):
             if len(faces) > 0:
                 embeddings.append(torch.from_numpy(faces[0].embedding))
             else:
-                # Return zero embedding if no face detected
-                embeddings.append(torch.zeros(512))
+                logger.warning(f"No face detected in IDLoss at batch {i}")
+                # Small random embedding to maintain gradient flow
+                embeddings.append(torch.randn(512) * 0.01)
 
         return torch.stack(embeddings).to(img.device)
 
@@ -420,8 +425,18 @@ class IDLoss(nn.Module):
         pred_emb = self._get_embedding(pred)
         target_emb = self._get_embedding(target)
 
-        # Cosine similarity
-        cos_sim = F.cosine_similarity(pred_emb, target_emb, dim=1)
+        # Check for degenerate embeddings
+        pred_norm = torch.norm(pred_emb, dim=1)
+        target_norm = torch.norm(target_emb, dim=1)
+        valid_mask = (pred_norm > 1e-4) & (target_norm > 1e-4)
+
+        if not valid_mask.any():
+            return torch.tensor(0.0, device=pred.device, requires_grad=True)
+
+        # Cosine similarity only for valid embeddings
+        cos_sim = F.cosine_similarity(
+            pred_emb[valid_mask], target_emb[valid_mask], dim=1
+        )
 
         # Loss = 1 - similarity (so 0 = identical, 2 = opposite)
         return (1.0 - cos_sim).mean()
