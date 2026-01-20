@@ -470,10 +470,10 @@ class TrainingTab(BaseTab):
         def load_preset(key: str) -> tuple:
             """Load preset and return all parameter values."""
             if not key:
-                return tuple([gr.update()] * 11)
+                return tuple([gr.update()] * 21)
             preset = self.preset_manager.load_preset(key)
             if not preset:
-                return tuple([gr.update()] * 11)
+                return tuple([gr.update()] * 21)
             return (
                 preset.batch_size,
                 preset.max_epochs,
@@ -488,6 +488,14 @@ class TrainingTab(BaseTab):
                 preset.use_pretrained_vae,
                 getattr(preset, "uniform_yaw", False),
                 getattr(preset, "masked_training", False),
+                getattr(preset, "eyes_mouth_weight", 0.0),
+                getattr(preset, "gaze_weight", 0.0),
+                getattr(preset, "true_face_power", 0.0),
+                getattr(preset, "face_style_weight", 0.0),
+                getattr(preset, "bg_style_weight", 0.0),
+                getattr(preset, "id_weight", 0.0),
+                getattr(preset, "temporal_power", 0.1),
+                getattr(preset, "temporal_consistency_weight", 1.0),
             )
 
         def show_save_dialog() -> dict:
@@ -511,6 +519,14 @@ class TrainingTab(BaseTab):
             use_pretrained_vae: bool,
             uniform_yaw: bool,
             masked_training: bool,
+            eyes_mouth_weight: float,
+            gaze_weight: float,
+            true_face_power: float,
+            face_style_weight: float,
+            bg_style_weight: float,
+            id_weight: float,
+            temporal_power: float,
+            temporal_consistency_weight: float,
         ) -> tuple:
             """Save current parameters as preset."""
             if not name:
@@ -530,6 +546,14 @@ class TrainingTab(BaseTab):
                 use_pretrained_vae=bool(use_pretrained_vae),
                 uniform_yaw=bool(uniform_yaw),
                 masked_training=bool(masked_training),
+                eyes_mouth_weight=float(eyes_mouth_weight),
+                gaze_weight=float(gaze_weight),
+                true_face_power=float(true_face_power),
+                face_style_weight=float(face_style_weight),
+                bg_style_weight=float(bg_style_weight),
+                id_weight=float(id_weight),
+                temporal_power=float(temporal_power),
+                temporal_consistency_weight=float(temporal_consistency_weight),
             )
             self.preset_manager.save_preset(preset)
             new_choices = self.preset_manager.list_presets()
@@ -553,6 +577,14 @@ class TrainingTab(BaseTab):
                 c["use_pretrained_vae"],
                 c["uniform_yaw"],
                 c["masked_training"],
+                c["eyes_mouth_weight"],
+                c["gaze_weight"],
+                c["true_face_power"],
+                c["face_style_weight"],
+                c["bg_style_weight"],
+                c["id_weight"],
+                c["temporal_power"],
+                c["temporal_consistency_weight"],
             ],
         )
 
@@ -583,6 +615,14 @@ class TrainingTab(BaseTab):
                 c["use_pretrained_vae"],
                 c["uniform_yaw"],
                 c["masked_training"],
+                c["eyes_mouth_weight"],
+                c["gaze_weight"],
+                c["true_face_power"],
+                c["face_style_weight"],
+                c["bg_style_weight"],
+                c["id_weight"],
+                c["temporal_power"],
+                c["temporal_consistency_weight"],
             ],
             outputs=[c["preset_dropdown"], c["save_preset_row"]],
         )
