@@ -463,9 +463,10 @@ class TargetStepCallback(Callback):
             trainer.should_stop = True
             return
 
-        # Check target loss
+        # Check target loss with epsilon for float comparison
+        EPSILON = 1e-6
         if self.target_loss is not None and self._current_loss is not None:
-            if self._current_loss <= self.target_loss:
+            if self._current_loss <= (self.target_loss + EPSILON):
                 print(
                     f"\nTarget loss {self.target_loss} reached "
                     f"(current: {self._current_loss:.4f}). Stopping training."
@@ -599,8 +600,14 @@ class CommandFileReaderCallback(Callback):
         pl_module: pl.LightningModule,
     ) -> None:
         """Read command file and apply parameter updates."""
-        data = read_json_locked(self.command_file)
-        if data is None:
+        try:
+            data = read_json_locked(self.command_file)
+            if data is None:
+                if self.command_file.exists():
+                    logger.warning("Command file exists but couldn't be read")
+                return
+        except Exception as e:
+            logger.error(f"Failed to read command file: {e}")
             return
 
         params = data.get("params", {})

@@ -123,6 +123,8 @@ class DFLModule(pl.LightningModule):
         temporal_consistency_weight: float = 1.0,
         temporal_base_ch: int = 32,
         temporal_checkpoint: bool = True,
+        # Gradient accumulation for large batch training
+        gradient_accumulation_steps: int = 1,
         # Experimental model parameters
         model_type: str = "standard",  # "standard", "diffusion", "eg3d"
         diffusion_texture_weight: float = 0.0,
@@ -752,8 +754,20 @@ class DFLModule(pl.LightningModule):
             )
             return  # Skip this step
 
+        # Apply gradient accumulation scaling if enabled
+        accum_steps = self.hparams.get("gradient_accumulation_steps", 1)
+        if accum_steps > 1:
+            g_total = g_total / accum_steps
+
         self.manual_backward(g_total)
-        g_opt.step()
+
+        # Only step optimizer at accumulation boundary
+        if accum_steps > 1:
+            if (batch_idx + 1) % accum_steps == 0:
+                g_opt.step()
+                g_opt.zero_grad()
+        else:
+            g_opt.step()
 
         loss_dict["g_total"] = g_total
 
