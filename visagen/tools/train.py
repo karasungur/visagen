@@ -219,6 +219,12 @@ Examples:
         default=0.0,
         help="GAN loss power (default: 0.0, enables adversarial training when > 0)",
     )
+    parser.add_argument(
+        "--id-weight",
+        type=float,
+        default=0.0,
+        help="Identity preservation loss weight (default: 0.0, requires insightface)",
+    )
 
     # Experimental model arguments
     parser.add_argument(
@@ -335,6 +341,29 @@ Examples:
         action="store_true",
         help="Enable masked training (blur out non-face area)",
     )
+    parser.add_argument(
+        "--temporal-enabled",
+        action="store_true",
+        help="Enable temporal consistency training with 3D discriminator",
+    )
+    parser.add_argument(
+        "--temporal-power",
+        type=float,
+        default=0.1,
+        help="Temporal GAN loss weight (default: 0.1)",
+    )
+    parser.add_argument(
+        "--temporal-consistency-weight",
+        type=float,
+        default=1.0,
+        help="Frame-to-frame consistency loss weight (default: 1.0)",
+    )
+    parser.add_argument(
+        "--temporal-sequence-length",
+        type=int,
+        default=5,
+        help="Number of frames per temporal sequence (default: 5)",
+    )
 
     # Preview arguments
     parser.add_argument(
@@ -443,6 +472,11 @@ def main() -> int:
         "bg_style_weight": 0.0,
         "true_face_power": 0.0,
         "gan_power": 0.0,
+        "id_weight": 0.0,
+        "temporal_enabled": False,
+        "temporal_power": 0.1,
+        "temporal_consistency_weight": 1.0,
+        "temporal_sequence_length": 5,
         "texture_weight": 0.0,
         "preview_interval": 500,
         "backup_interval": 0,
@@ -614,6 +648,12 @@ def main() -> int:
             bg_style_weight=args.bg_style_weight,
             true_face_power=args.true_face_power,
             gan_power=args.gan_power,
+            id_weight=args.id_weight,
+            # Temporal parameters
+            temporal_enabled=args.temporal_enabled,
+            temporal_power=args.temporal_power,
+            temporal_consistency_weight=args.temporal_consistency_weight,
+            temporal_sequence_length=args.temporal_sequence_length,
             # Optimizer config
             optimizer_type=args.optimizer_type,
             lr_dropout=args.lr_dropout,
