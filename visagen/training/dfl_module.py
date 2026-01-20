@@ -326,9 +326,10 @@ class DFLModule(pl.LightningModule):
 
         # DSSIM loss
         if use_multiscale_dssim:
-            self.dssim_loss = MultiScaleDSSIMLoss()
+            self.dssim_loss = MultiScaleDSSIMLoss(resolution=self.image_size)
         else:
-            self.dssim_loss = DSSIMLoss()
+            filter_size = max(3, int(self.image_size / 11.6)) | 1
+            self.dssim_loss = DSSIMLoss(filter_size=filter_size)
 
         # LPIPS loss (lazy loaded)
         self._lpips_loss = None
