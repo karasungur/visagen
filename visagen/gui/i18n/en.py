@@ -146,6 +146,18 @@ TRANSLATIONS = {
             "label": "True Face Power",
             "info": "Identity discriminator (df architecture only, 0-1)",
         },
+        "id_weight": {
+            "label": "ID Weight",
+            "info": "Identity preservation loss using ArcFace (0-1, requires insightface)",
+        },
+        "temporal_power": {
+            "label": "Temporal Power",
+            "info": "Temporal discriminator loss weight (0-1, requires temporal training)",
+        },
+        "temporal_consistency_weight": {
+            "label": "Temporal Consistency Weight",
+            "info": "Frame-to-frame similarity loss (0-5, reduces flickering)",
+        },
         "precision": {
             "label": "Precision",
             "choices": {
