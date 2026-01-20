@@ -358,12 +358,24 @@ class TrainingTab(BaseTab):
 
     def _setup_events(self, c: dict[str, Any]) -> None:
         """Wire up training event handlers."""
+        # Debouncing state for live parameter updates
+        self._param_update_times: dict[str, float] = {}
+        DEBOUNCE_DELAY = 0.3  # seconds
 
         # Live control helper
         def send_live_param(key: str, value: Any, output_dir: str) -> None:
             """Send parameter update to running training process."""
             if not output_dir or not self.state.processes.training:
                 return
+
+            # Debounce rapid updates
+            current_time = time.time()
+            last_update = self._param_update_times.get(key, 0)
+
+            if current_time - last_update < DEBOUNCE_DELAY:
+                return  # Skip rapid updates
+
+            self._param_update_times[key] = current_time
 
             try:
                 cmd_file = Path(output_dir) / "cmd_training.json"
@@ -764,6 +776,16 @@ class TrainingTab(BaseTab):
             yield f"\n\nError: {e}"
 
         finally:
+            # Proper process cleanup with timeout
+            process = self.state.processes.training
+            if process is not None:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
             self.state.processes.training = None
 
     def _stop_training(self) -> str:
@@ -790,7 +812,21 @@ class TrainingTab(BaseTab):
         try:
             import cv2
 
-            img = cv2.imread(str(latest_img))
+            # Retry logic for file reading (file might be in-flight)
+            MAX_RETRIES = 3
+            img = None
+            for _attempt in range(MAX_RETRIES):
+                try:
+                    # Check if file is empty (still being written)
+                    if latest_img.stat().st_size == 0:
+                        time.sleep(0.1)
+                        continue
+                    img = cv2.imread(str(latest_img))
+                    if img is not None:
+                        break
+                except Exception:
+                    time.sleep(0.1)
+
             if img is None:
                 return "Error: Could not read preview image", None
 
