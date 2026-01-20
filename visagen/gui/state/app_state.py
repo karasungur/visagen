@@ -20,6 +20,15 @@ class AppSettings:
     workspace_dir: str = "./workspace"
     locale: str = "en"
 
+    # Extraction settings
+    extraction_output_size: int = 512
+    extraction_face_type: str = "whole_face"
+    extraction_min_confidence: float = 0.5
+    extraction_jpeg_quality: int = 95
+    extraction_auto_mask: bool = True
+    segmentation_batch_size: int = 8
+    detector_warmup: bool = True
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
@@ -29,6 +38,13 @@ class AppSettings:
             "num_workers": self.num_workers,
             "workspace_dir": self.workspace_dir,
             "locale": self.locale,
+            "extraction_output_size": self.extraction_output_size,
+            "extraction_face_type": self.extraction_face_type,
+            "extraction_min_confidence": self.extraction_min_confidence,
+            "extraction_jpeg_quality": self.extraction_jpeg_quality,
+            "extraction_auto_mask": self.extraction_auto_mask,
+            "segmentation_batch_size": self.segmentation_batch_size,
+            "detector_warmup": self.detector_warmup,
         }
 
     @classmethod
