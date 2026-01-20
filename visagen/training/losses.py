@@ -201,12 +201,13 @@ class DSSIMLoss(nn.Module):
         """
         c = pred.shape[1]
 
-        # Expand kernel for all channels (ensure dtype matches for AMP)
-        kernel = self.kernel.to(dtype=pred.dtype).repeat(c, 1, 1, 1)
-
-        # Constants
+        # Constants with numerical stability
+        EPS = 1e-8
         c1 = (self.k1 * self.max_val) ** 2
         c2 = (self.k2 * self.max_val) ** 2
+
+        # Expand kernel for all channels (ensure dtype matches for AMP)
+        kernel = self.kernel.to(dtype=pred.dtype).repeat(c, 1, 1, 1)
 
         # Compute means using depthwise convolution
         mu1 = F.conv2d(pred, kernel, padding=0, groups=c)
@@ -216,16 +217,21 @@ class DSSIMLoss(nn.Module):
         mu2_sq = mu2**2
         mu1_mu2 = mu1 * mu2
 
-        # Compute variances
-        sigma1_sq = F.conv2d(pred**2, kernel, padding=0, groups=c) - mu1_sq
-        sigma2_sq = F.conv2d(target**2, kernel, padding=0, groups=c) - mu2_sq
+        # Compute variances with clamping for numerical stability
+        sigma1_sq = torch.clamp(
+            F.conv2d(pred**2, kernel, padding=0, groups=c) - mu1_sq, min=0.0
+        )
+        sigma2_sq = torch.clamp(
+            F.conv2d(target**2, kernel, padding=0, groups=c) - mu2_sq, min=0.0
+        )
         sigma12 = F.conv2d(pred * target, kernel, padding=0, groups=c) - mu1_mu2
 
-        # SSIM formula
-        luminance = (2 * mu1_mu2 + c1) / (mu1_sq + mu2_sq + c1)
-        contrast_structure = (2 * sigma12 + c2) / (sigma1_sq + sigma2_sq + c2)
+        # SSIM formula with epsilon for stability
+        luminance = (2 * mu1_mu2 + c1) / (mu1_sq + mu2_sq + c1 + EPS)
+        contrast_structure = (2 * sigma12 + c2) / (sigma1_sq + sigma2_sq + c2 + EPS)
 
-        ssim_map = luminance * contrast_structure
+        # Clamp SSIM to valid range
+        ssim_map = torch.clamp(luminance * contrast_structure, -1.0, 1.0)
 
         # DSSIM = (1 - SSIM) / 2
         dssim = (1.0 - ssim_map.mean(dim=[2, 3])) / 2.0
@@ -646,6 +652,24 @@ class GazeLoss(nn.Module):
             by1 = y1[b].clamp(0, height - 1)
             bx2 = x2[b].clamp(0, width - 1)
             by2 = y2[b].clamp(0, height - 1)
+
+            # Ensure minimum box size of 2 pixels
+            MIN_BOX_SIZE = 2
+            box_width = bx2 - bx1
+            box_height = by2 - by1
+
+            if box_width < MIN_BOX_SIZE or box_height < MIN_BOX_SIZE:
+                # Expand from center to minimum size
+                center_x = (bx1 + bx2) / 2
+                center_y = (by1 + by2) / 2
+                half_size = MIN_BOX_SIZE / 2
+                bx1 = torch.clamp(center_x - half_size, min=0)
+                bx2 = bx1 + MIN_BOX_SIZE
+                by1 = torch.clamp(center_y - half_size, min=0)
+                by2 = by1 + MIN_BOX_SIZE
+                # Ensure still within bounds
+                bx2 = torch.clamp(bx2, max=width - 1)
+                by2 = torch.clamp(by2, max=height - 1)
 
             # Ensure valid box (at least 1 pixel)
             if (bx2 - bx1) < 1 or (by2 - by1) < 1:
