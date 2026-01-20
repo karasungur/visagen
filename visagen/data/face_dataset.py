@@ -4,6 +4,7 @@ Face Dataset for Training.
 Load DFL-aligned face images with metadata for training.
 """
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from torch.utils.data import Dataset
 
 from visagen.data.face_sample import FaceSample
 from visagen.vision.face_type import FaceType
+
+logger = logging.getLogger(__name__)
 
 
 class FaceDataset(Dataset):
@@ -219,8 +222,18 @@ class FaceDataset(Dataset):
                 middle_bin = self.yaw_bins // 2
                 self._yaw_bins_indices[middle_bin].append(idx)
 
-        # Remove empty bins
-        self._yaw_bins_indices = [b for b in self._yaw_bins_indices if len(b) > 0]
+        # Remove empty bins and log warnings
+        non_empty_bins = [b for b in self._yaw_bins_indices if len(b) > 0]
+        removed_count = self.yaw_bins - len(non_empty_bins)
+
+        if removed_count > 0:
+            logger.warning(f"Removed {removed_count}/{self.yaw_bins} empty yaw bins")
+
+        if len(non_empty_bins) == 0:
+            logger.error("All yaw bins empty! Falling back to random sampling.")
+            self._yaw_bins_indices = None
+        else:
+            self._yaw_bins_indices = non_empty_bins
 
     def sample_uniform_yaw(self) -> int:
         """
@@ -235,10 +248,15 @@ class FaceDataset(Dataset):
         if self._yaw_bins_indices is None or len(self._yaw_bins_indices) == 0:
             return np.random.randint(len(self.samples))
 
+        # Extra safety: filter empty bins at runtime
+        non_empty = [b for b in self._yaw_bins_indices if len(b) > 0]
+        if not non_empty:
+            return np.random.randint(len(self.samples))
+
         # Select random bin
-        bin_idx = np.random.randint(len(self._yaw_bins_indices))
+        bin_idx = np.random.randint(len(non_empty))
         # Select random sample from bin
-        sample_idx = np.random.choice(self._yaw_bins_indices[bin_idx])
+        sample_idx = np.random.choice(non_empty[bin_idx])
         return sample_idx
 
     @staticmethod
