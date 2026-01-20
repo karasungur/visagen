@@ -122,6 +122,7 @@ class DFLModule(pl.LightningModule):
         temporal_sequence_length: int = 5,
         temporal_consistency_weight: float = 1.0,
         temporal_base_ch: int = 32,
+        temporal_checkpoint: bool = True,
         # Experimental model parameters
         model_type: str = "standard",  # "standard", "diffusion", "eg3d"
         diffusion_texture_weight: float = 0.0,
@@ -840,8 +841,13 @@ class DFLModule(pl.LightningModule):
 
         B, C, T, H, W = src_seq.shape
 
-        # Forward pass through sequence
-        pred_seq = self.forward_sequence(src_seq)
+        # Forward pass through sequence with optional gradient checkpointing
+        if self.training and self.hparams.get("temporal_checkpoint", True):
+            from torch.utils.checkpoint import checkpoint
+
+            pred_seq = checkpoint(self.forward_sequence, src_seq, use_reentrant=False)
+        else:
+            pred_seq = self.forward_sequence(src_seq)
 
         # === GENERATOR STEP ===
         g_opt.zero_grad()
