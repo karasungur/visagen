@@ -27,6 +27,8 @@ from transformers import SegformerForSemanticSegmentation, SegformerImageProcess
 
 from visagen.vision.cache import SegmentationCache
 
+logger = __import__("logging").getLogger(__name__)
+
 if TYPE_CHECKING:
     from visagen.vision.face_type import FaceType
 
@@ -395,10 +397,35 @@ class FaceSegmenter:
         if self.use_half:
             inputs["pixel_values"] = inputs["pixel_values"].half()
 
-        # Batch inference
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-            logits = outputs.logits
+        # Batch inference with OOM recovery
+        try:
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                logits = outputs.logits
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                logger.warning("GPU OOM in segmentation, retrying with smaller batch")
+                torch.cuda.empty_cache()
+                # Split batch in half and retry
+                if len(images) > 1:
+                    mid = len(images) // 2
+                    results_1 = self._process_batch(
+                        list(images[:mid]), return_soft_mask
+                    )
+                    results_2 = self._process_batch(
+                        list(images[mid:]), return_soft_mask
+                    )
+                    return results_1 + results_2
+                else:
+                    # Single image OOM, fall back to CPU
+                    logger.warning("Single image OOM, falling back to CPU")
+                    self.model = self.model.cpu()
+                    inputs = {k: v.cpu() for k, v in inputs.items()}
+                    with torch.no_grad():
+                        outputs = self.model(**inputs)
+                        logits = outputs.logits
+            else:
+                raise
 
         # Batch upsample
         interp_mode = self.interpolation_mode.value
