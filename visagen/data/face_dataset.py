@@ -4,6 +4,7 @@ Face Dataset for Training.
 Load DFL-aligned face images with metadata for training.
 """
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from torch.utils.data import Dataset
 
 from visagen.data.face_sample import FaceSample
 from visagen.vision.face_type import FaceType
+
+logger = logging.getLogger(__name__)
 
 
 class FaceDataset(Dataset):
@@ -94,7 +97,7 @@ class FaceDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         """
-        Get a sample.
+        Get a sample with retry logic for corrupt images.
 
         Args:
             idx: Sample index.
@@ -106,63 +109,97 @@ class FaceDataset(Dataset):
                 - 'landmarks': (68, 2) tensor
                 - 'face_type': int (FaceType enum value)
         """
-        sample = self.samples[idx]
+        MAX_RETRIES = 3
 
-        # Load image
-        image = sample.load_image()  # (H, W, C) float32 [0, 1]
+        for retry in range(MAX_RETRIES):
+            try:
+                current_idx = (idx + retry) % len(self.samples)
+                sample = self.samples[current_idx]
 
-        # Resize if needed
-        h, w = image.shape[:2]
-        if h != self.target_size or w != self.target_size:
-            image = cv2.resize(
-                image,
-                (self.target_size, self.target_size),
-                interpolation=cv2.INTER_CUBIC,
-            )
+                # Load image with validation
+                image = sample.load_image()  # (H, W, C) float32 [0, 1]
 
-        # Convert BGR to RGB and transpose to CHW
-        image = image[:, :, ::-1].copy()  # BGR to RGB
-        image = np.transpose(image, (2, 0, 1))  # HWC to CHW
-        image_tensor = torch.from_numpy(image)
+                if image is None:
+                    raise ValueError(f"Image is None at {sample.filepath}")
+                if not np.isfinite(image).all():
+                    raise ValueError(f"Image contains NaN/Inf at {sample.filepath}")
+                if image.ndim != 3 or image.shape[2] != 3:
+                    raise ValueError(f"Invalid image shape: {image.shape}")
 
-        # Load mask if available
-        mask_tensor = None
-        if self.with_mask:
-            mask = sample.get_xseg_mask()
-            if mask is not None:
-                if (
-                    mask.shape[0] != self.target_size
-                    or mask.shape[1] != self.target_size
-                ):
-                    mask = cv2.resize(
-                        mask,
+                # Resize if needed
+                h, w = image.shape[:2]
+                if h != self.target_size or w != self.target_size:
+                    image = cv2.resize(
+                        image,
                         (self.target_size, self.target_size),
-                        interpolation=cv2.INTER_LINEAR,
+                        interpolation=cv2.INTER_CUBIC,
                     )
-                if mask.ndim == 2:
-                    mask = mask[..., np.newaxis]
-                mask = np.transpose(mask, (2, 0, 1))
-                mask_tensor = torch.from_numpy(mask)
 
-        # Apply augmentation if provided
-        if self.transform is not None:
-            image_tensor, mask_tensor = self.transform(image_tensor, mask_tensor)
+                # Convert BGR to RGB and transpose to CHW
+                image = image[:, :, ::-1].copy()  # BGR to RGB
+                image = np.transpose(image, (2, 0, 1))  # HWC to CHW
+                image_tensor = torch.from_numpy(image)
 
-        # Normalize to [-1, 1]
-        if image_tensor.max() <= 1.0:
-            image_tensor = image_tensor * 2 - 1
+                # Load mask if available
+                mask_tensor = None
+                if self.with_mask:
+                    mask = sample.get_xseg_mask()
+                    if mask is not None:
+                        if (
+                            mask.shape[0] != self.target_size
+                            or mask.shape[1] != self.target_size
+                        ):
+                            mask = cv2.resize(
+                                mask,
+                                (self.target_size, self.target_size),
+                                interpolation=cv2.INTER_LINEAR,
+                            )
+                        if mask.ndim == 2:
+                            mask = mask[..., np.newaxis]
+                        mask = np.transpose(mask, (2, 0, 1))
+                        mask_tensor = torch.from_numpy(mask)
 
-        # Build output dict
-        output = {
-            "image": image_tensor,
-            "landmarks": torch.from_numpy(sample.landmarks.copy()),
-            "face_type": self._get_face_type_int(sample.face_type),
+                # Apply augmentation if provided
+                if self.transform is not None:
+                    image_tensor, mask_tensor = self.transform(
+                        image_tensor, mask_tensor
+                    )
+
+                # Normalize to [-1, 1]
+                if image_tensor.max() <= 1.0:
+                    image_tensor = image_tensor * 2 - 1
+
+                # Build output dict
+                output = {
+                    "image": image_tensor,
+                    "landmarks": torch.from_numpy(sample.landmarks.copy()),
+                    "face_type": self._get_face_type_int(sample.face_type),
+                }
+
+                if mask_tensor is not None:
+                    output["mask"] = mask_tensor
+
+                return output
+
+            except Exception as e:
+                if retry == 0:
+                    logger.warning(f"Failed to load sample {idx}: {e}")
+                if retry == MAX_RETRIES - 1:
+                    logger.error(f"All retries failed for sample {idx}")
+                    # Return blank sample to prevent crash
+                    return {
+                        "image": torch.zeros(3, self.target_size, self.target_size)
+                        - 1.0,
+                        "landmarks": torch.zeros(68, 2),
+                        "face_type": 0,
+                    }
+
+        # Should never reach here, but just in case
+        return {
+            "image": torch.zeros(3, self.target_size, self.target_size) - 1.0,
+            "landmarks": torch.zeros(68, 2),
+            "face_type": 0,
         }
-
-        if mask_tensor is not None:
-            output["mask"] = mask_tensor
-
-        return output
 
     def _preload_metadata(self) -> None:
         """Preload metadata from all images."""
@@ -219,8 +256,18 @@ class FaceDataset(Dataset):
                 middle_bin = self.yaw_bins // 2
                 self._yaw_bins_indices[middle_bin].append(idx)
 
-        # Remove empty bins
-        self._yaw_bins_indices = [b for b in self._yaw_bins_indices if len(b) > 0]
+        # Remove empty bins and log warnings
+        non_empty_bins = [b for b in self._yaw_bins_indices if len(b) > 0]
+        removed_count = self.yaw_bins - len(non_empty_bins)
+
+        if removed_count > 0:
+            logger.warning(f"Removed {removed_count}/{self.yaw_bins} empty yaw bins")
+
+        if len(non_empty_bins) == 0:
+            logger.error("All yaw bins empty! Falling back to random sampling.")
+            self._yaw_bins_indices = None
+        else:
+            self._yaw_bins_indices = non_empty_bins
 
     def sample_uniform_yaw(self) -> int:
         """
@@ -235,10 +282,15 @@ class FaceDataset(Dataset):
         if self._yaw_bins_indices is None or len(self._yaw_bins_indices) == 0:
             return np.random.randint(len(self.samples))
 
+        # Extra safety: filter empty bins at runtime
+        non_empty = [b for b in self._yaw_bins_indices if len(b) > 0]
+        if not non_empty:
+            return np.random.randint(len(self.samples))
+
         # Select random bin
-        bin_idx = np.random.randint(len(self._yaw_bins_indices))
+        bin_idx = np.random.randint(len(non_empty))
         # Select random sample from bin
-        sample_idx = np.random.choice(self._yaw_bins_indices[bin_idx])
+        sample_idx = np.random.choice(non_empty[bin_idx])
         return sample_idx
 
     @staticmethod

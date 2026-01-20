@@ -430,3 +430,35 @@ class TestDFLModuleLossIntegration:
         # L1 should be 0, DSSIM should be near 0
         assert losses["l1"].item() < 1e-6
         assert losses["dssim"].item() < 0.01
+
+
+class TestDSSIMResolution:
+    """Tests for DSSIM resolution-based filter size."""
+
+    def test_filter_size_calculation_96(self):
+        """Test filter size for 96px resolution."""
+        ms_dssim = MultiScaleDSSIMLoss(resolution=96)
+        assert len(ms_dssim.losses) == 2
+
+    def test_filter_size_calculation_256(self):
+        """Test filter size for 256px resolution."""
+        ms_dssim = MultiScaleDSSIMLoss(resolution=256)
+        # 256/11.6 = 22, |1 = 23
+        assert ms_dssim.losses[0].filter_size == 23
+
+    def test_filter_size_calculation_512(self):
+        """Test filter size for 512px resolution."""
+        ms_dssim = MultiScaleDSSIMLoss(resolution=512)
+        # 512/11.6 = 44, |1 = 45
+        assert ms_dssim.losses[0].filter_size == 45
+
+    def test_single_scale_dssim_filter_size(self):
+        """Test single-scale DSSIM with explicit filter size."""
+        dssim = DSSIMLoss(filter_size=15)
+        assert dssim.filter_size == 15
+
+    def test_multiscale_creates_multiple_scales(self):
+        """Test that multi-scale DSSIM creates multiple loss modules."""
+        ms_dssim = MultiScaleDSSIMLoss(resolution=256)
+        assert len(ms_dssim.losses) >= 2
+        assert len(ms_dssim.weights) == len(ms_dssim.losses)

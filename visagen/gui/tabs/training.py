@@ -358,12 +358,24 @@ class TrainingTab(BaseTab):
 
     def _setup_events(self, c: dict[str, Any]) -> None:
         """Wire up training event handlers."""
+        # Debouncing state for live parameter updates
+        self._param_update_times: dict[str, float] = {}
+        DEBOUNCE_DELAY = 0.3  # seconds
 
         # Live control helper
         def send_live_param(key: str, value: Any, output_dir: str) -> None:
             """Send parameter update to running training process."""
             if not output_dir or not self.state.processes.training:
                 return
+
+            # Debounce rapid updates
+            current_time = time.time()
+            last_update = self._param_update_times.get(key, 0)
+
+            if current_time - last_update < DEBOUNCE_DELAY:
+                return  # Skip rapid updates
+
+            self._param_update_times[key] = current_time
 
             try:
                 cmd_file = Path(output_dir) / "cmd_training.json"
@@ -470,10 +482,10 @@ class TrainingTab(BaseTab):
         def load_preset(key: str) -> tuple:
             """Load preset and return all parameter values."""
             if not key:
-                return tuple([gr.update()] * 11)
+                return tuple([gr.update()] * 21)
             preset = self.preset_manager.load_preset(key)
             if not preset:
-                return tuple([gr.update()] * 11)
+                return tuple([gr.update()] * 21)
             return (
                 preset.batch_size,
                 preset.max_epochs,
@@ -488,6 +500,14 @@ class TrainingTab(BaseTab):
                 preset.use_pretrained_vae,
                 getattr(preset, "uniform_yaw", False),
                 getattr(preset, "masked_training", False),
+                getattr(preset, "eyes_mouth_weight", 0.0),
+                getattr(preset, "gaze_weight", 0.0),
+                getattr(preset, "true_face_power", 0.0),
+                getattr(preset, "face_style_weight", 0.0),
+                getattr(preset, "bg_style_weight", 0.0),
+                getattr(preset, "id_weight", 0.0),
+                getattr(preset, "temporal_power", 0.1),
+                getattr(preset, "temporal_consistency_weight", 1.0),
             )
 
         def show_save_dialog() -> dict:
@@ -511,6 +531,14 @@ class TrainingTab(BaseTab):
             use_pretrained_vae: bool,
             uniform_yaw: bool,
             masked_training: bool,
+            eyes_mouth_weight: float,
+            gaze_weight: float,
+            true_face_power: float,
+            face_style_weight: float,
+            bg_style_weight: float,
+            id_weight: float,
+            temporal_power: float,
+            temporal_consistency_weight: float,
         ) -> tuple:
             """Save current parameters as preset."""
             if not name:
@@ -530,6 +558,14 @@ class TrainingTab(BaseTab):
                 use_pretrained_vae=bool(use_pretrained_vae),
                 uniform_yaw=bool(uniform_yaw),
                 masked_training=bool(masked_training),
+                eyes_mouth_weight=float(eyes_mouth_weight),
+                gaze_weight=float(gaze_weight),
+                true_face_power=float(true_face_power),
+                face_style_weight=float(face_style_weight),
+                bg_style_weight=float(bg_style_weight),
+                id_weight=float(id_weight),
+                temporal_power=float(temporal_power),
+                temporal_consistency_weight=float(temporal_consistency_weight),
             )
             self.preset_manager.save_preset(preset)
             new_choices = self.preset_manager.list_presets()
@@ -553,6 +589,14 @@ class TrainingTab(BaseTab):
                 c["use_pretrained_vae"],
                 c["uniform_yaw"],
                 c["masked_training"],
+                c["eyes_mouth_weight"],
+                c["gaze_weight"],
+                c["true_face_power"],
+                c["face_style_weight"],
+                c["bg_style_weight"],
+                c["id_weight"],
+                c["temporal_power"],
+                c["temporal_consistency_weight"],
             ],
         )
 
@@ -583,6 +627,14 @@ class TrainingTab(BaseTab):
                 c["use_pretrained_vae"],
                 c["uniform_yaw"],
                 c["masked_training"],
+                c["eyes_mouth_weight"],
+                c["gaze_weight"],
+                c["true_face_power"],
+                c["face_style_weight"],
+                c["bg_style_weight"],
+                c["id_weight"],
+                c["temporal_power"],
+                c["temporal_consistency_weight"],
             ],
             outputs=[c["preset_dropdown"], c["save_preset_row"]],
         )
@@ -724,6 +776,16 @@ class TrainingTab(BaseTab):
             yield f"\n\nError: {e}"
 
         finally:
+            # Proper process cleanup with timeout
+            process = self.state.processes.training
+            if process is not None:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
             self.state.processes.training = None
 
     def _stop_training(self) -> str:
@@ -750,7 +812,21 @@ class TrainingTab(BaseTab):
         try:
             import cv2
 
-            img = cv2.imread(str(latest_img))
+            # Retry logic for file reading (file might be in-flight)
+            MAX_RETRIES = 3
+            img = None
+            for _attempt in range(MAX_RETRIES):
+                try:
+                    # Check if file is empty (still being written)
+                    if latest_img.stat().st_size == 0:
+                        time.sleep(0.1)
+                        continue
+                    img = cv2.imread(str(latest_img))
+                    if img is not None:
+                        break
+                except Exception:
+                    time.sleep(0.1)
+
             if img is None:
                 return "Error: Could not read preview image", None
 

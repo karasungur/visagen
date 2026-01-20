@@ -9,9 +9,13 @@ Implements modern perceptual loss functions:
 - StyleLoss: Gram matrix based style transfer
 """
 
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Gaussian Blur Utilities (Kornia Fallback)
@@ -197,12 +201,13 @@ class DSSIMLoss(nn.Module):
         """
         c = pred.shape[1]
 
-        # Expand kernel for all channels (ensure dtype matches for AMP)
-        kernel = self.kernel.to(dtype=pred.dtype).repeat(c, 1, 1, 1)
-
-        # Constants
+        # Constants with numerical stability
+        EPS = 1e-8
         c1 = (self.k1 * self.max_val) ** 2
         c2 = (self.k2 * self.max_val) ** 2
+
+        # Expand kernel for all channels (ensure dtype matches for AMP)
+        kernel = self.kernel.to(dtype=pred.dtype).repeat(c, 1, 1, 1)
 
         # Compute means using depthwise convolution
         mu1 = F.conv2d(pred, kernel, padding=0, groups=c)
@@ -212,16 +217,21 @@ class DSSIMLoss(nn.Module):
         mu2_sq = mu2**2
         mu1_mu2 = mu1 * mu2
 
-        # Compute variances
-        sigma1_sq = F.conv2d(pred**2, kernel, padding=0, groups=c) - mu1_sq
-        sigma2_sq = F.conv2d(target**2, kernel, padding=0, groups=c) - mu2_sq
+        # Compute variances with clamping for numerical stability
+        sigma1_sq = torch.clamp(
+            F.conv2d(pred**2, kernel, padding=0, groups=c) - mu1_sq, min=0.0
+        )
+        sigma2_sq = torch.clamp(
+            F.conv2d(target**2, kernel, padding=0, groups=c) - mu2_sq, min=0.0
+        )
         sigma12 = F.conv2d(pred * target, kernel, padding=0, groups=c) - mu1_mu2
 
-        # SSIM formula
-        luminance = (2 * mu1_mu2 + c1) / (mu1_sq + mu2_sq + c1)
-        contrast_structure = (2 * sigma12 + c2) / (sigma1_sq + sigma2_sq + c2)
+        # SSIM formula with epsilon for stability
+        luminance = (2 * mu1_mu2 + c1) / (mu1_sq + mu2_sq + c1 + EPS)
+        contrast_structure = (2 * sigma12 + c2) / (sigma1_sq + sigma2_sq + c2 + EPS)
 
-        ssim_map = luminance * contrast_structure
+        # Clamp SSIM to valid range
+        ssim_map = torch.clamp(luminance * contrast_structure, -1.0, 1.0)
 
         # DSSIM = (1 - SSIM) / 2
         dssim = (1.0 - ssim_map.mean(dim=[2, 3])) / 2.0
@@ -298,6 +308,7 @@ class LPIPSLoss(nn.Module):
         self.net = net
         self._lpips = None
         self._use_gpu = use_gpu
+        self._cached_device = None
 
     def _ensure_lpips(self) -> None:
         """Lazy load LPIPS model."""
@@ -333,9 +344,10 @@ class LPIPSLoss(nn.Module):
         """
         self._ensure_lpips()
 
-        # Move model to same device as input
-        if next(self._lpips.parameters()).device != pred.device:
+        # Only move model if device changed (cache device for efficiency)
+        if self._cached_device != pred.device:
             self._lpips = self._lpips.to(pred.device)
+            self._cached_device = pred.device
 
         return self._lpips(pred, target).mean()
 
@@ -395,8 +407,9 @@ class IDLoss(nn.Module):
             if len(faces) > 0:
                 embeddings.append(torch.from_numpy(faces[0].embedding))
             else:
-                # Return zero embedding if no face detected
-                embeddings.append(torch.zeros(512))
+                logger.warning(f"No face detected in IDLoss at batch {i}")
+                # Small random embedding to maintain gradient flow
+                embeddings.append(torch.randn(512) * 0.01)
 
         return torch.stack(embeddings).to(img.device)
 
@@ -420,8 +433,18 @@ class IDLoss(nn.Module):
         pred_emb = self._get_embedding(pred)
         target_emb = self._get_embedding(target)
 
-        # Cosine similarity
-        cos_sim = F.cosine_similarity(pred_emb, target_emb, dim=1)
+        # Check for degenerate embeddings
+        pred_norm = torch.norm(pred_emb, dim=1)
+        target_norm = torch.norm(target_emb, dim=1)
+        valid_mask = (pred_norm > 1e-4) & (target_norm > 1e-4)
+
+        if not valid_mask.any():
+            return torch.tensor(0.0, device=pred.device, requires_grad=True)
+
+        # Cosine similarity only for valid embeddings
+        cos_sim = F.cosine_similarity(
+            pred_emb[valid_mask], target_emb[valid_mask], dim=1
+        )
 
         # Loss = 1 - similarity (so 0 = identical, 2 = opposite)
         return (1.0 - cos_sim).mean()
@@ -632,6 +655,24 @@ class GazeLoss(nn.Module):
             bx2 = x2[b].clamp(0, width - 1)
             by2 = y2[b].clamp(0, height - 1)
 
+            # Ensure minimum box size of 2 pixels
+            MIN_BOX_SIZE = 2
+            box_width = bx2 - bx1
+            box_height = by2 - by1
+
+            if box_width < MIN_BOX_SIZE or box_height < MIN_BOX_SIZE:
+                # Expand from center to minimum size
+                center_x = (bx1 + bx2) / 2
+                center_y = (by1 + by2) / 2
+                half_size = MIN_BOX_SIZE / 2
+                bx1 = torch.clamp(center_x - half_size, min=0)
+                bx2 = bx1 + MIN_BOX_SIZE
+                by1 = torch.clamp(center_y - half_size, min=0)
+                by2 = by1 + MIN_BOX_SIZE
+                # Ensure still within bounds
+                bx2 = torch.clamp(bx2, max=width - 1)
+                by2 = torch.clamp(by2, max=height - 1)
+
             # Ensure valid box (at least 1 pixel)
             if (bx2 - bx1) < 1 or (by2 - by1) < 1:
                 # Invalid bounding box - use center region of image to preserve gradients
@@ -831,7 +872,8 @@ class StyleLoss(nn.Module):
             x = safe_gaussian_blur2d(x, (kernel_size, kernel_size), (sigma, sigma))
 
         b, c, h, w = x.shape
-        features = x.view(b, c, h * w)
+        # Ensure contiguous memory for efficient matrix multiplication
+        features = x.reshape(b, c, h * w).contiguous()
         gram = torch.bmm(features, features.transpose(1, 2))
         return gram / (c * h * w)
 
@@ -1180,14 +1222,20 @@ class TemporalConsistencyLoss(nn.Module):
             Temporal consistency loss (scalar).
         """
         if self.mode == "ssim":
-            # Use DSSIM between consecutive frames
+            # Vectorized DSSIM: process all frame pairs at once
             B, C, T, H, W = sequence.shape
-            total_dssim = torch.tensor(0.0, device=sequence.device)
-            for t in range(T - 1):
-                frame_t = sequence[:, :, t, :, :]
-                frame_t1 = sequence[:, :, t + 1, :, :]
-                total_dssim = total_dssim + self.dssim_loss(frame_t, frame_t1)
-            loss = total_dssim / max(T - 1, 1)
+            if T < 2:
+                return torch.tensor(0.0, device=sequence.device, requires_grad=True)
+
+            # Reshape to process all frame pairs in single forward
+            # frames_t: (B*(T-1), C, H, W), frames_t1: (B*(T-1), C, H, W)
+            frames_t = (
+                sequence[:, :, :-1].permute(0, 2, 1, 3, 4).reshape(B * (T - 1), C, H, W)
+            )
+            frames_t1 = (
+                sequence[:, :, 1:].permute(0, 2, 1, 3, 4).reshape(B * (T - 1), C, H, W)
+            )
+            loss = self.dssim_loss(frames_t, frames_t1)
         else:
             # Compute frame-to-frame differences
             # sequence[:, :, 1:] - sequence[:, :, :-1] gives T-1 difference frames

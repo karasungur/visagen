@@ -146,6 +146,18 @@ TRANSLATIONS = {
             "label": "Gerçek Yüz Gücü",
             "info": "Kimlik ayrıştırıcı (sadece df mimarisi, 0-1)",
         },
+        "id_weight": {
+            "label": "Kimlik Ağırlığı",
+            "info": "ArcFace ile kimlik koruma kaybı (0-1, insightface gerektirir)",
+        },
+        "temporal_power": {
+            "label": "Zamansal Güç",
+            "info": "Zamansal ayrıştırıcı kayıp ağırlığı (0-1, zamansal eğitim gerektirir)",
+        },
+        "temporal_consistency_weight": {
+            "label": "Zamansal Tutarlılık Ağırlığı",
+            "info": "Kare-kare benzerlik kaybı (0-5, titreşimi azaltır)",
+        },
         "precision": {
             "label": "Hassasiyet",
             "choices": {

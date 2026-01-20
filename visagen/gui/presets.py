@@ -28,6 +28,16 @@ class TrainingPreset:
     # Experimental
     texture_weight: float = 0.0
     use_pretrained_vae: bool = True
+    # Advanced loss weights
+    eyes_mouth_weight: float = 0.0
+    gaze_weight: float = 0.0
+    true_face_power: float = 0.0
+    face_style_weight: float = 0.0
+    bg_style_weight: float = 0.0
+    id_weight: float = 0.0
+    # Temporal parameters
+    temporal_power: float = 0.1
+    temporal_consistency_weight: float = 1.0
     # Advanced
     uniform_yaw: bool = False
     masked_training: bool = False

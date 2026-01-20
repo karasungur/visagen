@@ -378,6 +378,8 @@ class FaceAugmentationPipeline(nn.Module):
     @staticmethod
     def _rgb_to_hsv(rgb: torch.Tensor) -> torch.Tensor:
         """Convert RGB to HSV color space."""
+        EPS = 1e-6  # Increased epsilon for numerical stability
+
         r, g, b = rgb[:, 0, :, :], rgb[:, 1, :, :], rgb[:, 2, :, :]
 
         max_val, max_idx = rgb.max(dim=1)
@@ -387,26 +389,32 @@ class FaceAugmentationPipeline(nn.Module):
         # Value
         v = max_val
 
-        # Saturation
-        s = torch.where(max_val > 0, diff / (max_val + 1e-8), torch.zeros_like(max_val))
+        # Saturation with epsilon for stability
+        s = torch.where(
+            max_val > EPS, diff / (max_val + EPS), torch.zeros_like(max_val)
+        )
 
         # Hue
         h = torch.zeros_like(max_val)
 
+        # Safe diff for division
+        diff_safe = torch.clamp(diff, min=EPS)
+
         # When max is R
-        mask_r = (max_idx == 0) & (diff > 0)
-        h[mask_r] = ((g[mask_r] - b[mask_r]) / (diff[mask_r] + 1e-8)) % 6
+        mask_r = (max_idx == 0) & (diff > EPS)
+        h[mask_r] = ((g[mask_r] - b[mask_r]) / diff_safe[mask_r]) % 6
 
         # When max is G
-        mask_g = (max_idx == 1) & (diff > 0)
-        h[mask_g] = (b[mask_g] - r[mask_g]) / (diff[mask_g] + 1e-8) + 2
+        mask_g = (max_idx == 1) & (diff > EPS)
+        h[mask_g] = (b[mask_g] - r[mask_g]) / diff_safe[mask_g] + 2
 
         # When max is B
-        mask_b = (max_idx == 2) & (diff > 0)
-        h[mask_b] = (r[mask_b] - g[mask_b]) / (diff[mask_b] + 1e-8) + 4
+        mask_b = (max_idx == 2) & (diff > EPS)
+        h[mask_b] = (r[mask_b] - g[mask_b]) / diff_safe[mask_b] + 4
 
-        h = h / 6.0  # Normalize to [0, 1]
-        h = h % 1.0  # Handle negative values
+        # Normalize to [0, 1] and handle negative values
+        h = (h / 6.0) % 1.0
+        h = torch.where(h < 0, h + 1.0, h)
 
         return torch.stack([h, s, v], dim=1)
 

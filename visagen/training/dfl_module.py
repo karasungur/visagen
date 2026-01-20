@@ -122,6 +122,9 @@ class DFLModule(pl.LightningModule):
         temporal_sequence_length: int = 5,
         temporal_consistency_weight: float = 1.0,
         temporal_base_ch: int = 32,
+        temporal_checkpoint: bool = True,
+        # Gradient accumulation for large batch training
+        gradient_accumulation_steps: int = 1,
         # Experimental model parameters
         model_type: str = "standard",  # "standard", "diffusion", "eg3d"
         diffusion_texture_weight: float = 0.0,
@@ -326,9 +329,10 @@ class DFLModule(pl.LightningModule):
 
         # DSSIM loss
         if use_multiscale_dssim:
-            self.dssim_loss = MultiScaleDSSIMLoss()
+            self.dssim_loss = MultiScaleDSSIMLoss(resolution=self.image_size)
         else:
-            self.dssim_loss = DSSIMLoss()
+            filter_size = max(3, int(self.image_size / 11.6)) | 1
+            self.dssim_loss = DSSIMLoss(filter_size=filter_size)
 
         # LPIPS loss (lazy loaded)
         self._lpips_loss = None
@@ -663,8 +667,11 @@ class DFLModule(pl.LightningModule):
             logger.error(
                 f"Loss is NaN/Inf at step {self.global_step}. Loss dict: {loss_dict}"
             )
-            # Return a small valid loss to prevent crash
-            return torch.tensor(0.0, device=total_loss.device, requires_grad=True)
+            # Create gradient-safe dummy loss instead of zero
+            dummy_loss = torch.tensor(
+                1e-6, device=total_loss.device, requires_grad=True
+            )
+            return dummy_loss * pred.mean().detach()
 
         # Log all losses
         for name, value in loss_dict.items():
@@ -747,8 +754,20 @@ class DFLModule(pl.LightningModule):
             )
             return  # Skip this step
 
+        # Apply gradient accumulation scaling if enabled
+        accum_steps = self.hparams.get("gradient_accumulation_steps", 1)
+        if accum_steps > 1:
+            g_total = g_total / accum_steps
+
         self.manual_backward(g_total)
-        g_opt.step()
+
+        # Only step optimizer at accumulation boundary
+        if accum_steps > 1:
+            if (batch_idx + 1) % accum_steps == 0:
+                g_opt.step()
+                g_opt.zero_grad()
+        else:
+            g_opt.step()
 
         loss_dict["g_total"] = g_total
 
@@ -836,8 +855,13 @@ class DFLModule(pl.LightningModule):
 
         B, C, T, H, W = src_seq.shape
 
-        # Forward pass through sequence
-        pred_seq = self.forward_sequence(src_seq)
+        # Forward pass through sequence with optional gradient checkpointing
+        if self.training and self.hparams.get("temporal_checkpoint", True):
+            from torch.utils.checkpoint import checkpoint
+
+            pred_seq = checkpoint(self.forward_sequence, src_seq, use_reentrant=False)
+        else:
+            pred_seq = self.forward_sequence(src_seq)
 
         # === GENERATOR STEP ===
         g_opt.zero_grad()

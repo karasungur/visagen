@@ -5,12 +5,15 @@ Self-supervised pretraining module for face reconstruction.
 Trains on large generic face datasets (FFHQ, CelebA) before fine-tuning.
 """
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import torch
 
 from visagen.training.dfl_module import DFLModule
+
+logger = logging.getLogger(__name__)
 
 
 class PretrainModule(DFLModule):
@@ -216,8 +219,19 @@ class PretrainModule(DFLModule):
             >>> # Now fine-tune on specific faces
             >>> trainer.fit(model, face_datamodule)
         """
-        # Load checkpoint
-        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        # Load checkpoint with safe loading
+        try:
+            checkpoint = torch.load(
+                checkpoint_path, map_location="cpu", weights_only=True
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed with weights_only=True: {e}. "
+                "Using unsafe load - only use trusted checkpoints!"
+            )
+            checkpoint = torch.load(
+                checkpoint_path, map_location="cpu", weights_only=False
+            )
 
         # Get hyperparameters from checkpoint
         hparams = checkpoint.get("hyper_parameters", {})
@@ -268,7 +282,18 @@ class PretrainModule(DFLModule):
         Returns:
             State dict with model weights.
         """
-        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        try:
+            checkpoint = torch.load(
+                checkpoint_path, map_location="cpu", weights_only=True
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed with weights_only=True: {e}. "
+                "Using unsafe load - only use trusted checkpoints!"
+            )
+            checkpoint = torch.load(
+                checkpoint_path, map_location="cpu", weights_only=False
+            )
 
         # Extract only model weights
         state_dict = checkpoint.get("state_dict", checkpoint)

@@ -319,7 +319,65 @@ class AutoBackupCallback(Callback):
             self._last_backup_time = time.time()
 
     def _create_backup(self, trainer: pl.Trainer) -> None:
-        """Create backup with rotation."""
+        """Create backup with rotation (thread-safe)."""
+        lock_file = self.backup_dir / ".backup.lock"
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            import portalocker
+
+            with portalocker.Lock(str(lock_file), mode="w", timeout=30):
+                # Rotate existing backups (max -> delete, max-1 -> max, ... 01 -> 02)
+                for i in range(self.max_backups, 0, -1):
+                    current_path = self.backup_dir / f"{i:02d}"
+                    next_path = self.backup_dir / f"{i + 1:02d}"
+
+                    if current_path.exists():
+                        if i == self.max_backups:
+                            # Delete oldest backup
+                            shutil.rmtree(current_path, ignore_errors=True)
+                        else:
+                            # Move to next slot
+                            if next_path.exists():
+                                shutil.rmtree(next_path, ignore_errors=True)
+                            current_path.rename(next_path)
+
+                # Save new backup to slot 01
+                slot_path = self.backup_dir / "01"
+                slot_path.mkdir(parents=True, exist_ok=True)
+
+                checkpoint_path = slot_path / f"backup_step_{trainer.global_step}.ckpt"
+
+                try:
+                    trainer.save_checkpoint(str(checkpoint_path))
+
+                    # Save metadata
+                    metadata = {
+                        "step": trainer.global_step,
+                        "epoch": trainer.current_epoch,
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                    with open(slot_path / "backup_info.json", "w") as f:
+                        json.dump(metadata, f, indent=2)
+
+                except Exception as e:
+                    # Don't crash training on backup errors, but log them
+                    logger.error(f"Backup failed at step {trainer.global_step}: {e}")
+
+        except ImportError:
+            # portalocker not available, fallback to unlocked backup
+            logger.warning("portalocker not installed, backup without locking")
+            self._create_backup_unlocked(trainer)
+        except Exception as e:
+            if "LockException" in type(e).__name__ or "timeout" in str(e).lower():
+                logger.warning(
+                    f"Could not acquire backup lock, skipping step {trainer.global_step}"
+                )
+            else:
+                logger.error(f"Backup failed: {e}")
+
+    def _create_backup_unlocked(self, trainer: pl.Trainer) -> None:
+        """Create backup without locking (fallback)."""
         # Rotate existing backups (max -> delete, max-1 -> max, ... 01 -> 02)
         for i in range(self.max_backups, 0, -1):
             current_path = self.backup_dir / f"{i:02d}"
@@ -327,10 +385,10 @@ class AutoBackupCallback(Callback):
 
             if current_path.exists():
                 if i == self.max_backups:
-                    # Delete oldest backup
-                    shutil.rmtree(current_path)
+                    shutil.rmtree(current_path, ignore_errors=True)
                 else:
-                    # Move to next slot
+                    if next_path.exists():
+                        shutil.rmtree(next_path, ignore_errors=True)
                     current_path.rename(next_path)
 
         # Save new backup to slot 01
@@ -352,7 +410,6 @@ class AutoBackupCallback(Callback):
                 json.dump(metadata, f, indent=2)
 
         except Exception as e:
-            # Don't crash training on backup errors, but log them
             logger.error(f"Backup failed at step {trainer.global_step}: {e}")
 
 
@@ -406,9 +463,10 @@ class TargetStepCallback(Callback):
             trainer.should_stop = True
             return
 
-        # Check target loss
+        # Check target loss with epsilon for float comparison
+        EPSILON = 1e-6
         if self.target_loss is not None and self._current_loss is not None:
-            if self._current_loss <= self.target_loss:
+            if self._current_loss <= (self.target_loss + EPSILON):
                 print(
                     f"\nTarget loss {self.target_loss} reached "
                     f"(current: {self._current_loss:.4f}). Stopping training."
@@ -542,8 +600,14 @@ class CommandFileReaderCallback(Callback):
         pl_module: pl.LightningModule,
     ) -> None:
         """Read command file and apply parameter updates."""
-        data = read_json_locked(self.command_file)
-        if data is None:
+        try:
+            data = read_json_locked(self.command_file)
+            if data is None:
+                if self.command_file.exists():
+                    logger.warning("Command file exists but couldn't be read")
+                return
+        except Exception as e:
+            logger.error(f"Failed to read command file: {e}")
             return
 
         params = data.get("params", {})
