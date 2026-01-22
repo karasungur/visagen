@@ -6,6 +6,7 @@ with real-time preview and parameter adjustment.
 """
 
 import logging
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -67,6 +68,10 @@ class InteractiveMerger:
         # Frame cache for performance
         self._cache: dict[int, np.ndarray] = {}
         self._cache_max_size = 10
+
+        # Debounced auto-save
+        self._save_timer: threading.Timer | None = None
+        self._save_delay: float = 2.0  # 2 seconds debounce
 
     @property
     def processor(self):
@@ -242,6 +247,21 @@ class InteractiveMerger:
         """Clear the frame cache."""
         self._cache.clear()
 
+    def _debounced_save(self) -> None:
+        """Debounced session save - waits 2 seconds after config changes."""
+        if self._save_timer is not None:
+            self._save_timer.cancel()
+
+        self._save_timer = threading.Timer(self._save_delay, self._auto_save)
+        self._save_timer.daemon = True
+        self._save_timer.start()
+
+    def _auto_save(self) -> None:
+        """Internal auto-save handler."""
+        success, msg = self.save_session()
+        if success:
+            logger.debug(f"Auto-saved session: {msg}")
+
     def _apply_config_to_processor(self) -> None:
         """Apply current interactive config to frame processor."""
         config = self.session.config
@@ -297,6 +317,9 @@ class InteractiveMerger:
 
         # Invalidate cache since config changed
         self.invalidate_cache()
+
+        # Trigger debounced auto-save
+        self._debounced_save()
 
         return self.process_current_frame()
 
