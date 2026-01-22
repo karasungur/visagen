@@ -125,12 +125,14 @@ class MergerConfig:
             else None,
             blend_mode=iconfig.mode,  # Simple mapping for now
             mask_erode=abs(iconfig.erode_mask) if iconfig.erode_mask > 0 else 0,
+            mask_dilate=abs(iconfig.erode_mask) if iconfig.erode_mask < 0 else 0,
             mask_blur=iconfig.blur_mask,
             sharpen=iconfig.sharpen_mode != "none",
             sharpen_amount=iconfig.sharpen_amount / 100.0,
             restore_face=iconfig.restore_face,
             restore_strength=iconfig.restore_strength,
             super_resolution_power=iconfig.super_resolution_power,
+            motion_blur_power=iconfig.motion_blur_power,
         )
 
         return cls(

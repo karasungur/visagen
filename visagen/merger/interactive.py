@@ -255,8 +255,16 @@ class InteractiveMerger:
         else:
             proc_config.color_transfer_mode = config.color_transfer
 
-        # Mask processing
-        proc_config.mask_erode = abs(config.erode_mask) if config.erode_mask > 0 else 0
+        # Mask processing - Pozitif değer = erode, negatif değer = dilate
+        if config.erode_mask > 0:
+            proc_config.mask_erode = config.erode_mask
+            proc_config.mask_dilate = 0
+        elif config.erode_mask < 0:
+            proc_config.mask_erode = 0
+            proc_config.mask_dilate = abs(config.erode_mask)
+        else:
+            proc_config.mask_erode = 0
+            proc_config.mask_dilate = 0
         proc_config.mask_blur = config.blur_mask
 
         # Face restoration
@@ -265,6 +273,9 @@ class InteractiveMerger:
 
         # Super resolution (legacy 4x upscale)
         proc_config.super_resolution_power = config.super_resolution_power
+
+        # Motion blur (for temporal consistency)
+        proc_config.motion_blur_power = config.motion_blur_power
 
         # Sharpening
         proc_config.sharpen = config.sharpen_mode != "none"

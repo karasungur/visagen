@@ -25,6 +25,8 @@ import cv2
 import numpy as np
 import torch
 
+from visagen.postprocess.motion_blur import apply_motion_blur_to_face
+
 # Type alias for face metadata
 FaceMetadata = dict[str, Any]
 
@@ -63,11 +65,13 @@ class FrameProcessorConfig:
 
     # Color transfer
     color_transfer_mode: str | None = "rct"
+    hist_match_threshold: int = 238  # 0-255, used for hist-match mode
 
     # Blending
     blend_mode: str = "laplacian"
     blend_amount: float = 1.0
     mask_erode: int = 5
+    mask_dilate: int = 0
     mask_blur: int = 5
 
     # Post-processing
@@ -316,6 +320,16 @@ class FrameProcessor:
                     # Apply super resolution (legacy 4x upscale with blend)
                     if self.config.super_resolution_power > 0:
                         swapped_face = self._apply_super_resolution(swapped_face)
+
+                    # Apply motion blur (for temporal consistency)
+                    if self.config.motion_blur_power > 0:
+                        swapped_face = apply_motion_blur_to_face(
+                            swapped_face,
+                            motion_power=10.0,  # Default magnitude
+                            motion_deg=0.0,  # Default horizontal
+                            blur_power=self.config.motion_blur_power,
+                            super_resolution=self.config.super_resolution_power > 0,
+                        )
 
                     # Blend back to frame
                     output = self._blend_to_frame(output, swapped_face, face_meta, mask)
@@ -644,6 +658,14 @@ class FrameProcessor:
                 (self.config.mask_erode, self.config.mask_erode),
             )
             mask = cv2.erode(mask, kernel)
+
+        # Dilate (mask expansion)
+        if self.config.mask_dilate > 0:
+            kernel = cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE,
+                (self.config.mask_dilate, self.config.mask_dilate),
+            )
+            mask = cv2.dilate(mask, kernel)
 
         # Blur for smooth edges
         if self.config.mask_blur > 0:

@@ -40,6 +40,8 @@ from visagen.postprocess.blending import (
 )
 from visagen.postprocess.color_transfer import (
     ColorTransferMode,
+    channel_hist_match,
+    color_hist_match,
     color_transfer,
     color_transfer_idt,
     color_transfer_mkl,
@@ -79,6 +81,8 @@ __all__ = [
     "is_neural_color_available",
     "color_transfer",
     "ColorTransferMode",
+    "channel_hist_match",
+    "color_hist_match",
     # Blending
     "laplacian_pyramid_blend",
     "poisson_blend",

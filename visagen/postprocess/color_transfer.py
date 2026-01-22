@@ -22,6 +22,13 @@ import cv2
 import numpy as np
 from numpy import linalg as npla
 
+try:
+    import numexpr as ne
+
+    HAS_NUMEXPR = True
+except ImportError:
+    HAS_NUMEXPR = False
+
 ColorTransferMode = Literal[
     "none",
     "rct",
@@ -98,15 +105,30 @@ def reinhard_color_transfer(
     tgt_b_mean, tgt_b_std = t_pixels[..., 2].mean(), t_pixels[..., 2].std()
 
     # Transfer: scale by standard deviations, shift by means
-    result_l = (target_lab[..., 0] - tgt_l_mean) * (
-        src_l_std / (tgt_l_std + eps)
-    ) + src_l_mean
-    result_a = (target_lab[..., 1] - tgt_a_mean) * (
-        src_a_std / (tgt_a_std + eps)
-    ) + src_a_mean
-    result_b = (target_lab[..., 2] - tgt_b_mean) * (
-        src_b_std / (tgt_b_std + eps)
-    ) + src_b_mean
+    target_l = target_lab[..., 0]
+    target_a = target_lab[..., 1]
+    target_b = target_lab[..., 2]
+
+    if HAS_NUMEXPR:
+        result_l = ne.evaluate(
+            "(target_l - tgt_l_mean) * src_l_std / (tgt_l_std + eps) + src_l_mean"
+        )
+        result_a = ne.evaluate(
+            "(target_a - tgt_a_mean) * src_a_std / (tgt_a_std + eps) + src_a_mean"
+        )
+        result_b = ne.evaluate(
+            "(target_b - tgt_b_mean) * src_b_std / (tgt_b_std + eps) + src_b_mean"
+        )
+    else:
+        result_l = (target_l - tgt_l_mean) * (
+            src_l_std / (tgt_l_std + eps)
+        ) + src_l_mean
+        result_a = (target_a - tgt_a_mean) * (
+            src_a_std / (tgt_a_std + eps)
+        ) + src_a_mean
+        result_b = (target_b - tgt_b_mean) * (
+            src_b_std / (tgt_b_std + eps)
+        ) + src_b_mean
 
     # Clip to valid LAB ranges (OpenCV LAB: L∈[0,100], A/B∈[-127,127] mapped to [0,255])
     # OpenCV uses L: 0-255 (scaled from 0-100), A/B: 0-255 (shifted from -128 to 127)
@@ -657,3 +679,89 @@ def color_transfer(
         return neural_color_transfer(target, source, **kwargs)
     else:
         raise ValueError(f"Unknown color transfer mode: {mode}")
+
+
+def channel_hist_match(
+    source: np.ndarray,
+    template: np.ndarray,
+    hist_match_threshold: int = 255,
+    mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """
+    Match histogram of source channel to template channel.
+
+    Args:
+        source: Source channel (H, W) uint8.
+        template: Template channel (H, W) uint8.
+        hist_match_threshold: Threshold for quantile matching (0-255).
+        mask: Optional mask for masked histogram matching.
+
+    Returns:
+        Matched channel (H, W) uint8.
+    """
+    if mask is not None:
+        # Use masked pixels for histogram matching
+        source_pixels = source[mask > 0]
+        template_pixels = template[mask > 0]
+    else:
+        source_pixels = source.ravel()
+        template_pixels = template.ravel()
+
+    oldshape = source.shape
+    source_flat = source_pixels
+    template_flat = template_pixels
+
+    s_values, bin_idx, s_counts = np.unique(
+        source_flat, return_inverse=True, return_counts=True
+    )
+    t_values, t_counts = np.unique(template_flat, return_counts=True)
+
+    s_quantiles = np.cumsum(s_counts).astype(np.float64)
+    s_quantiles = hist_match_threshold * s_quantiles / s_quantiles[-1]
+    t_quantiles = np.cumsum(t_counts).astype(np.float64)
+    t_quantiles = 255 * t_quantiles / t_quantiles[-1]
+
+    interp_t_values = np.interp(s_quantiles, t_quantiles, t_values)
+
+    return interp_t_values[bin_idx].reshape(oldshape)
+
+
+def color_hist_match(
+    source: np.ndarray,
+    target: np.ndarray,
+    hist_match_threshold: int = 255,
+) -> np.ndarray:
+    """
+    Match color histogram of source image to target image.
+
+    Args:
+        source: Source image (H, W, 3) float32 [0,1] or uint8.
+        target: Target image (H, W, 3) float32 [0,1] or uint8.
+        hist_match_threshold: Threshold for quantile matching (0-255).
+
+    Returns:
+        Matched image with same dtype as source.
+    """
+    is_float = source.dtype == np.float32
+
+    if is_float:
+        src_uint8 = np.clip(source * 255, 0, 255).astype(np.uint8)
+        tgt_uint8 = np.clip(target * 255, 0, 255).astype(np.uint8)
+    else:
+        src_uint8 = source
+        tgt_uint8 = target
+
+    matched_channels = []
+    for c in range(3):
+        matched = channel_hist_match(
+            src_uint8[:, :, c],
+            tgt_uint8[:, :, c],
+            hist_match_threshold,
+        )
+        matched_channels.append(matched)
+
+    result = np.stack(matched_channels, axis=-1).astype(np.uint8)
+
+    if is_float:
+        return result.astype(np.float32) / 255.0
+    return result
