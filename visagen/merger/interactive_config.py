@@ -105,6 +105,9 @@ class InteractiveMergerConfig:
     # 0 = disabled, 1-100 = 4x upscale blend power
     super_resolution_power: int = 0  # 0..100
 
+    # Motion blur (for temporal consistency)
+    motion_blur_power: int = 0  # 0..100
+
     def __post_init__(self) -> None:
         """Validate configuration values."""
         self._validate()
@@ -140,6 +143,7 @@ class InteractiveMergerConfig:
         self.hist_match_threshold = max(0, min(255, self.hist_match_threshold))
         self.restore_strength = max(0.0, min(1.0, self.restore_strength))
         self.super_resolution_power = max(0, min(100, self.super_resolution_power))
+        self.motion_blur_power = max(0, min(100, self.motion_blur_power))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary."""
@@ -191,6 +195,8 @@ class InteractiveMergerConfig:
             parts.append(f"Restore: {self.restore_strength:.1f}")
         if self.super_resolution_power > 0:
             parts.append(f"SuperRes: {self.super_resolution_power}%")
+        if self.motion_blur_power > 0:
+            parts.append(f"MotionBlur: {self.motion_blur_power}%")
 
         return " | ".join(parts)
 

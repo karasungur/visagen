@@ -53,6 +53,10 @@ from visagen.postprocess.gpen import (
     is_gpen_available,
     restore_face_gpen,
 )
+from visagen.postprocess.motion_blur import (
+    apply_motion_blur_to_face,
+    linear_motion_blur,
+)
 from visagen.postprocess.neural_color import (
     is_neural_color_available,
     neural_color_transfer,
@@ -96,4 +100,7 @@ __all__ = [
     "GPENConfig",
     "restore_face_gpen",
     "is_gpen_available",
+    # Motion blur
+    "linear_motion_blur",
+    "apply_motion_blur_to_face",
 ]

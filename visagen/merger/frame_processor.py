@@ -83,6 +83,9 @@ class FrameProcessorConfig:
     # 0 = disabled, 1-100 = blend power with 4x upscaled enhanced face
     super_resolution_power: int = 0
 
+    # Motion blur (for temporal consistency)
+    motion_blur_power: int = 0  # 0-100
+
 
 @dataclass
 class ProcessedFrame:
