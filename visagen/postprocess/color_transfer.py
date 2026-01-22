@@ -108,7 +108,10 @@ def reinhard_color_transfer(
         src_b_std / (tgt_b_std + eps)
     ) + src_b_mean
 
-    # Clip to valid LAB ranges
+    # Clip to valid LAB ranges (OpenCV LAB: L∈[0,100], A/B∈[-127,127] mapped to [0,255])
+    # OpenCV uses L: 0-255 (scaled from 0-100), A/B: 0-255 (shifted from -128 to 127)
+    # After cv2.cvtColor with uint8, the ranges are already [0,255]
+    # Statistics are computed on these uint8 values, so clipping matches the format
     result_l = np.clip(result_l, 0, 255)
     result_a = np.clip(result_a, 0, 255)
     result_b = np.clip(result_b, 0, 255)
