@@ -831,24 +831,29 @@ def video_from_frames(
     output_path: Path,
     fps: float,
     audio_source: Path | None = None,
-    codec: str = "libx264",
+    codec: str = "auto",
     crf: int = 18,
     pattern: str = "%06d.png",
 ) -> None:
     """
-    Create video from frame sequence.
+    Create video from frame sequence with hardware acceleration support.
 
     Args:
         frames_dir: Directory containing frames.
         output_path: Path for output video.
         fps: Frames per second.
         audio_source: Optional source for audio track.
-        codec: Video codec. Default: "libx264".
+        codec: Video codec. "auto" selects best available (NVENC if GPU). Default: "auto".
         crf: Quality factor. Default: 18.
         pattern: Frame filename pattern. Default: "%06d.png".
     """
     ffmpeg = _get_ffmpeg()
     ffmpeg_exe = _get_ffmpeg_exe()
+
+    # NVENC auto-select
+    if codec == "auto":
+        codec = select_best_encoder(prefer_hardware=True)
+        logger.info(f"Auto-selected encoder for frames: {codec}")
 
     frames_dir = Path(frames_dir)
     output_path = Path(output_path)
@@ -859,11 +864,23 @@ def video_from_frames(
     # Build command
     stream = ffmpeg.input(input_pattern, framerate=fps)
 
-    output_kwargs = {
-        "vcodec": codec,
-        "pix_fmt": "yuv420p",
-        "crf": crf,
-    }
+    # Encoder-specific output kwargs
+    if codec in ("h264_nvenc", "hevc_nvenc"):
+        # NVENC hardware encoder
+        output_kwargs = {
+            "vcodec": codec,
+            "pix_fmt": "yuv420p",
+            "rc": "vbr",
+            "cq": crf,
+            "preset": "p4",
+        }
+    else:
+        # Software encoder
+        output_kwargs = {
+            "vcodec": codec,
+            "pix_fmt": "yuv420p",
+            "crf": crf,
+        }
 
     # Add audio if provided
     if audio_source and Path(audio_source).exists():

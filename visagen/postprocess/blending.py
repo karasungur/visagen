@@ -132,9 +132,16 @@ def laplacian_pyramid_blend(
     bg_pyramid = build_laplacian_pyramid(background, levels)
     mask_pyramid = build_gaussian_pyramid(mask, levels)
 
-    # Blend at each level
+    # Validate pyramid lengths
+    if not (len(fg_pyramid) == len(bg_pyramid) == len(mask_pyramid)):
+        raise ValueError(
+            f"Pyramid length mismatch: fg={len(fg_pyramid)}, "
+            f"bg={len(bg_pyramid)}, mask={len(mask_pyramid)}"
+        )
+
+    # Blend at each level (strict=True for safety)
     blended_pyramid = []
-    for fg, bg, m in zip(fg_pyramid, bg_pyramid, mask_pyramid, strict=False):
+    for fg, bg, m in zip(fg_pyramid, bg_pyramid, mask_pyramid, strict=True):
         # Ensure mask dimensions match
         if m.ndim == 2:
             m = m[..., None]

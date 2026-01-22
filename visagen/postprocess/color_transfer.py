@@ -728,6 +728,7 @@ def color_hist_match(
     source: np.ndarray,
     target: np.ndarray,
     hist_match_threshold: int = 255,
+    mask: np.ndarray | None = None,
 ) -> np.ndarray:
     """
     Match color histogram of source image to target image.
@@ -736,6 +737,7 @@ def color_hist_match(
         source: Source image (H, W, 3) float32 [0,1] or uint8.
         target: Target image (H, W, 3) float32 [0,1] or uint8.
         hist_match_threshold: Threshold for quantile matching (0-255).
+        mask: Optional mask (H, W) for masked histogram matching.
 
     Returns:
         Matched image with same dtype as source.
@@ -755,6 +757,7 @@ def color_hist_match(
             src_uint8[:, :, c],
             tgt_uint8[:, :, c],
             hist_match_threshold,
+            mask=mask,
         )
         matched_channels.append(matched)
 
