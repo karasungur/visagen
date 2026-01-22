@@ -40,6 +40,8 @@ from visagen.postprocess.blending import (
 )
 from visagen.postprocess.color_transfer import (
     ColorTransferMode,
+    channel_hist_match,
+    color_hist_match,
     color_transfer,
     color_transfer_idt,
     color_transfer_mkl,
@@ -52,6 +54,10 @@ from visagen.postprocess.gpen import (
     GPENRestorer,
     is_gpen_available,
     restore_face_gpen,
+)
+from visagen.postprocess.motion_blur import (
+    apply_motion_blur_to_face,
+    linear_motion_blur,
 )
 from visagen.postprocess.neural_color import (
     is_neural_color_available,
@@ -75,6 +81,8 @@ __all__ = [
     "is_neural_color_available",
     "color_transfer",
     "ColorTransferMode",
+    "channel_hist_match",
+    "color_hist_match",
     # Blending
     "laplacian_pyramid_blend",
     "poisson_blend",
@@ -96,4 +104,7 @@ __all__ = [
     "GPENConfig",
     "restore_face_gpen",
     "is_gpen_available",
+    # Motion blur
+    "linear_motion_blur",
+    "apply_motion_blur_to_face",
 ]

@@ -132,9 +132,16 @@ def laplacian_pyramid_blend(
     bg_pyramid = build_laplacian_pyramid(background, levels)
     mask_pyramid = build_gaussian_pyramid(mask, levels)
 
-    # Blend at each level
+    # Validate pyramid lengths
+    if not (len(fg_pyramid) == len(bg_pyramid) == len(mask_pyramid)):
+        raise ValueError(
+            f"Pyramid length mismatch: fg={len(fg_pyramid)}, "
+            f"bg={len(bg_pyramid)}, mask={len(mask_pyramid)}"
+        )
+
+    # Blend at each level (strict=True for safety)
     blended_pyramid = []
-    for fg, bg, m in zip(fg_pyramid, bg_pyramid, mask_pyramid, strict=False):
+    for fg, bg, m in zip(fg_pyramid, bg_pyramid, mask_pyramid, strict=True):
         # Ensure mask dimensions match
         if m.ndim == 2:
             m = m[..., None]
@@ -198,11 +205,13 @@ def poisson_blend(
 
     # Find center from mask if not provided
     if center is None:
-        moments = cv2.moments(mask_uint8)
-        if moments["m00"] != 0:
-            cx = int(moments["m10"] / moments["m00"])
-            cy = int(moments["m01"] / moments["m00"])
-            center = (cx, cy)
+        # Use boundingRect for stable center (prevents jittering in video)
+        contours, _ = cv2.findContours(
+            mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        if contours:
+            x, y, w, h = cv2.boundingRect(contours[0])
+            center = (x + w // 2, y + h // 2)
         else:
             # Fallback to image center
             center = (mask_uint8.shape[1] // 2, mask_uint8.shape[0] // 2)

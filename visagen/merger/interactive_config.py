@@ -96,6 +96,7 @@ class InteractiveMergerConfig:
 
     # Histogram matching
     hist_match_threshold: int = 238  # 0..255
+    masked_hist_match: bool = True  # Use mask for histogram matching
 
     # Face restoration (GFPGAN)
     restore_face: bool = False
@@ -104,6 +105,14 @@ class InteractiveMergerConfig:
     # Super resolution (legacy compatibility)
     # 0 = disabled, 1-100 = 4x upscale blend power
     super_resolution_power: int = 0  # 0..100
+
+    # Motion blur (for temporal consistency)
+    motion_blur_power: int = 0  # 0..100
+
+    # Image degradation effects (legacy compatibility)
+    image_denoise_power: int = 0  # 0..500
+    bicubic_degrade_power: int = 0  # 0..100
+    color_degrade_power: int = 0  # 0..100
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -140,6 +149,10 @@ class InteractiveMergerConfig:
         self.hist_match_threshold = max(0, min(255, self.hist_match_threshold))
         self.restore_strength = max(0.0, min(1.0, self.restore_strength))
         self.super_resolution_power = max(0, min(100, self.super_resolution_power))
+        self.motion_blur_power = max(0, min(100, self.motion_blur_power))
+        self.image_denoise_power = max(0, min(500, self.image_denoise_power))
+        self.bicubic_degrade_power = max(0, min(100, self.bicubic_degrade_power))
+        self.color_degrade_power = max(0, min(100, self.color_degrade_power))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary."""
@@ -191,6 +204,8 @@ class InteractiveMergerConfig:
             parts.append(f"Restore: {self.restore_strength:.1f}")
         if self.super_resolution_power > 0:
             parts.append(f"SuperRes: {self.super_resolution_power}%")
+        if self.motion_blur_power > 0:
+            parts.append(f"MotionBlur: {self.motion_blur_power}%")
 
         return " | ".join(parts)
 

@@ -25,6 +25,8 @@ import cv2
 import numpy as np
 import torch
 
+from visagen.postprocess.motion_blur import apply_motion_blur_to_face
+
 # Type alias for face metadata
 FaceMetadata = dict[str, Any]
 
@@ -63,11 +65,13 @@ class FrameProcessorConfig:
 
     # Color transfer
     color_transfer_mode: str | None = "rct"
+    hist_match_threshold: int = 238  # 0-255, used for hist-match mode
 
     # Blending
     blend_mode: str = "laplacian"
     blend_amount: float = 1.0
     mask_erode: int = 5
+    mask_dilate: int = 0
     mask_blur: int = 5
 
     # Post-processing
@@ -79,9 +83,28 @@ class FrameProcessorConfig:
     restore_strength: float = 0.5
     restore_model_version: float = 1.4
 
-    # Super resolution (legacy compatibility)
+    # Super resolution (4x upscale with GFPGAN)
     # 0 = disabled, 1-100 = blend power with 4x upscaled enhanced face
     super_resolution_power: int = 0
+
+    # Motion blur (for temporal consistency)
+    motion_blur_power: int = 0  # 0-100
+
+    # Motion blur parameters
+    motion_blur_magnitude: float = 10.0  # 0-50
+    motion_blur_angle: float = 0.0  # 0-360 degrees
+
+    # Face scale adjustment (-50 to 50, applied as 1.0 + 0.01*value)
+    face_scale: float = 0.0
+
+    # Image degradation effects
+    image_denoise_power: int = 0  # 0-500
+    bicubic_degrade_power: int = 0  # 0-100
+    color_degrade_power: int = 0  # 0-100
+    degrade_full_frame: bool = False  # Apply degradation to full frame
+
+    # Motion blur auto-detection (optical flow based)
+    motion_blur_auto: bool = False  # Auto-detect motion from optical flow
 
 
 @dataclass
@@ -167,6 +190,9 @@ class FrameProcessor:
         self._aligner = None
         self._segmenter = None
         self._restorer = None
+
+        # Optical flow state for motion blur auto-detection
+        self._prev_frame_gray: np.ndarray | None = None
 
     def _load_model(
         self, model: Union[str, Path, "torch.nn.Module"]
@@ -310,9 +336,50 @@ class FrameProcessor:
                     if self.config.restore_face:
                         swapped_face = self._apply_restoration(swapped_face)
 
-                    # Apply super resolution (legacy 4x upscale with blend)
+                    # Apply super resolution (4x upscale with blend)
                     if self.config.super_resolution_power > 0:
                         swapped_face = self._apply_super_resolution(swapped_face)
+
+                    # Apply motion blur (for temporal consistency)
+                    if self.config.motion_blur_power > 0:
+                        # Auto-detect motion using optical flow
+                        if self.config.motion_blur_auto:
+                            motion_mag, motion_deg = self._analyze_motion(frame)
+                        else:
+                            motion_mag = self.config.motion_blur_magnitude
+                            motion_deg = self.config.motion_blur_angle
+
+                        swapped_face = apply_motion_blur_to_face(
+                            swapped_face,
+                            motion_power=motion_mag,
+                            motion_deg=motion_deg,
+                            blur_power=self.config.motion_blur_power,
+                            super_resolution=self.config.super_resolution_power > 0,
+                        )
+
+                    # Apply degradation effects (denoise, bicubic, color degrade)
+                    if (
+                        self.config.image_denoise_power > 0
+                        or self.config.bicubic_degrade_power > 0
+                        or self.config.color_degrade_power > 0
+                    ):
+                        from visagen.postprocess.degrade import (
+                            apply_degradation_pipeline,
+                        )
+
+                        # Normalize to float32 [0, 1]
+                        swapped_face_f32 = swapped_face.astype(np.float32) / 255.0
+
+                        swapped_face_f32 = apply_degradation_pipeline(
+                            swapped_face_f32,
+                            denoise_power=self.config.image_denoise_power,
+                            bicubic_power=self.config.bicubic_degrade_power,
+                            color_power=self.config.color_degrade_power,
+                        )
+
+                        swapped_face = np.clip(swapped_face_f32 * 255, 0, 255).astype(
+                            np.uint8
+                        )
 
                     # Blend back to frame
                     output = self._blend_to_frame(output, swapped_face, face_meta, mask)
@@ -326,6 +393,23 @@ class FrameProcessor:
         except Exception as e:
             # Return original frame on error
             logger.debug(f"Frame processing failed: {e}")
+
+        # Apply full-frame degradation if enabled
+        if self.config.degrade_full_frame and (
+            self.config.image_denoise_power > 0
+            or self.config.bicubic_degrade_power > 0
+            or self.config.color_degrade_power > 0
+        ):
+            from visagen.postprocess.degrade import apply_degradation_pipeline
+
+            output_f32 = output.astype(np.float32) / 255.0
+            output_f32 = apply_degradation_pipeline(
+                output_f32,
+                denoise_power=self.config.image_denoise_power,
+                bicubic_power=self.config.bicubic_degrade_power,
+                color_power=self.config.color_degrade_power,
+            )
+            output = np.clip(output_f32 * 255, 0, 255).astype(np.uint8)
 
         processing_time = time.time() - start_time
 
@@ -357,20 +441,30 @@ class FrameProcessor:
 
         results = []
         for face in faces:
-            # Align face
-            aligned, matrix = self.aligner.align(
+            # 1. Input matrix - for model inference (scale=1.0 FIXED)
+            aligned, _input_matrix = self.aligner.align(
                 frame,
                 face.landmarks,
+                scale=1.0,
+            )
+
+            # 2. Output matrix - for warp-back (user setting)
+            output_scale = 1.0 + 0.01 * self.config.face_scale
+            output_matrix = self.aligner.get_transform_mat(
+                face.landmarks,
+                self.config.output_size,
+                self.aligner.face_type,
+                scale=output_scale,
             )
 
             # Generate mask
             mask = self._generate_mask(aligned)
 
-            # Store metadata for warp-back
+            # Store metadata for warp-back (use OUTPUT matrix)
             metadata = {
                 "bbox": face.bbox,
                 "landmarks": face.landmarks,
-                "matrix": matrix,
+                "matrix": output_matrix,
                 "original_shape": frame.shape[:2],
             }
 
@@ -447,6 +541,20 @@ class FrameProcessor:
             return reinhard_color_transfer(swapped_face, target_face)
         elif mode == "lct":
             return linear_color_transfer(swapped_face, target_face)
+        elif mode == "hist-match":
+            from visagen.postprocess.color_transfer import color_hist_match
+
+            # Mask oluştur (face bölgesi için)
+            face_mask = None
+            if hasattr(self, "_current_mask"):
+                face_mask = (self._current_mask > 0.5).astype(np.uint8)
+
+            return color_hist_match(
+                swapped_face,
+                target_face,
+                hist_match_threshold=self.config.hist_match_threshold,
+                mask=face_mask,
+            )
         else:
             # Unknown mode, return unchanged
             return swapped_face
@@ -470,7 +578,6 @@ class FrameProcessor:
         """
         Apply super resolution with 4x upscale and gradual blending.
 
-        Legacy compatibility: Mimics DeepFaceLab's super_resolution_power behavior.
         When enabled, upscales the face 4x using GFPGAN and blends with the
         original based on power setting (0-100).
 
@@ -521,6 +628,14 @@ class FrameProcessor:
         )
         result = np.clip(result, 0, 255).astype(np.uint8)
 
+        # Resize back to original resolution
+        if result.shape[0] != h or result.shape[1] != w:
+            result = cv2.resize(
+                result,
+                (w, h),
+                interpolation=cv2.INTER_LANCZOS4,
+            )
+
         return result
 
     def _blend_to_frame(
@@ -542,7 +657,6 @@ class FrameProcessor:
         Returns:
             Blended frame (H, W, 3) BGR.
         """
-        # Get inverse matrix
         matrix = metadata["matrix"]
         orig_h, orig_w = metadata["original_shape"]
 
@@ -559,7 +673,51 @@ class FrameProcessor:
         warped_mask = self._process_mask(warped_mask)
 
         # Apply blending
-        return self._apply_blend(frame, warped_face, warped_mask)
+        result = self._apply_blend(frame, warped_face, warped_mask)
+
+        # POST-SEAMLESS COLOR TRANSFER
+        # After seamless clone, warp result back to aligned space for color transfer
+        if (
+            self.config.blend_mode.lower() == "poisson"
+            and self.config.color_transfer_mode
+        ):
+            # 1. Warp result back to aligned space
+            aligned_result = cv2.warpAffine(
+                result,
+                matrix,
+                (self.config.output_size, self.config.output_size),
+                flags=cv2.INTER_CUBIC,
+            )
+
+            # 2. Get aligned target face (original destination)
+            aligned_target = cv2.warpAffine(
+                frame,
+                matrix,
+                (self.config.output_size, self.config.output_size),
+                flags=cv2.INTER_CUBIC,
+            )
+
+            # 3. Apply color transfer in aligned space
+            aligned_result = self._apply_color_transfer(aligned_result, aligned_target)
+
+            # 4. Warp corrected face back to frame
+            corrected_face = self._warp_back(
+                aligned_result,
+                (orig_h, orig_w),
+                matrix,
+            )
+
+            # 5. Final blend with mask
+            warped_mask_3ch = (
+                warped_mask[..., None] if warped_mask.ndim == 2 else warped_mask
+            )
+            if warped_mask_3ch.shape[-1] == 1:
+                warped_mask_3ch = np.repeat(warped_mask_3ch, 3, axis=-1)
+
+            result = frame * (1 - warped_mask_3ch) + corrected_face * warped_mask_3ch
+            result = np.clip(result, 0, 255).astype(np.uint8)
+
+        return result
 
     def _warp_back(
         self,
@@ -623,7 +781,10 @@ class FrameProcessor:
 
     def _process_mask(self, mask: np.ndarray) -> np.ndarray:
         """
-        Process mask with erosion and blur.
+        Process mask with padding, erosion, dilation, and blur.
+
+        Adds padding before morphological operations to prevent boundary
+        artifacts from boundary effects.
 
         Args:
             mask: Input mask (H, W) uint8.
@@ -633,6 +794,16 @@ class FrameProcessor:
         """
         # Convert to float
         mask = mask.astype(np.float32) / 255.0
+        h, w = mask.shape[:2]
+
+        # Calculate padding size based on max morphological operation
+        # Minimum padding = output_size // 8 (32 pixels @ 256px) for boundary safety
+        min_pad = self.config.output_size // 8
+        pad_size = max(self.config.mask_erode, self.config.mask_dilate, min_pad)
+
+        # Add padding to prevent boundary artifacts
+        if pad_size > 0:
+            mask = np.pad(mask, pad_size, mode="constant", constant_values=0)
 
         # Erode
         if self.config.mask_erode > 0:
@@ -640,14 +811,34 @@ class FrameProcessor:
                 cv2.MORPH_ELLIPSE,
                 (self.config.mask_erode, self.config.mask_erode),
             )
-            mask = cv2.erode(mask, kernel)
+            mask = cv2.erode(mask, kernel, iterations=1)
+
+        # Dilate (mask expansion)
+        if self.config.mask_dilate > 0:
+            kernel = cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE,
+                (self.config.mask_dilate, self.config.mask_dilate),
+            )
+            mask = cv2.dilate(mask, kernel, iterations=1)
+
+        # Boundary clip (blur compensation) - zero out edges before blur
+        if pad_size > 0:
+            clip_size = pad_size + self.config.mask_blur // 2
+            mask[:clip_size, :] = 0
+            mask[-clip_size:, :] = 0
+            mask[:, :clip_size] = 0
+            mask[:, -clip_size:] = 0
 
         # Blur for smooth edges
         if self.config.mask_blur > 0:
             ksize = self.config.mask_blur | 1  # Ensure odd
             mask = cv2.GaussianBlur(mask, (ksize, ksize), 0)
 
-        return mask
+        # Remove padding
+        if pad_size > 0:
+            mask = mask[pad_size:-pad_size, pad_size:-pad_size]
+
+        return np.clip(mask, 0, 1)
 
     def _apply_blend(
         self,
@@ -735,3 +926,64 @@ class FrameProcessor:
             0,
         )
         return np.clip(sharpened, 0, 255).astype(np.uint8)
+
+    def _analyze_motion(self, frame: np.ndarray) -> tuple[float, float]:
+        """
+        Analyze motion between current and previous frame using optical flow.
+
+        Uses Farneback optical flow to compute motion magnitude and direction.
+        This enables automatic motion blur parameters based on actual frame motion.
+
+        Args:
+            frame: Current frame (H, W, 3) BGR uint8.
+
+        Returns:
+            Tuple of (motion_magnitude, motion_angle_degrees).
+            - motion_magnitude: Average motion power (0-50 range, clamped)
+            - motion_angle_degrees: Average motion direction (0-360)
+        """
+        # Convert to grayscale
+        curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # If no previous frame, store and return defaults
+        if self._prev_frame_gray is None:
+            self._prev_frame_gray = curr_gray
+            return (0.0, 0.0)
+
+        try:
+            # Calculate optical flow using Farneback method
+            flow = cv2.calcOpticalFlowFarneback(
+                self._prev_frame_gray,
+                curr_gray,
+                None,
+                pyr_scale=0.5,
+                levels=3,
+                winsize=15,
+                iterations=3,
+                poly_n=5,
+                poly_sigma=1.2,
+                flags=0,
+            )
+
+            # Convert to polar coordinates (magnitude and angle)
+            magnitude, angle = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+
+            # Calculate average motion
+            motion_power = float(np.mean(magnitude))
+            motion_deg = float(np.degrees(np.mean(angle)))
+
+            # Clamp motion power to reasonable range (0-50)
+            motion_power = min(motion_power * 10, 50.0)  # Scale up for visibility
+
+            # Normalize angle to 0-360
+            motion_deg = motion_deg % 360
+
+        except Exception as e:
+            logger.debug(f"Optical flow analysis failed: {e}")
+            motion_power = 0.0
+            motion_deg = 0.0
+
+        # Update previous frame
+        self._prev_frame_gray = curr_gray
+
+        return (motion_power, motion_deg)

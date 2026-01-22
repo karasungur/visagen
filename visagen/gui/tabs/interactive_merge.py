@@ -16,6 +16,7 @@ from visagen.gui.components import (
     SliderInput,
 )
 from visagen.gui.tabs.base import BaseTab
+from visagen.merger.interactive_config import MASK_MODES
 
 
 class InteractiveMergeTab(BaseTab):
@@ -112,7 +113,7 @@ class InteractiveMergeTab(BaseTab):
                 components["mask_mode"] = DropdownInput(
                     DropdownConfig(
                         key="interactive_merge.mask_mode",
-                        choices=["full", "convex_hull", "segmented"],
+                        choices=list(MASK_MODES.keys()),
                         default="segmented",
                     ),
                     self.i18n,
@@ -228,6 +229,54 @@ class InteractiveMergeTab(BaseTab):
                     self.i18n,
                 ).build()
 
+                gr.Markdown(f"#### {self.t('motion_blur.title')}")
+
+                components["motion_blur_power"] = SliderInput(
+                    SliderConfig(
+                        key="interactive_merge.motion_blur_power",
+                        minimum=0,
+                        maximum=100,
+                        step=1,
+                        default=0,
+                    ),
+                    self.i18n,
+                ).build()
+
+                gr.Markdown(f"#### {self.t('degradation.title')}")
+
+                components["image_denoise_power"] = SliderInput(
+                    SliderConfig(
+                        key="interactive_merge.image_denoise_power",
+                        minimum=0,
+                        maximum=500,
+                        step=10,
+                        default=0,
+                    ),
+                    self.i18n,
+                ).build()
+
+                components["bicubic_degrade_power"] = SliderInput(
+                    SliderConfig(
+                        key="interactive_merge.bicubic_degrade_power",
+                        minimum=0,
+                        maximum=100,
+                        step=5,
+                        default=0,
+                    ),
+                    self.i18n,
+                ).build()
+
+                components["color_degrade_power"] = SliderInput(
+                    SliderConfig(
+                        key="interactive_merge.color_degrade_power",
+                        minimum=0,
+                        maximum=100,
+                        step=5,
+                        default=0,
+                    ),
+                    self.i18n,
+                ).build()
+
                 # Apply button
                 components["apply_btn"] = gr.Button(
                     self.t("apply_settings"),
@@ -325,6 +374,10 @@ class InteractiveMergeTab(BaseTab):
             c["restore_face"],
             c["restore_strength"],
             c["super_resolution_power"],
+            c["motion_blur_power"],
+            c["image_denoise_power"],
+            c["bicubic_degrade_power"],
+            c["color_degrade_power"],
             c["show_original"],
         ]
 
@@ -342,10 +395,8 @@ class InteractiveMergeTab(BaseTab):
             outputs=[c["preview"], c["config_status"]],
         )
 
-        # Real-time updates for sliders (Debounced via Gradio's concurrency/queue)
-        # Note: Gradio's .change(..., show_progress="hidden") + generic queue limits
-        # acts as a throttle. For true debounce we rely on backend speed or custom JS.
-        # Here we attach .change to all sliders for "interactive" feel.
+        # Real-time updates for sliders: Use .release() instead of .change() for debouncing
+        # This triggers only when user releases the slider, not during drag
         sliders = [
             "erode_mask",
             "blur_mask",
@@ -354,9 +405,13 @@ class InteractiveMergeTab(BaseTab):
             "hist_threshold",
             "restore_strength",
             "super_resolution_power",
+            "motion_blur_power",
+            "image_denoise_power",
+            "bicubic_degrade_power",
+            "color_degrade_power",
         ]
         for name in sliders:
-            c[name].change(
+            c[name].release(
                 fn=self._on_apply_settings,
                 inputs=config_inputs,
                 outputs=[c["preview"], c["config_status"]],
@@ -481,6 +536,10 @@ class InteractiveMergeTab(BaseTab):
         restore_face: bool,
         restore_strength: float,
         super_resolution_power: int,
+        motion_blur_power: int,
+        image_denoise_power: int,
+        bicubic_degrade_power: int,
+        color_degrade_power: int,
         show_original: bool,
     ) -> tuple[np.ndarray | None, str]:
         """Handle settings update."""
@@ -505,6 +564,10 @@ class InteractiveMergeTab(BaseTab):
                 restore_face=restore_face,
                 restore_strength=restore_strength,
                 super_resolution_power=int(super_resolution_power),
+                motion_blur_power=int(motion_blur_power),
+                image_denoise_power=int(image_denoise_power),
+                bicubic_degrade_power=int(bicubic_degrade_power),
+                color_degrade_power=int(color_degrade_power),
             )
 
             # Get status string from config

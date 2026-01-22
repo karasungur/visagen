@@ -29,6 +29,15 @@ class AppSettings:
     segmentation_batch_size: int = 8
     detector_warmup: bool = True
 
+    # Interactive Merger defaults
+    last_merger_session_path: str | None = None
+    auto_load_last_session: bool = True
+    merger_default_mode: str = "overlay"
+    merger_default_mask_mode: str = "segmented"
+    merger_default_color_transfer: str = "rct"
+    merger_default_erode: int = 0
+    merger_default_blur: int = 10
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
@@ -45,6 +54,13 @@ class AppSettings:
             "extraction_auto_mask": self.extraction_auto_mask,
             "segmentation_batch_size": self.segmentation_batch_size,
             "detector_warmup": self.detector_warmup,
+            "last_merger_session_path": self.last_merger_session_path,
+            "auto_load_last_session": self.auto_load_last_session,
+            "merger_default_mode": self.merger_default_mode,
+            "merger_default_mask_mode": self.merger_default_mask_mode,
+            "merger_default_color_transfer": self.merger_default_color_transfer,
+            "merger_default_erode": self.merger_default_erode,
+            "merger_default_blur": self.merger_default_blur,
         }
 
     @classmethod
