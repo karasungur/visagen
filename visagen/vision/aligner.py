@@ -257,8 +257,23 @@ class FaceAligner:
         >>> aligned_image = aligned.image
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        output_size: int = 256,
+        face_type: str | FaceType = FaceType.WHOLE_FACE,
+    ) -> None:
+        """
+        Initialize face aligner.
+
+        Args:
+            output_size: Output image size (square). Default: 256.
+            face_type: Face type determining crop region. Default: WHOLE_FACE.
+        """
         self._template = LANDMARKS_2D_NEW
+        self.output_size = output_size
+        self.face_type = (
+            FaceType.from_string(face_type) if isinstance(face_type, str) else face_type
+        )
 
     def get_transform_mat(
         self,
@@ -381,6 +396,39 @@ class FaceAligner:
         mat = cv2.getAffineTransform(l_t.astype(np.float32), pts2)
 
         return mat
+
+    def align(
+        self,
+        image: np.ndarray,
+        landmarks: np.ndarray,
+        scale: float = 1.0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Align a face using instance configuration.
+
+        Simplified interface that uses the output_size and face_type
+        set during initialization.
+
+        Args:
+            image: Source image (BGR format).
+            landmarks: 68-point facial landmarks.
+            scale: Additional scaling factor. Default: 1.0.
+
+        Returns:
+            Tuple of (aligned_image, transform_matrix).
+        """
+        mat = self.get_transform_mat(landmarks, self.output_size, self.face_type, scale)
+
+        # Warp image
+        aligned_image = cv2.warpAffine(
+            image,
+            mat,
+            (self.output_size, self.output_size),
+            flags=cv2.INTER_LANCZOS4,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+
+        return aligned_image, mat
 
     def align_face(
         self,
