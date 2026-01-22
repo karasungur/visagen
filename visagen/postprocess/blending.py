@@ -198,11 +198,13 @@ def poisson_blend(
 
     # Find center from mask if not provided
     if center is None:
-        moments = cv2.moments(mask_uint8)
-        if moments["m00"] != 0:
-            cx = int(moments["m10"] / moments["m00"])
-            cy = int(moments["m01"] / moments["m00"])
-            center = (cx, cy)
+        # Use boundingRect for stable center (prevents jittering in video)
+        contours, _ = cv2.findContours(
+            mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        if contours:
+            x, y, w, h = cv2.boundingRect(contours[0])
+            center = (x + w // 2, y + h // 2)
         else:
             # Fallback to image center
             center = (mask_uint8.shape[1] // 2, mask_uint8.shape[0] // 2)
