@@ -301,6 +301,14 @@ class InteractiveMerger:
         proc_config.sharpen = config.sharpen_mode != "none"
         proc_config.sharpen_amount = config.sharpen_amount / 100.0
 
+        # Face scale adjustment
+        proc_config.face_scale = config.face_scale
+
+        # Degradation effects
+        proc_config.image_denoise_power = config.image_denoise_power
+        proc_config.bicubic_degrade_power = config.bicubic_degrade_power
+        proc_config.color_degrade_power = config.color_degrade_power
+
     def update_config(self, **kwargs) -> np.ndarray | None:
         """
         Update configuration and return processed current frame.

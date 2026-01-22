@@ -86,7 +86,7 @@ def apply_color_degrade(image: np.ndarray, power: int) -> np.ndarray:
     Reduce color depth through quantization.
 
     Simulates lower bit-depth color representation by reducing
-    the number of distinct color levels.
+    the number of distinct color levels with dynamic quantization.
 
     Args:
         image: Input image (H, W, 3) float32 [0, 1].
@@ -101,9 +101,8 @@ def apply_color_degrade(image: np.ndarray, power: int) -> np.ndarray:
     # Convert to uint8
     img_uint8 = np.clip(image * 255, 0, 255).astype(np.uint8)
 
-    # Quantize to fewer levels (16 levels per channel at max power)
-    # At power=100, we use 16 levels; at power=50, blend 50/50
-    levels = 16
+    # Dynamic levels based on power (power=100 -> 16, power=50 -> ~130)
+    levels = max(16, int(256 - (240 * power / 100)))
     step = 256 // levels
     reduced = (img_uint8 // step) * step
     reduced = reduced.astype(np.float32) / 255.0

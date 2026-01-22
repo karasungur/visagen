@@ -123,16 +123,21 @@ class MergerConfig:
             color_transfer_mode=iconfig.color_transfer
             if iconfig.color_transfer != "none"
             else None,
-            blend_mode=iconfig.mode,  # Simple mapping for now
+            hist_match_threshold=iconfig.hist_match_threshold,
+            blend_mode=iconfig.mode,
             mask_erode=abs(iconfig.erode_mask) if iconfig.erode_mask > 0 else 0,
             mask_dilate=abs(iconfig.erode_mask) if iconfig.erode_mask < 0 else 0,
             mask_blur=iconfig.blur_mask,
+            face_scale=iconfig.face_scale,
             sharpen=iconfig.sharpen_mode != "none",
             sharpen_amount=iconfig.sharpen_amount / 100.0,
             restore_face=iconfig.restore_face,
             restore_strength=iconfig.restore_strength,
             super_resolution_power=iconfig.super_resolution_power,
             motion_blur_power=iconfig.motion_blur_power,
+            image_denoise_power=iconfig.image_denoise_power,
+            bicubic_degrade_power=iconfig.bicubic_degrade_power,
+            color_degrade_power=iconfig.color_degrade_power,
         )
 
         return cls(

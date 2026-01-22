@@ -242,6 +242,41 @@ class InteractiveMergeTab(BaseTab):
                     self.i18n,
                 ).build()
 
+                gr.Markdown(f"#### {self.t('degradation.title')}")
+
+                components["image_denoise_power"] = SliderInput(
+                    SliderConfig(
+                        key="interactive_merge.image_denoise_power",
+                        minimum=0,
+                        maximum=500,
+                        step=10,
+                        default=0,
+                    ),
+                    self.i18n,
+                ).build()
+
+                components["bicubic_degrade_power"] = SliderInput(
+                    SliderConfig(
+                        key="interactive_merge.bicubic_degrade_power",
+                        minimum=0,
+                        maximum=100,
+                        step=5,
+                        default=0,
+                    ),
+                    self.i18n,
+                ).build()
+
+                components["color_degrade_power"] = SliderInput(
+                    SliderConfig(
+                        key="interactive_merge.color_degrade_power",
+                        minimum=0,
+                        maximum=100,
+                        step=5,
+                        default=0,
+                    ),
+                    self.i18n,
+                ).build()
+
                 # Apply button
                 components["apply_btn"] = gr.Button(
                     self.t("apply_settings"),
@@ -340,6 +375,9 @@ class InteractiveMergeTab(BaseTab):
             c["restore_strength"],
             c["super_resolution_power"],
             c["motion_blur_power"],
+            c["image_denoise_power"],
+            c["bicubic_degrade_power"],
+            c["color_degrade_power"],
             c["show_original"],
         ]
 
@@ -368,6 +406,9 @@ class InteractiveMergeTab(BaseTab):
             "restore_strength",
             "super_resolution_power",
             "motion_blur_power",
+            "image_denoise_power",
+            "bicubic_degrade_power",
+            "color_degrade_power",
         ]
         for name in sliders:
             c[name].release(
@@ -496,6 +537,9 @@ class InteractiveMergeTab(BaseTab):
         restore_strength: float,
         super_resolution_power: int,
         motion_blur_power: int,
+        image_denoise_power: int,
+        bicubic_degrade_power: int,
+        color_degrade_power: int,
         show_original: bool,
     ) -> tuple[np.ndarray | None, str]:
         """Handle settings update."""
@@ -521,6 +565,9 @@ class InteractiveMergeTab(BaseTab):
                 restore_strength=restore_strength,
                 super_resolution_power=int(super_resolution_power),
                 motion_blur_power=int(motion_blur_power),
+                image_denoise_power=int(image_denoise_power),
+                bicubic_degrade_power=int(bicubic_degrade_power),
+                color_degrade_power=int(color_degrade_power),
             )
 
             # Get status string from config

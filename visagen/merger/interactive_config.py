@@ -109,6 +109,11 @@ class InteractiveMergerConfig:
     # Motion blur (for temporal consistency)
     motion_blur_power: int = 0  # 0..100
 
+    # Image degradation effects (legacy compatibility)
+    image_denoise_power: int = 0  # 0..500
+    bicubic_degrade_power: int = 0  # 0..100
+    color_degrade_power: int = 0  # 0..100
+
     def __post_init__(self) -> None:
         """Validate configuration values."""
         self._validate()
@@ -145,6 +150,9 @@ class InteractiveMergerConfig:
         self.restore_strength = max(0.0, min(1.0, self.restore_strength))
         self.super_resolution_power = max(0, min(100, self.super_resolution_power))
         self.motion_blur_power = max(0, min(100, self.motion_blur_power))
+        self.image_denoise_power = max(0, min(500, self.image_denoise_power))
+        self.bicubic_degrade_power = max(0, min(100, self.bicubic_degrade_power))
+        self.color_degrade_power = max(0, min(100, self.color_degrade_power))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary."""

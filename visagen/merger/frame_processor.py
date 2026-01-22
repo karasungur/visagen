@@ -90,6 +90,10 @@ class FrameProcessorConfig:
     # Motion blur (for temporal consistency)
     motion_blur_power: int = 0  # 0-100
 
+    # Motion blur parameters
+    motion_blur_magnitude: float = 10.0  # 0-50
+    motion_blur_angle: float = 0.0  # 0-360 degrees
+
     # Face scale adjustment (-50 to 50, applied as 1.0 + 0.01*value)
     face_scale: float = 0.0
 
@@ -333,8 +337,8 @@ class FrameProcessor:
                     if self.config.motion_blur_power > 0:
                         swapped_face = apply_motion_blur_to_face(
                             swapped_face,
-                            motion_power=10.0,  # Default magnitude
-                            motion_deg=0.0,  # Default horizontal
+                            motion_power=self.config.motion_blur_magnitude,
+                            motion_deg=self.config.motion_blur_angle,
                             blur_power=self.config.motion_blur_power,
                             super_resolution=self.config.super_resolution_power > 0,
                         )
@@ -506,6 +510,14 @@ class FrameProcessor:
             return reinhard_color_transfer(swapped_face, target_face)
         elif mode == "lct":
             return linear_color_transfer(swapped_face, target_face)
+        elif mode == "hist-match":
+            from visagen.postprocess.color_transfer import color_hist_match
+
+            return color_hist_match(
+                swapped_face,
+                target_face,
+                hist_match_threshold=self.config.hist_match_threshold,
+            )
         else:
             # Unknown mode, return unchanged
             return swapped_face
@@ -579,6 +591,14 @@ class FrameProcessor:
             + enhanced.astype(np.float32) * mod
         )
         result = np.clip(result, 0, 255).astype(np.uint8)
+
+        # Resize back to original resolution
+        if result.shape[0] != h or result.shape[1] != w:
+            result = cv2.resize(
+                result,
+                (w, h),
+                interpolation=cv2.INTER_LANCZOS4,
+            )
 
         return result
 
