@@ -228,6 +228,19 @@ class InteractiveMergeTab(BaseTab):
                     self.i18n,
                 ).build()
 
+                gr.Markdown(f"#### {self.t('motion_blur.title')}")
+
+                components["motion_blur_power"] = SliderInput(
+                    SliderConfig(
+                        key="interactive_merge.motion_blur_power",
+                        minimum=0,
+                        maximum=100,
+                        step=1,
+                        default=0,
+                    ),
+                    self.i18n,
+                ).build()
+
                 # Apply button
                 components["apply_btn"] = gr.Button(
                     self.t("apply_settings"),
@@ -325,6 +338,7 @@ class InteractiveMergeTab(BaseTab):
             c["restore_face"],
             c["restore_strength"],
             c["super_resolution_power"],
+            c["motion_blur_power"],
             c["show_original"],
         ]
 
@@ -342,10 +356,8 @@ class InteractiveMergeTab(BaseTab):
             outputs=[c["preview"], c["config_status"]],
         )
 
-        # Real-time updates for sliders (Debounced via Gradio's concurrency/queue)
-        # Note: Gradio's .change(..., show_progress="hidden") + generic queue limits
-        # acts as a throttle. For true debounce we rely on backend speed or custom JS.
-        # Here we attach .change to all sliders for "interactive" feel.
+        # Real-time updates for sliders: Use .release() instead of .change() for debouncing
+        # This triggers only when user releases the slider, not during drag
         sliders = [
             "erode_mask",
             "blur_mask",
@@ -354,9 +366,10 @@ class InteractiveMergeTab(BaseTab):
             "hist_threshold",
             "restore_strength",
             "super_resolution_power",
+            "motion_blur_power",
         ]
         for name in sliders:
-            c[name].change(
+            c[name].release(
                 fn=self._on_apply_settings,
                 inputs=config_inputs,
                 outputs=[c["preview"], c["config_status"]],
@@ -481,6 +494,7 @@ class InteractiveMergeTab(BaseTab):
         restore_face: bool,
         restore_strength: float,
         super_resolution_power: int,
+        motion_blur_power: int,
         show_original: bool,
     ) -> tuple[np.ndarray | None, str]:
         """Handle settings update."""
@@ -505,6 +519,7 @@ class InteractiveMergeTab(BaseTab):
                 restore_face=restore_face,
                 restore_strength=restore_strength,
                 super_resolution_power=int(super_resolution_power),
+                motion_blur_power=int(motion_blur_power),
             )
 
             # Get status string from config
