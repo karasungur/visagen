@@ -339,6 +339,30 @@ class FrameProcessor:
                             super_resolution=self.config.super_resolution_power > 0,
                         )
 
+                    # Apply degradation effects (denoise, bicubic, color degrade)
+                    if (
+                        self.config.image_denoise_power > 0
+                        or self.config.bicubic_degrade_power > 0
+                        or self.config.color_degrade_power > 0
+                    ):
+                        from visagen.postprocess.degrade import (
+                            apply_degradation_pipeline,
+                        )
+
+                        # Normalize to float32 [0, 1]
+                        swapped_face_f32 = swapped_face.astype(np.float32) / 255.0
+
+                        swapped_face_f32 = apply_degradation_pipeline(
+                            swapped_face_f32,
+                            denoise_power=self.config.image_denoise_power,
+                            bicubic_power=self.config.bicubic_degrade_power,
+                            color_power=self.config.color_degrade_power,
+                        )
+
+                        swapped_face = np.clip(swapped_face_f32 * 255, 0, 255).astype(
+                            np.uint8
+                        )
+
                     # Blend back to frame
                     output = self._blend_to_frame(output, swapped_face, face_meta, mask)
 
@@ -382,24 +406,30 @@ class FrameProcessor:
 
         results = []
         for face in faces:
-            # Calculate scale factor from config
-            scale = 1.0 + 0.01 * self.config.face_scale
-
-            # Align face with scale
-            aligned, matrix = self.aligner.align(
+            # 1. Input matrix - for model inference (scale=1.0 FIXED)
+            aligned, _input_matrix = self.aligner.align(
                 frame,
                 face.landmarks,
-                scale=scale,
+                scale=1.0,
+            )
+
+            # 2. Output matrix - for warp-back (user setting)
+            output_scale = 1.0 + 0.01 * self.config.face_scale
+            output_matrix = self.aligner.get_transform_mat(
+                face.landmarks,
+                self.config.output_size,
+                self.aligner.face_type,
+                scale=output_scale,
             )
 
             # Generate mask
             mask = self._generate_mask(aligned)
 
-            # Store metadata for warp-back
+            # Store metadata for warp-back (use OUTPUT matrix)
             metadata = {
                 "bbox": face.bbox,
                 "landmarks": face.landmarks,
-                "matrix": matrix,
+                "matrix": output_matrix,
                 "original_shape": frame.shape[:2],
             }
 
@@ -668,7 +698,9 @@ class FrameProcessor:
         h, w = mask.shape[:2]
 
         # Calculate padding size based on max morphological operation
-        pad_size = max(self.config.mask_erode, self.config.mask_dilate, 0)
+        # Minimum padding = output_size // 8 (32 pixels @ 256px) for boundary safety
+        min_pad = self.config.output_size // 8
+        pad_size = max(self.config.mask_erode, self.config.mask_dilate, min_pad)
 
         # Add padding to prevent boundary artifacts
         if pad_size > 0:
