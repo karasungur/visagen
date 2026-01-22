@@ -16,6 +16,7 @@ from visagen.gui.components import (
     SliderInput,
 )
 from visagen.gui.tabs.base import BaseTab
+from visagen.merger.interactive_config import MASK_MODES
 
 
 class InteractiveMergeTab(BaseTab):
@@ -112,7 +113,7 @@ class InteractiveMergeTab(BaseTab):
                 components["mask_mode"] = DropdownInput(
                     DropdownConfig(
                         key="interactive_merge.mask_mode",
-                        choices=["full", "convex_hull", "segmented"],
+                        choices=list(MASK_MODES.keys()),
                         default="segmented",
                     ),
                     self.i18n,
