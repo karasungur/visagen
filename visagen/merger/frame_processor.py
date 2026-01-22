@@ -90,6 +90,14 @@ class FrameProcessorConfig:
     # Motion blur (for temporal consistency)
     motion_blur_power: int = 0  # 0-100
 
+    # Face scale adjustment (-50 to 50, applied as 1.0 + 0.01*value)
+    face_scale: float = 0.0
+
+    # Image degradation effects (legacy compatibility)
+    image_denoise_power: int = 0  # 0-500
+    bicubic_degrade_power: int = 0  # 0-100
+    color_degrade_power: int = 0  # 0-100
+
 
 @dataclass
 class ProcessedFrame:
@@ -374,10 +382,14 @@ class FrameProcessor:
 
         results = []
         for face in faces:
-            # Align face
+            # Calculate scale factor from config
+            scale = 1.0 + 0.01 * self.config.face_scale
+
+            # Align face with scale
             aligned, matrix = self.aligner.align(
                 frame,
                 face.landmarks,
+                scale=scale,
             )
 
             # Generate mask
@@ -640,7 +652,10 @@ class FrameProcessor:
 
     def _process_mask(self, mask: np.ndarray) -> np.ndarray:
         """
-        Process mask with erosion and blur.
+        Process mask with padding, erosion, dilation, and blur.
+
+        Adds padding before morphological operations to prevent boundary
+        artifacts, matching legacy DFL behavior.
 
         Args:
             mask: Input mask (H, W) uint8.
@@ -650,6 +665,14 @@ class FrameProcessor:
         """
         # Convert to float
         mask = mask.astype(np.float32) / 255.0
+        h, w = mask.shape[:2]
+
+        # Calculate padding size based on max morphological operation
+        pad_size = max(self.config.mask_erode, self.config.mask_dilate, 0)
+
+        # Add padding to prevent boundary artifacts
+        if pad_size > 0:
+            mask = np.pad(mask, pad_size, mode="constant", constant_values=0)
 
         # Erode
         if self.config.mask_erode > 0:
@@ -657,7 +680,7 @@ class FrameProcessor:
                 cv2.MORPH_ELLIPSE,
                 (self.config.mask_erode, self.config.mask_erode),
             )
-            mask = cv2.erode(mask, kernel)
+            mask = cv2.erode(mask, kernel, iterations=1)
 
         # Dilate (mask expansion)
         if self.config.mask_dilate > 0:
@@ -665,14 +688,26 @@ class FrameProcessor:
                 cv2.MORPH_ELLIPSE,
                 (self.config.mask_dilate, self.config.mask_dilate),
             )
-            mask = cv2.dilate(mask, kernel)
+            mask = cv2.dilate(mask, kernel, iterations=1)
+
+        # Boundary clip (blur compensation) - zero out edges before blur
+        if pad_size > 0:
+            clip_size = pad_size + self.config.mask_blur // 2
+            mask[:clip_size, :] = 0
+            mask[-clip_size:, :] = 0
+            mask[:, :clip_size] = 0
+            mask[:, -clip_size:] = 0
 
         # Blur for smooth edges
         if self.config.mask_blur > 0:
             ksize = self.config.mask_blur | 1  # Ensure odd
             mask = cv2.GaussianBlur(mask, (ksize, ksize), 0)
 
-        return mask
+        # Remove padding
+        if pad_size > 0:
+            mask = mask[pad_size:-pad_size, pad_size:-pad_size]
+
+        return np.clip(mask, 0, 1)
 
     def _apply_blend(
         self,
