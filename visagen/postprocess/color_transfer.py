@@ -57,6 +57,9 @@ def reinhard_color_transfer(
     Matches the color distribution of target image to source image
     using LAB color space statistics (mean and standard deviation).
 
+    Uses true LAB ranges (L: 0-100, A/B: -127 to 127) for accurate
+    color transfer.
+
     Args:
         target: Target image to modify (H, W, 3) BGR float32 [0, 1].
         source: Source image to match colors from (H, W, 3) BGR float32 [0, 1].
@@ -67,12 +70,10 @@ def reinhard_color_transfer(
     Returns:
         Color-transferred target image (H, W, 3) BGR float32 [0, 1].
     """
-    # Convert to LAB color space
-    source_uint8 = np.clip(source * 255, 0, 255).astype(np.uint8)
-    target_uint8 = np.clip(target * 255, 0, 255).astype(np.uint8)
-
-    source_lab = cv2.cvtColor(source_uint8, cv2.COLOR_BGR2LAB).astype(np.float32)
-    target_lab = cv2.cvtColor(target_uint8, cv2.COLOR_BGR2LAB).astype(np.float32)
+    # Convert to LAB color space using float32 for true LAB ranges
+    # float32 input -> float32 LAB with true ranges (L: 0-100, A/B: -127 to 127)
+    source_lab = cv2.cvtColor(source, cv2.COLOR_BGR2LAB)
+    target_lab = cv2.cvtColor(target, cv2.COLOR_BGR2LAB)
 
     # Get pixels for statistics
     if source_mask is not None:
@@ -130,17 +131,14 @@ def reinhard_color_transfer(
             src_b_std / (tgt_b_std + eps)
         ) + src_b_mean
 
-    # Clip to valid LAB ranges (OpenCV LAB: L∈[0,100], A/B∈[-127,127] mapped to [0,255])
-    # OpenCV uses L: 0-255 (scaled from 0-100), A/B: 0-255 (shifted from -128 to 127)
-    # After cv2.cvtColor with uint8, the ranges are already [0,255]
-    # Statistics are computed on these uint8 values, so clipping matches the format
-    result_l = np.clip(result_l, 0, 255)
-    result_a = np.clip(result_a, 0, 255)
-    result_b = np.clip(result_b, 0, 255)
+    # Clip to valid LAB ranges (true LAB: L∈[0,100], A/B∈[-127,127])
+    result_l = np.clip(result_l, 0, 100)
+    result_a = np.clip(result_a, -127, 127)
+    result_b = np.clip(result_b, -127, 127)
 
     # Convert back to BGR
-    result_lab = np.stack([result_l, result_a, result_b], axis=-1).astype(np.uint8)
-    result = cv2.cvtColor(result_lab, cv2.COLOR_LAB2BGR).astype(np.float32) / 255.0
+    result_lab = np.stack([result_l, result_a, result_b], axis=-1)
+    result = cv2.cvtColor(result_lab, cv2.COLOR_LAB2BGR)
 
     return np.clip(result, 0, 1)
 
