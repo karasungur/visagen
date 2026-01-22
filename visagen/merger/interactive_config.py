@@ -96,6 +96,7 @@ class InteractiveMergerConfig:
 
     # Histogram matching
     hist_match_threshold: int = 238  # 0..255
+    masked_hist_match: bool = True  # Use mask for histogram matching
 
     # Face restoration (GFPGAN)
     restore_face: bool = False
