@@ -54,6 +54,8 @@ class MaskEditorTab(BaseTab):
         self._canvas: MaskCanvas | None = None
         self._face_files: list[Path] = []
         self._current_face_idx: int = 0
+        self._gallery_page: int = 0
+        self._gallery_page_size: int = 18
         self._samples_count: int = 0
         self._training_thread: threading.Thread | None = None
         self._training_active: bool = False
@@ -110,6 +112,15 @@ class MaskEditorTab(BaseTab):
                     height=300,
                     allow_preview=False,
                 )
+
+                with gr.Row():
+                    components["gallery_prev_btn"] = gr.Button("<< Page", size="sm")
+                    components["gallery_page_info"] = gr.Textbox(
+                        value="Page 0/0",
+                        interactive=False,
+                        show_label=False,
+                    )
+                    components["gallery_next_btn"] = gr.Button("Page >>", size="sm")
 
                 with gr.Row():
                     components["prev_face_btn"] = gr.Button("<< Prev", size="sm")
@@ -326,13 +337,33 @@ class MaskEditorTab(BaseTab):
         c["load_faceset_btn"].click(
             fn=self._load_faceset,
             inputs=[c["faceset_dir"]],
-            outputs=[c["face_gallery"], c["face_info"], c["editor_status"]],
+            outputs=[
+                c["face_gallery"],
+                c["gallery_page_info"],
+                c["face_info"],
+                c["editor_status"],
+            ],
         )
 
         c["refresh_faceset_btn"].click(
             fn=self._load_faceset,
             inputs=[c["faceset_dir"]],
-            outputs=[c["face_gallery"], c["face_info"], c["editor_status"]],
+            outputs=[
+                c["face_gallery"],
+                c["gallery_page_info"],
+                c["face_info"],
+                c["editor_status"],
+            ],
+        )
+
+        c["gallery_prev_btn"].click(
+            fn=self._prev_gallery_page,
+            outputs=[c["face_gallery"], c["gallery_page_info"]],
+        )
+
+        c["gallery_next_btn"].click(
+            fn=self._next_gallery_page,
+            outputs=[c["face_gallery"], c["gallery_page_info"]],
         )
 
         # Navigation
@@ -431,14 +462,14 @@ class MaskEditorTab(BaseTab):
     def _load_faceset(
         self,
         directory: str,
-    ) -> tuple[list[tuple[np.ndarray, str]], str, str]:
+    ) -> tuple[list[tuple[np.ndarray, str]], str, str, str]:
         """Load faceset from directory."""
         if not directory:
-            return [], "", "Please specify a directory"
+            return [], "Page 0/0", "", "Please specify a directory"
 
         dir_path = Path(directory)
         if not dir_path.exists():
-            return [], "", f"Directory not found: {directory}"
+            return [], "Page 0/0", "", f"Directory not found: {directory}"
 
         # Find face images
         self._face_files = sorted(
@@ -447,26 +478,70 @@ class MaskEditorTab(BaseTab):
         )
 
         if not self._face_files:
-            return [], "", "No images found in directory"
+            return [], "Page 0/0", "", "No images found in directory"
 
-        # Load gallery items
-        gallery_items = []
-        for path in self._face_files[:18]:  # First 18 for gallery
-            try:
-                img = cv2.imread(str(path))
-                if img is not None:
-                    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                    gallery_items.append((img_rgb, path.stem))
-            except Exception:
-                continue
-
+        self._gallery_page = 0
         self._current_face_idx = 0
+        gallery_items, page_info = self._get_gallery_page()
         status = f"Loaded {len(self._face_files)} faces"
         face_info = self._face_files[0].name if self._face_files else ""
 
-        return gallery_items, face_info, status
+        return gallery_items, page_info, face_info, status
 
-    def _prev_face(self) -> tuple[dict, np.ndarray, np.ndarray, str]:
+    def _get_gallery_page(self) -> tuple[list[tuple[np.ndarray, str]], str]:
+        """Get current gallery page."""
+        start = self._gallery_page * self._gallery_page_size
+        end = start + self._gallery_page_size
+        page_files = self._face_files[start:end]
+
+        gallery_items: list[tuple[np.ndarray, str]] = []
+        for path in page_files:
+            try:
+                img = cv2.imread(str(path))
+                if img is None:
+                    continue
+                h, w = img.shape[:2]
+                max_dim = max(h, w)
+                if max_dim > 256:
+                    scale = 256 / max_dim
+                    img = cv2.resize(
+                        img,
+                        (max(1, int(w * scale)), max(1, int(h * scale))),
+                        interpolation=cv2.INTER_AREA,
+                    )
+                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                gallery_items.append((img_rgb, path.stem))
+            except Exception:
+                continue
+
+        total_pages = max(
+            1,
+            (len(self._face_files) + self._gallery_page_size - 1)
+            // self._gallery_page_size,
+        )
+        page_info = f"Page {self._gallery_page + 1}/{total_pages}"
+        return gallery_items, page_info
+
+    def _prev_gallery_page(self) -> tuple[list[tuple[np.ndarray, str]], str]:
+        """Go to previous gallery page."""
+        if self._gallery_page > 0:
+            self._gallery_page -= 1
+        return self._get_gallery_page()
+
+    def _next_gallery_page(self) -> tuple[list[tuple[np.ndarray, str]], str]:
+        """Go to next gallery page."""
+        total_pages = max(
+            1,
+            (len(self._face_files) + self._gallery_page_size - 1)
+            // self._gallery_page_size,
+        )
+        if self._gallery_page < total_pages - 1:
+            self._gallery_page += 1
+        return self._get_gallery_page()
+
+    def _prev_face(
+        self,
+    ) -> tuple[dict, np.ndarray | None, np.ndarray | None, str]:
         """Navigate to previous face."""
         if not self._face_files:
             return {}, None, None, ""
@@ -474,7 +549,9 @@ class MaskEditorTab(BaseTab):
         self._current_face_idx = max(0, self._current_face_idx - 1)
         return self._load_current_face()
 
-    def _next_face(self) -> tuple[dict, np.ndarray, np.ndarray, str]:
+    def _next_face(
+        self,
+    ) -> tuple[dict, np.ndarray | None, np.ndarray | None, str]:
         """Navigate to next face."""
         if not self._face_files:
             return {}, None, None, ""
@@ -487,13 +564,18 @@ class MaskEditorTab(BaseTab):
     def _on_face_select(
         self,
         evt: gr.SelectData,
-    ) -> tuple[dict, np.ndarray, np.ndarray, str]:
+    ) -> tuple[dict, np.ndarray | None, np.ndarray | None, str]:
         """Handle gallery face selection."""
-        if evt.index is not None and evt.index < len(self._face_files):
-            self._current_face_idx = evt.index
+        if evt.index is not None:
+            page_start = self._gallery_page * self._gallery_page_size
+            file_idx = page_start + evt.index
+            if file_idx < len(self._face_files):
+                self._current_face_idx = file_idx
         return self._load_current_face()
 
-    def _load_current_face(self) -> tuple[dict, np.ndarray, np.ndarray, str]:
+    def _load_current_face(
+        self,
+    ) -> tuple[dict, np.ndarray | None, np.ndarray | None, str]:
         """Load current face into canvas."""
         if not self._face_files or self._current_face_idx >= len(self._face_files):
             return {}, None, None, ""

@@ -585,12 +585,17 @@ TRANSLATIONS = {
             "info": "Sıralama/filtreleme algoritmasını seçin",
             "choices": {
                 "blur": "Bulanıklık (Keskinlik)",
+                "blur-fast": "Bulanıklık Hızlı (Laplacian)",
                 "motion-blur": "Hareket Bulanıklığı",
                 "face-yaw": "Yüz Yaw (Sol-Sağ)",
                 "face-pitch": "Yüz Pitch (Yukarı-Aşağı)",
                 "face-source-rect-size": "Yüz Boyutu",
                 "hist": "Histogram Benzerliği",
                 "hist-dissim": "Histogram Farklılığı",
+                "absdiff": "Mutlak Fark",
+                "absdiff-dissim": "Mutlak Fark Farklılık",
+                "id-sim": "Kimlik Benzerliği",
+                "id-dissim": "Kimlik Farklılığı",
                 "brightness": "Parlaklık",
                 "hue": "Ton",
                 "black": "Siyah Pikseller",
@@ -599,6 +604,19 @@ TRANSLATIONS = {
                 "final": "Final (En İyi Seçim)",
                 "final-fast": "Final Hızlı",
             },
+        },
+        "exec_mode": {
+            "label": "Çalıştırma Modu",
+            "info": "Sıralama yükleri için paralel backend",
+            "choices": {
+                "auto": "Otomatik",
+                "process": "Process Havuzu",
+                "thread": "Thread Havuzu",
+            },
+        },
+        "exact_limit": {
+            "label": "Kesin Hesap Sınırı",
+            "info": "Bu sayının üstünde büyük veri approximate yola geçer",
         },
         "target_count": {
             "label": "Hedef Sayı",

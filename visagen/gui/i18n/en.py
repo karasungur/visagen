@@ -585,12 +585,17 @@ TRANSLATIONS = {
             "info": "Select sorting/filtering algorithm",
             "choices": {
                 "blur": "Blur (Sharpness)",
+                "blur-fast": "Blur Fast (Laplacian)",
                 "motion-blur": "Motion Blur",
                 "face-yaw": "Face Yaw (Left-Right)",
                 "face-pitch": "Face Pitch (Up-Down)",
                 "face-source-rect-size": "Face Size",
                 "hist": "Histogram Similarity",
                 "hist-dissim": "Histogram Dissimilarity",
+                "absdiff": "Absolute Difference",
+                "absdiff-dissim": "Absolute Difference Dissimilarity",
+                "id-sim": "Identity Similarity",
+                "id-dissim": "Identity Dissimilarity",
                 "brightness": "Brightness",
                 "hue": "Hue",
                 "black": "Black Pixels",
@@ -599,6 +604,19 @@ TRANSLATIONS = {
                 "final": "Final (Best Selection)",
                 "final-fast": "Final Fast",
             },
+        },
+        "exec_mode": {
+            "label": "Execution Mode",
+            "info": "Parallel backend for sorting workloads",
+            "choices": {
+                "auto": "Auto",
+                "process": "Process Pool",
+                "thread": "Thread Pool",
+            },
+        },
+        "exact_limit": {
+            "label": "Exact Limit",
+            "info": "Max image count before approximate large-scale path is used",
         },
         "target_count": {
             "label": "Target Count",
