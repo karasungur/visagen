@@ -71,6 +71,7 @@ class HistogramSimilaritySorter(SortMethod):
     name = "hist"
     description = "Sort by histogram similarity (groups similar images)"
     requires_dfl_metadata = False
+    execution_profile = "cpu_bound"
 
     def __init__(self, exact_limit: int = 3000) -> None:
         self.exact_limit = exact_limit
@@ -109,17 +110,20 @@ class HistogramSimilaritySorter(SortMethod):
                 compute_sharpness=False,
                 compute_pose=False,
                 compute_histogram=True,
+                histogram_mode="color",
             )
             for item in processed:
                 if item.error is not None:
                     trash.append(SortResult(item.filepath, 0.0, {"error": item.error}))
                     continue
-                if item.image is None:
+                if item.histogram is None:
                     trash.append(
-                        SortResult(item.filepath, 0.0, {"error": "Failed to load"})
+                        SortResult(
+                            item.filepath, 0.0, {"error": "Failed to build histogram"}
+                        )
                     )
                     continue
-                image_data.append((item.filepath, compute_histogram(item.image)))
+                image_data.append((item.filepath, item.histogram))
         else:
             for filepath in image_paths:
                 try:
@@ -199,6 +203,7 @@ class HistogramDissimilaritySorter(SortMethod):
     name = "hist-dissim"
     description = "Sort by histogram dissimilarity (unique images first)"
     requires_dfl_metadata = True  # Uses face mask
+    execution_profile = "cpu_bound"
 
     def __init__(self, exact_limit: int = 3000) -> None:
         self.exact_limit = exact_limit
@@ -221,8 +226,6 @@ class HistogramDissimilaritySorter(SortMethod):
 
         Images with highest total distance to all others rank first.
         """
-        from visagen.vision.dflimg import DFLImage
-
         start_time = time.time()
 
         if len(image_paths) == 0:
@@ -232,25 +235,50 @@ class HistogramDissimilaritySorter(SortMethod):
         image_data: list[tuple[Path, np.ndarray]] = []
         trash: list[SortResult] = []
 
-        for filepath in image_paths:
-            try:
-                image, metadata = DFLImage.load(filepath)
-                if image is None:
-                    trash.append(SortResult(filepath, 0.0, {"error": "Failed to load"}))
+        if processor is not None:
+            processed = processor.load_and_process_all(
+                image_paths,
+                compute_sharpness=False,
+                compute_pose=False,
+                compute_histogram=True,
+                histogram_mode="gray",
+            )
+            for item in processed:
+                if item.error is not None:
+                    trash.append(SortResult(item.filepath, 0.0, {"error": item.error}))
                     continue
+                if item.histogram is None:
+                    trash.append(
+                        SortResult(
+                            item.filepath, 0.0, {"error": "Failed to build histogram"}
+                        )
+                    )
+                    continue
+                image_data.append((item.filepath, item.histogram))
+        else:
+            from visagen.vision.dflimg import DFLImage
 
-                # Apply face mask if available
-                if metadata is not None and metadata.landmarks is not None:
-                    try:
-                        mask = get_face_hull_mask(image.shape, metadata.landmarks)
-                        image = (image * mask).astype(np.uint8)
-                    except Exception:
-                        pass
+            for filepath in image_paths:
+                try:
+                    image, metadata = DFLImage.load(filepath)
+                    if image is None:
+                        trash.append(
+                            SortResult(filepath, 0.0, {"error": "Failed to load"})
+                        )
+                        continue
 
-                hist = compute_grayscale_histogram(image)
-                image_data.append((filepath, hist))
-            except Exception as e:
-                trash.append(SortResult(filepath, 0.0, {"error": str(e)}))
+                    # Apply face mask if available
+                    if metadata is not None and metadata.landmarks is not None:
+                        try:
+                            mask = get_face_hull_mask(image.shape, metadata.landmarks)
+                            image = (image * mask).astype(np.uint8)
+                        except Exception:
+                            pass
+
+                    hist = compute_grayscale_histogram(image)
+                    image_data.append((filepath, hist))
+                except Exception as e:
+                    trash.append(SortResult(filepath, 0.0, {"error": str(e)}))
 
         if len(image_data) == 0:
             return SortOutput([], trash, self.name, time.time() - start_time)

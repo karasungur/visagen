@@ -8,6 +8,7 @@ to sort by identity similarity and dissimilarity.
 from __future__ import annotations
 
 import time
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -18,6 +19,73 @@ from visagen.sorting.base import SortMethod, SortOutput, SortResult
 if TYPE_CHECKING:
     from visagen.sorting.processor import ParallelSortProcessor
     from visagen.vision.dflimg import FaceMetadata
+
+
+def _load_embedding(
+    filepath: Path,
+) -> tuple[Path, np.ndarray | None, str | None]:
+    """Load embedding for a single file."""
+    from visagen.vision.dflimg import DFLImage
+
+    try:
+        _image, metadata = DFLImage.load(filepath)
+    except Exception as e:
+        return filepath, None, f"error:{e}"
+
+    if metadata is None or metadata.embedding is None:
+        return filepath, None, "missing_embedding"
+
+    emb = np.asarray(metadata.embedding, dtype=np.float32).reshape(-1)
+    if emb.size == 0:
+        return filepath, None, "invalid_embedding"
+
+    return filepath, emb, None
+
+
+def _collect_embeddings(
+    image_paths: list[Path],
+    processor: ParallelSortProcessor | None,
+) -> tuple[list[Path], list[np.ndarray], list[SortResult]]:
+    """Collect valid embeddings and trash entries."""
+    valid_paths: list[Path] = []
+    embeddings: list[np.ndarray] = []
+    trash: list[SortResult] = []
+
+    if processor is None:
+        loaded = [_load_embedding(path) for path in image_paths]
+    else:
+        loaded = []
+        executor_class = (
+            ThreadPoolExecutor if processor.use_threads else ProcessPoolExecutor
+        )
+        with executor_class(max_workers=processor.max_workers) as executor:
+            futures = {
+                executor.submit(_load_embedding, path): path for path in image_paths
+            }
+            for future in as_completed(futures):
+                path = futures[future]
+                try:
+                    loaded.append(future.result())
+                except Exception as e:
+                    loaded.append((path, None, f"error:{e}"))
+
+    for filepath, emb, error in loaded:
+        if emb is not None:
+            valid_paths.append(filepath)
+            embeddings.append(emb)
+            continue
+
+        if error in {"missing_embedding", "invalid_embedding"}:
+            trash.append(SortResult(filepath, 0.0, {"reason": error}))
+        else:
+            message = (
+                error[6:]
+                if isinstance(error, str) and error.startswith("error:")
+                else "unknown_error"
+            )
+            trash.append(SortResult(filepath, 0.0, {"error": message}))
+
+    return valid_paths, embeddings, trash
 
 
 def _l2_normalize(x: np.ndarray, eps: float = 1e-8) -> np.ndarray:
@@ -53,6 +121,7 @@ class IDSimilaritySorter(SortMethod):
     name = "id-sim"
     description = "Sort by identity similarity (embedding-based)"
     requires_dfl_metadata = True
+    execution_profile = "cpu_bound"
 
     def __init__(self, exact_limit: int = 3000) -> None:
         self.exact_limit = exact_limit
@@ -71,33 +140,8 @@ class IDSimilaritySorter(SortMethod):
         processor: ParallelSortProcessor | None = None,
     ) -> SortOutput:
         """Sort by identity similarity."""
-        from visagen.vision.dflimg import DFLImage
-
         start_time = time.time()
-        trash: list[SortResult] = []
-        valid_paths: list[Path] = []
-        embeddings: list[np.ndarray] = []
-
-        for filepath in image_paths:
-            try:
-                _image, metadata = DFLImage.load(filepath)
-                if metadata is None or metadata.embedding is None:
-                    trash.append(
-                        SortResult(filepath, 0.0, {"reason": "missing_embedding"})
-                    )
-                    continue
-
-                emb = np.asarray(metadata.embedding, dtype=np.float32).reshape(-1)
-                if emb.size == 0:
-                    trash.append(
-                        SortResult(filepath, 0.0, {"reason": "invalid_embedding"})
-                    )
-                    continue
-
-                valid_paths.append(filepath)
-                embeddings.append(emb)
-            except Exception as e:
-                trash.append(SortResult(filepath, 0.0, {"error": str(e)}))
+        valid_paths, embeddings, trash = _collect_embeddings(image_paths, processor)
 
         if not embeddings:
             return SortOutput([], trash, self.name, time.time() - start_time)
@@ -135,6 +179,7 @@ class IDDissimilaritySorter(SortMethod):
     name = "id-dissim"
     description = "Sort by identity dissimilarity (embedding outliers first)"
     requires_dfl_metadata = True
+    execution_profile = "cpu_bound"
 
     def __init__(self, exact_limit: int = 3000) -> None:
         self.exact_limit = exact_limit
@@ -153,33 +198,8 @@ class IDDissimilaritySorter(SortMethod):
         processor: ParallelSortProcessor | None = None,
     ) -> SortOutput:
         """Sort by identity dissimilarity."""
-        from visagen.vision.dflimg import DFLImage
-
         start_time = time.time()
-        trash: list[SortResult] = []
-        valid_paths: list[Path] = []
-        embeddings: list[np.ndarray] = []
-
-        for filepath in image_paths:
-            try:
-                _image, metadata = DFLImage.load(filepath)
-                if metadata is None or metadata.embedding is None:
-                    trash.append(
-                        SortResult(filepath, 0.0, {"reason": "missing_embedding"})
-                    )
-                    continue
-
-                emb = np.asarray(metadata.embedding, dtype=np.float32).reshape(-1)
-                if emb.size == 0:
-                    trash.append(
-                        SortResult(filepath, 0.0, {"reason": "invalid_embedding"})
-                    )
-                    continue
-
-                valid_paths.append(filepath)
-                embeddings.append(emb)
-            except Exception as e:
-                trash.append(SortResult(filepath, 0.0, {"error": str(e)}))
+        valid_paths, embeddings, trash = _collect_embeddings(image_paths, processor)
 
         if not embeddings:
             return SortOutput([], trash, self.name, time.time() - start_time)

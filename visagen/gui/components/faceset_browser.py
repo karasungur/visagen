@@ -52,10 +52,12 @@ class FacesetBrowser:
         self._selected_files: set[Path] = set()
         self._sort_by: str = "name"
         self._thumb_size: int = 256
+        self._selected_preview_max_size: int = 1024
+        self._page_size: int = config.page_size
 
-    def t(self, key: str) -> str:
+    def t(self, key: str, **kwargs: Any) -> str:
         """Get translation for browser key."""
-        return cast(str, self.i18n.t(f"faceset_browser.{key}"))
+        return cast(str, self.i18n.t(f"faceset_browser.{key}", **kwargs))
 
     def build(self) -> dict[str, Any]:
         """Build browser UI components."""
@@ -93,6 +95,11 @@ class FacesetBrowser:
                     choices=["name", "date"],
                     value="name",
                 )
+                components["page_size"] = gr.Dropdown(
+                    label=self.t("page_size"),
+                    choices=[12, 18, 24, 36],
+                    value=self._page_size,
+                )
 
             # Gallery
             components["gallery"] = gr.Gallery(
@@ -105,22 +112,24 @@ class FacesetBrowser:
 
             # Pagination
             with gr.Row():
-                components["prev_btn"] = gr.Button("<< Prev", size="sm")
+                components["prev_btn"] = gr.Button(self.t("prev"), size="sm")
                 components["page_info"] = gr.Textbox(
                     value="Page 0/0",
                     interactive=False,
                     show_label=False,
                 )
-                components["next_btn"] = gr.Button("Next >>", size="sm")
+                components["next_btn"] = gr.Button(self.t("next"), size="sm")
 
             with gr.Row():
                 components["delete_selected_btn"] = gr.Button(
-                    "Delete Selected", size="sm"
+                    self.t("delete_selected"), size="sm"
                 )
                 components["clear_selection_btn"] = gr.Button(
-                    "Clear Selection", size="sm"
+                    self.t("clear_selection"), size="sm"
                 )
-                components["undo_delete_btn"] = gr.Button("Undo Last Delete", size="sm")
+                components["undo_delete_btn"] = gr.Button(
+                    self.t("undo_last_delete"), size="sm"
+                )
 
             components["status"] = gr.Textbox(
                 value="",
@@ -145,13 +154,19 @@ class FacesetBrowser:
         """Wire up event handlers."""
         c["load_btn"].click(
             fn=self._load_directory,
-            inputs=[c["dir_input"], c["show_masks"], c["sort_by"]],
+            inputs=[c["dir_input"], c["show_masks"], c["sort_by"], c["page_size"]],
             outputs=[c["gallery"], c["page_info"], c["status"]],
         )
 
         c["refresh_btn"].click(
             fn=self._load_directory,
-            inputs=[c["dir_input"], c["show_masks"], c["sort_by"]],
+            inputs=[c["dir_input"], c["show_masks"], c["sort_by"], c["page_size"]],
+            outputs=[c["gallery"], c["page_info"], c["status"]],
+        )
+
+        c["page_size"].change(
+            fn=self._set_page_size,
+            inputs=[c["page_size"], c["show_masks"]],
             outputs=[c["gallery"], c["page_info"], c["status"]],
         )
 
@@ -202,6 +217,7 @@ class FacesetBrowser:
         directory: str,
         show_masks: bool,
         sort_by: str,
+        page_size: int,
     ) -> tuple[list[tuple[np.ndarray, str]], str, str]:
         """Load face images from directory."""
         if not directory:
@@ -213,11 +229,22 @@ class FacesetBrowser:
 
         self._current_dir = dir_path
         self._sort_by = sort_by
+        self._page_size = int(page_size)
         self._selected_files.clear()
         self._refresh_face_file_list()
         self._current_page = 0
         gallery, page_info, _ = self._get_current_page(show_masks)
-        return gallery, page_info, f"Loaded {len(self._face_files)} faces"
+        return gallery, page_info, self.t("status_loaded", count=len(self._face_files))
+
+    def _set_page_size(
+        self,
+        page_size: int,
+        show_masks: bool,
+    ) -> tuple[list[tuple[np.ndarray, str]], str, str]:
+        """Set page size and refresh current view."""
+        self._page_size = int(page_size)
+        self._current_page = 0
+        return self._get_current_page(show_masks)
 
     def _refresh_face_file_list(self) -> None:
         """Refresh file list from current directory."""
@@ -282,17 +309,19 @@ class FacesetBrowser:
         self, show_masks: bool
     ) -> tuple[list[tuple[np.ndarray, str]], str, str]:
         """Get current page of faces."""
-        page_size = self.config.page_size
+        page_size = self._page_size
         start = self._current_page * page_size
         end = start + page_size
 
         page_files = self._face_files[start:end]
         gallery_items: list[tuple[np.ndarray, str]] = []
+        load_errors = 0
 
         for filepath in page_files:
             try:
                 image = self._load_thumbnail(filepath, show_masks)
                 if image is None:
+                    load_errors += 1
                     continue
 
                 image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -301,11 +330,14 @@ class FacesetBrowser:
                 gallery_items.append((image_rgb, caption))
 
             except Exception:
+                load_errors += 1
                 continue
 
         total_pages = max(1, (len(self._face_files) + page_size - 1) // page_size)
         page_info = f"Page {self._current_page + 1}/{total_pages} ({len(self._face_files)} faces)"
-        status = f"Selected: {len(self._selected_files)}"
+        status = self.t("status_selected", count=len(self._selected_files))
+        if load_errors > 0:
+            status = f"{status} | {self.t('status_load_errors', count=load_errors)}"
         return gallery_items, page_info, status
 
     def _prev_page(
@@ -320,9 +352,7 @@ class FacesetBrowser:
         self, show_masks: bool
     ) -> tuple[list[tuple[np.ndarray, str]], str, str]:
         """Go to next page."""
-        total_pages = (
-            len(self._face_files) + self.config.page_size - 1
-        ) // self.config.page_size
+        total_pages = (len(self._face_files) + self._page_size - 1) // self._page_size
         if self._current_page < total_pages - 1:
             self._current_page += 1
         return self._get_current_page(show_masks)
@@ -339,18 +369,15 @@ class FacesetBrowser:
         str,
     ]:
         """Handle gallery selection."""
-        if evt.index is None or evt.index >= len(self._face_files):
+        page_start = self._current_page * self._page_size
+        page_end = page_start + self._page_size
+        page_files = self._face_files[page_start:page_end]
+
+        if evt.index is None or evt.index < 0 or evt.index >= len(page_files):
             gallery, page_info, status = self._get_current_page(show_masks)
             return None, None, gallery, page_info, status
 
-        page_start = self._current_page * self.config.page_size
-        file_idx = page_start + evt.index
-
-        if file_idx >= len(self._face_files):
-            gallery, page_info, status = self._get_current_page(show_masks)
-            return None, None, gallery, page_info, status
-
-        filepath = self._face_files[file_idx]
+        filepath = page_files[evt.index]
         if filepath in self._selected_files:
             self._selected_files.remove(filepath)
         else:
@@ -358,6 +385,9 @@ class FacesetBrowser:
 
         try:
             image = cv2.imread(str(filepath))
+            if image is None:
+                raise ValueError("Failed to load selected image")
+            image = self._resize_for_preview(image)
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
             sample = FaceSample.from_dfl_image(filepath)
@@ -385,7 +415,7 @@ class FacesetBrowser:
 
         if not self._selected_files:
             gallery, page_info, _status = self._get_current_page(show_masks)
-            return gallery, page_info, "No selected files"
+            return gallery, page_info, self.t("no_selected_files")
 
         batch = move_to_trash(
             sorted(self._selected_files),
@@ -396,15 +426,23 @@ class FacesetBrowser:
         self._refresh_face_file_list()
         total_pages = max(
             1,
-            (len(self._face_files) + self.config.page_size - 1)
-            // self.config.page_size,
+            (len(self._face_files) + self._page_size - 1) // self._page_size,
         )
         self._current_page = min(self._current_page, total_pages - 1)
         gallery, page_info, _status = self._get_current_page(show_masks)
+        status = self.t(
+            "trash_summary",
+            batch_id=batch.batch_id,
+            moved=getattr(batch, "count_moved", batch.count),
+            missing=getattr(batch, "count_missing", 0),
+            failed=getattr(batch, "count_failed", 0),
+        )
+        if getattr(batch, "errors", None):
+            status = f"{status} | {batch.errors[0]}"
         return (
             gallery,
             page_info,
-            f"Moved {batch.count} files to trash (batch: {batch.batch_id})",
+            status,
         )
 
     def _clear_selection(
@@ -414,7 +452,7 @@ class FacesetBrowser:
         """Clear current selection."""
         self._selected_files.clear()
         gallery, page_info, _status = self._get_current_page(show_masks)
-        return gallery, page_info, "Selection cleared"
+        return gallery, page_info, self.t("selection_cleared")
 
     def _undo_last_delete(
         self,
@@ -428,16 +466,39 @@ class FacesetBrowser:
         self._refresh_face_file_list()
         total_pages = max(
             1,
-            (len(self._face_files) + self.config.page_size - 1)
-            // self.config.page_size,
+            (len(self._face_files) + self._page_size - 1) // self._page_size,
         )
         self._current_page = min(self._current_page, total_pages - 1)
         gallery, page_info, _status = self._get_current_page(show_masks)
 
         if result.batch_id:
+            status = self.t(
+                "undo_summary",
+                batch_id=result.batch_id,
+                restored=result.restored,
+                skipped=result.skipped,
+                failed=getattr(result, "failed", 0),
+            )
+            if getattr(result, "errors", None):
+                status = f"{status} | {result.errors[0]}"
             return (
                 gallery,
                 page_info,
-                f"Undo batch {result.batch_id}: restored {result.restored}, skipped {result.skipped}",
+                status,
             )
-        return gallery, page_info, "No trash batch to undo"
+        return gallery, page_info, self.t("no_trash_batch")
+
+    def _resize_for_preview(self, image: np.ndarray) -> np.ndarray:
+        """Resize selected preview image for stable browser memory usage."""
+        h, w = image.shape[:2]
+        max_dim = max(h, w)
+        if max_dim <= self._selected_preview_max_size:
+            return image
+
+        scale = self._selected_preview_max_size / max_dim
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
+        return cast(
+            np.ndarray,
+            cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA),
+        )

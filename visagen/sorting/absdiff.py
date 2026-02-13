@@ -46,6 +46,7 @@ class AbsDiffSorter(SortMethod):
     name = "absdiff"
     description = "Sort by absolute pixel difference (GPU-accelerated)"
     requires_dfl_metadata = False
+    execution_profile = "gpu_bound"
 
     def __init__(
         self,

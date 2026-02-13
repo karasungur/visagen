@@ -37,6 +37,7 @@ def _load_and_process_single(
     compute_sharpness: bool = True,
     compute_pose: bool = True,
     compute_histogram: bool = True,
+    histogram_mode: str = "gray",
     compute_source_rect: bool = False,
 ) -> ProcessedImage:
     """
@@ -55,7 +56,12 @@ def _load_and_process_single(
     """
     try:
         from visagen.sorting.blur import estimate_sharpness, get_face_hull_mask
-        from visagen.sorting.histogram import compute_grayscale_histogram
+        from visagen.sorting.histogram import (
+            compute_grayscale_histogram,
+        )
+        from visagen.sorting.histogram import (
+            compute_histogram as compute_color_histogram,
+        )
         from visagen.vision.aligner import FaceAligner
         from visagen.vision.dflimg import DFLImage
 
@@ -102,7 +108,10 @@ def _load_and_process_single(
         # Compute histogram
         histogram = None
         if compute_histogram:
-            histogram = compute_grayscale_histogram(masked_image)
+            if histogram_mode == "color":
+                histogram = compute_color_histogram(masked_image)
+            else:
+                histogram = compute_grayscale_histogram(masked_image)
 
         source_rect_area = 0.0
         if (
@@ -156,7 +165,7 @@ class ParallelSortProcessor:
         max_workers: int | None = None,
         use_threads: bool = True,
     ) -> None:
-        self.max_workers = max_workers or min(os.cpu_count() or 4, 8)
+        self.max_workers = max_workers or (os.cpu_count() or 4)
         self.use_threads = use_threads
 
     def process_images(
@@ -165,6 +174,7 @@ class ParallelSortProcessor:
         compute_fn: Callable[[Path], SortResult],
         desc: str = "Processing",
         show_progress: bool = True,
+        use_threads: bool | None = None,
     ) -> list[SortResult]:
         """
         Process images in parallel.
@@ -174,15 +184,16 @@ class ParallelSortProcessor:
             compute_fn: Function to compute score for each image.
             desc: Description for progress bar.
             show_progress: Whether to show progress bar.
+            use_threads: Override processor mode for this call.
 
         Returns:
             List of SortResult objects.
         """
         results: list[SortResult] = []
+        run_on_threads = self.use_threads if use_threads is None else use_threads
+        executor_class = ThreadPoolExecutor if run_on_threads else ProcessPoolExecutor
 
-        # Keep this path on threads because compute_fn may be a local closure and
-        # therefore not picklable for process pools.
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        with executor_class(max_workers=self.max_workers) as executor:
             futures = {executor.submit(compute_fn, p): p for p in image_paths}
 
             if show_progress:
@@ -216,6 +227,7 @@ class ParallelSortProcessor:
         compute_sharpness: bool = True,
         compute_pose: bool = True,
         compute_histogram: bool = True,
+        histogram_mode: str = "gray",
         compute_source_rect: bool = False,
         show_progress: bool = True,
     ) -> list[ProcessedImage]:
@@ -229,6 +241,7 @@ class ParallelSortProcessor:
             compute_sharpness: Compute sharpness scores.
             compute_pose: Compute pose angles.
             compute_histogram: Compute histograms.
+            histogram_mode: Histogram mode ("gray" or "color").
             show_progress: Show progress bar.
 
         Returns:
@@ -246,6 +259,7 @@ class ParallelSortProcessor:
                     compute_sharpness,
                     compute_pose,
                     compute_histogram,
+                    histogram_mode,
                     compute_source_rect,
                 ): p
                 for p in image_paths

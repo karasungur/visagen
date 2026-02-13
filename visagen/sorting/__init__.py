@@ -28,6 +28,7 @@ from visagen.sorting.histogram import (
 from visagen.sorting.metadata import OneFaceSorter, OrigNameSorter, SourceRectSorter
 from visagen.sorting.pose import PitchSorter, YawSorter
 from visagen.sorting.processor import ParallelSortProcessor
+from visagen.sorting.similarity import SSIMDissimilaritySorter, SSIMSimilaritySorter
 
 __all__ = [
     # Base
@@ -50,6 +51,9 @@ __all__ = [
     # Histogram
     "HistogramSimilaritySorter",
     "HistogramDissimilaritySorter",
+    # SSIM
+    "SSIMSimilaritySorter",
+    "SSIMDissimilaritySorter",
     # Color
     "BrightnessSorter",
     "HueSorter",

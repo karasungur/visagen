@@ -31,6 +31,7 @@ class YawSorter(SortMethod):
     name = "face-yaw"
     description = "Sort by face yaw angle (left-right rotation)"
     requires_dfl_metadata = True
+    execution_profile = "io_bound"
 
     def __init__(self) -> None:
         self._aligner = FaceAligner()
@@ -68,6 +69,7 @@ class PitchSorter(SortMethod):
     name = "face-pitch"
     description = "Sort by face pitch angle (up-down tilt)"
     requires_dfl_metadata = True
+    execution_profile = "io_bound"
 
     def __init__(self) -> None:
         self._aligner = FaceAligner()
@@ -103,6 +105,7 @@ class RollSorter(SortMethod):
     name = "face-roll"
     description = "Sort by face roll angle (head tilt)"
     requires_dfl_metadata = True
+    execution_profile = "io_bound"
 
     def __init__(self) -> None:
         self._aligner = FaceAligner()

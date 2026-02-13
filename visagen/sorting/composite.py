@@ -45,6 +45,7 @@ class FinalSorter(SortMethod):
     name = "final"
     description = "Select best faces with pose variety and sharpness"
     requires_dfl_metadata = True
+    execution_profile = "cpu_bound"
 
     def __init__(
         self,

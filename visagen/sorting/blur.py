@@ -98,6 +98,7 @@ class BlurSorter(SortMethod):
     name = "blur"
     description = "Sort by image sharpness (CPBD, legacy-compatible)"
     requires_dfl_metadata = True
+    execution_profile = "cpu_bound"
 
     def compute_score(
         self,
@@ -130,6 +131,7 @@ class BlurFastSorter(SortMethod):
     name = "blur-fast"
     description = "Sort by image sharpness (fast Laplacian)"
     requires_dfl_metadata = True
+    execution_profile = "cpu_bound"
 
     def compute_score(
         self,
@@ -160,6 +162,7 @@ class MotionBlurSorter(SortMethod):
     name = "motion-blur"
     description = "Sort by motion blur (Laplacian ksize=11)"
     requires_dfl_metadata = True
+    execution_profile = "cpu_bound"
 
     def compute_score(
         self,

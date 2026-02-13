@@ -83,6 +83,8 @@ class SortTab(BaseTab):
                             "absdiff-dissim",
                             "id-sim",
                             "id-dissim",
+                            "ssim",
+                            "ssim-dissim",
                             "brightness",
                             "hue",
                             "black",
@@ -129,6 +131,13 @@ class SortTab(BaseTab):
                     info=self.t("exact_limit.info"),
                 )
 
+                components["jobs"] = gr.Number(
+                    label=self.t("jobs.label"),
+                    value=0,
+                    precision=0,
+                    info=self.t("jobs.info"),
+                )
+
         # Process Control
         with gr.Row():
             process_ctrl = ProcessControl("sort", self.i18n)
@@ -154,6 +163,7 @@ class SortTab(BaseTab):
                 c["dry_run"],
                 c["exec_mode"],
                 c["exact_limit"],
+                c["jobs"],
             ],
             outputs=c["log"],
         )
@@ -172,6 +182,7 @@ class SortTab(BaseTab):
         dry_run: bool,
         exec_mode: str,
         exact_limit: int,
+        jobs: int,
     ) -> Generator[str, None, None]:
         """Start sort subprocess."""
         if not input_dir or not Path(input_dir).exists():
@@ -200,6 +211,8 @@ class SortTab(BaseTab):
 
         cmd.extend(["--exec-mode", exec_mode])
         cmd.extend(["--exact-limit", str(int(exact_limit))])
+        if int(jobs) > 0:
+            cmd.extend(["--jobs", str(int(jobs))])
 
         yield f"Starting sorting...\n$ {' '.join(cmd)}\n"
 

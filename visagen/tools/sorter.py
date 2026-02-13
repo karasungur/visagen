@@ -36,6 +36,8 @@ def get_sort_methods():
         OrigNameSorter,
         PitchSorter,
         SourceRectSorter,
+        SSIMDissimilaritySorter,
+        SSIMSimilaritySorter,
         YawSorter,
     )
     from visagen.sorting.composite import FinalFastSorter
@@ -53,6 +55,8 @@ def get_sort_methods():
         "absdiff-dissim": AbsDiffDissimilaritySorter,
         "id-sim": IDSimilaritySorter,
         "id-dissim": IDDissimilaritySorter,
+        "ssim": SSIMSimilaritySorter,
+        "ssim-dissim": SSIMDissimilaritySorter,
         "brightness": BrightnessSorter,
         "hue": HueSorter,
         "black": BlackPixelSorter,
@@ -88,6 +92,8 @@ Available methods:
   absdiff-dissim    Sort by absolute pixel difference (GPU, dissimilar)
   id-sim            Sort by identity similarity (embedding based)
   id-dissim         Sort by identity dissimilarity (embedding outliers)
+  ssim              Sort by SSIM similarity (groups similar)
+  ssim-dissim       Sort by SSIM dissimilarity (outliers first)
   brightness        Sort by brightness
   hue               Sort by hue
   black             Sort by amount of black pixels
@@ -233,8 +239,13 @@ def apply_sort_result(
                     dataset_root=input_dir,
                     reason=f"sort:{sort_output.method}",
                 )
+                moved_count = getattr(batch, "count_moved", batch.count)
+                missing_count = getattr(batch, "count_missing", 0)
+                failed_count = getattr(batch, "count_failed", 0)
                 print(
-                    f"  Trash batch: {batch.batch_id} | moved: {batch.count} | dir: {batch.trash_dir}"
+                    "  Trash batch: "
+                    f"{batch.batch_id} | moved: {moved_count} | missing: {missing_count} "
+                    f"| failed: {failed_count} | dir: {batch.trash_dir}"
                 )
         else:
             if not dry_run:
@@ -345,6 +356,8 @@ def main(argv=None):
         "absdiff-dissim",
         "id-sim",
         "id-dissim",
+        "ssim",
+        "ssim-dissim",
     ):
         sorter = sorter_cls(exact_limit=args.exact_limit)
     else:
@@ -360,8 +373,8 @@ def main(argv=None):
     elif args.exec_mode == "process":
         use_threads = False
     else:
-        # Auto: prefer process pools for CPU-heavy composite path.
-        use_threads = args.method not in ("final", "final-fast")
+        profile = getattr(sorter, "execution_profile", "cpu_bound")
+        use_threads = profile in ("io_bound", "gpu_bound")
 
     processor = ParallelSortProcessor(max_workers=args.jobs, use_threads=use_threads)
 

@@ -408,6 +408,52 @@ class TestHistogramDissimilaritySorter:
         assert sorter.name == "hist-dissim"
 
 
+class TestSSIMSorters:
+    """Tests for SSIM-based sorters."""
+
+    def test_ssim_dissimilarity_outlier_first(self, temp_dir):
+        """Outlier image should be ranked first by SSIM dissimilarity."""
+        from visagen.sorting.similarity import SSIMDissimilaritySorter
+
+        img_base = np.full((128, 128, 3), 128, dtype=np.uint8)
+        img_near = np.full((128, 128, 3), 132, dtype=np.uint8)
+        img_outlier = np.full((128, 128, 3), 0, dtype=np.uint8)
+
+        p1 = temp_dir / "a.jpg"
+        p2 = temp_dir / "b.jpg"
+        p3 = temp_dir / "c.jpg"
+        cv2.imwrite(str(p1), img_base)
+        cv2.imwrite(str(p2), img_near)
+        cv2.imwrite(str(p3), img_outlier)
+
+        sorter = SSIMDissimilaritySorter(exact_limit=10, target_size=64)
+        result = sorter.sort([p1, p2, p3])
+
+        assert result.method == "ssim-dissim"
+        assert result.sorted_images[0].filepath == p3
+
+    def test_ssim_similarity_groups_similar_first(self, temp_dir):
+        """Nearest neighbor should be selected before distant outlier."""
+        from visagen.sorting.similarity import SSIMSimilaritySorter
+
+        img_base = np.full((128, 128, 3), 128, dtype=np.uint8)
+        img_near = np.full((128, 128, 3), 132, dtype=np.uint8)
+        img_outlier = np.full((128, 128, 3), 0, dtype=np.uint8)
+
+        p1 = temp_dir / "a.jpg"
+        p2 = temp_dir / "b.jpg"
+        p3 = temp_dir / "c.jpg"
+        cv2.imwrite(str(p1), img_base)
+        cv2.imwrite(str(p2), img_near)
+        cv2.imwrite(str(p3), img_outlier)
+
+        sorter = SSIMSimilaritySorter(exact_limit=10, target_size=64)
+        result = sorter.sort([p1, p2, p3])
+
+        assert result.method == "ssim"
+        assert result.sorted_images[-1].filepath == p3
+
+
 # =============================================================================
 # Metadata Sorter Tests
 # =============================================================================
@@ -664,6 +710,66 @@ class TestSorterCLI:
         assert "absdiff-dissim" in methods
         assert "id-sim" in methods
         assert "id-dissim" in methods
+        assert "ssim" in methods
+        assert "ssim-dissim" in methods
+
+    @pytest.mark.parametrize(
+        ("profile", "expected_use_threads"),
+        [
+            ("cpu_bound", False),
+            ("io_bound", True),
+            ("gpu_bound", True),
+        ],
+    )
+    def test_main_auto_exec_mode_uses_profile(
+        self,
+        sample_images_dir,
+        monkeypatch,
+        profile,
+        expected_use_threads,
+    ):
+        """Auto mode should pick thread/process based on sorter profile."""
+        from visagen.sorting.base import SortOutput, SortResult
+        from visagen.tools import sorter as sorter_module
+
+        captured: dict[str, object] = {}
+
+        class DummyProcessor:
+            def __init__(self, max_workers=None, use_threads=True):
+                captured["max_workers"] = max_workers
+                captured["use_threads"] = use_threads
+
+        class DummySorter:
+            description = "dummy"
+            execution_profile = profile
+
+            def sort(self, image_paths, processor):
+                assert isinstance(processor, DummyProcessor)
+                return SortOutput(
+                    sorted_images=[SortResult(path, 0.0) for path in image_paths],
+                    trash_images=[],
+                    method="dummy",
+                    elapsed_seconds=0.0,
+                )
+
+        monkeypatch.setattr(
+            sorter_module, "get_sort_methods", lambda: {"blur": DummySorter}
+        )
+        monkeypatch.setattr(
+            "visagen.sorting.processor.ParallelSortProcessor",
+            DummyProcessor,
+        )
+        monkeypatch.setattr(
+            sorter_module, "apply_sort_result", lambda *args, **kwargs: None
+        )
+
+        rc = sorter_module.main(
+            [str(sample_images_dir), "--method", "blur", "--jobs", "3"],
+        )
+
+        assert rc == 0
+        assert captured["max_workers"] == 3
+        assert captured["use_threads"] is expected_use_threads
 
     def test_get_image_paths(self, sample_images_dir):
         """Test image path discovery."""
