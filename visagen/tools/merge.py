@@ -422,6 +422,9 @@ def main() -> int:
                 print(f"  Failed: {stats.failed_frames}")
             print(f"  Faces detected: {stats.faces_detected}")
             print(f"  Faces swapped: {stats.faces_swapped}")
+            if stats.frames_with_errors > 0:
+                print(f"  Frames with recoverable errors: {stats.frames_with_errors}")
+                print(f"  Recoverable processing errors: {stats.processing_errors}")
             print(f"  Total time: {stats.total_time:.1f}s")
             print(f"  Average FPS: {stats.fps:.1f}")
             print()

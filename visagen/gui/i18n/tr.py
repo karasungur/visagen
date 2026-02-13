@@ -357,12 +357,16 @@ TRANSLATIONS = {
         },
         "color_transfer": {
             "label": "Renk Transferi Modu",
-            "info": "RCT=Reinhard, LCT=Lineer, SOT=Dilimli OT",
+            "info": "RCT=Reinhard, LCT=Lineer, SOT/MKL/IDT/MIX/Hist-Match desteklenir",
             "choices": {
+                "none": "Yok",
                 "rct": "RCT (Reinhard)",
                 "lct": "LCT (Lineer)",
                 "sot": "SOT (Dilimli OT)",
-                "none": "Yok",
+                "mkl": "MKL (Monge-Kantorovitch)",
+                "idt": "IDT (İteratif)",
+                "mix": "Mix (LCT+SOT En İyi)",
+                "hist-match": "Histogram Eşleştirme",
             },
         },
         "blend_mode": {
@@ -453,8 +457,6 @@ TRANSLATIONS = {
                 "hist-match": "Histogram Eşleştirme",
                 "seamless": "Kesintisiz",
                 "seamless-hist-match": "Kesintisiz + Histogram",
-                "raw-rgb": "Ham RGB",
-                "raw-predict": "Ham Tahmin",
             },
         },
         "mask_mode": {
@@ -463,6 +465,7 @@ TRANSLATIONS = {
             "choices": {
                 "full": "Tam",
                 "convex_hull": "Dışbükey Örtü",
+                "dst": "Hedef",
                 "segmented": "Segmentli",
             },
         },
@@ -477,6 +480,7 @@ TRANSLATIONS = {
                 "idt": "IDT (İteratif)",
                 "sot": "SOT (Dilimli OT)",
                 "mix": "Mix (LCT+SOT En İyi)",
+                "hist-match": "Histogram Eşleştirme",
             },
         },
         # Maske işleme

@@ -241,6 +241,7 @@ class AppState:
 
         Args:
             settings_path: Optional path to settings JSON file.
+                If omitted, tries `./settings.json`.
 
         Returns:
             Initialized AppState instance.
@@ -249,8 +250,11 @@ class AppState:
 
         if settings_path:
             path = Path(settings_path)
-            if path.exists():
-                state.settings = AppSettings.load(path)
+        else:
+            path = Path("./settings.json")
+
+        if path.exists():
+            state.settings = AppSettings.load(path)
 
         return state
 

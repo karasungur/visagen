@@ -21,6 +21,8 @@ from pathlib import Path
 
 import numpy as np
 
+from visagen.data.dali_warp import DALIAffineGenerator
+
 # DALI imports with graceful fallback
 try:
     import nvidia.dali.ops as ops
@@ -140,6 +142,10 @@ if DALI_AVAILABLE:
         contrast_range: tuple[float, float] = (0.9, 1.1),
         saturation_range: tuple[float, float] = (0.9, 1.1),
         hue_range: float = 0.05,
+        # Legacy-style affine warp augmentation
+        warp_rotation_range: tuple[float, float] = (-10.0, 10.0),
+        warp_scale_range: tuple[float, float] = (0.95, 1.05),
+        warp_translation_range: tuple[float, float] = (-0.05, 0.05),
         # Pipeline settings
         seed: int = 42,
         shard_id: int = 0,
@@ -159,6 +165,9 @@ if DALI_AVAILABLE:
             contrast_range: Contrast adjustment range.
             saturation_range: Saturation adjustment range.
             hue_range: Hue adjustment range.
+            warp_rotation_range: Rotation range for affine warp (degrees).
+            warp_scale_range: Scale range for affine warp.
+            warp_translation_range: Translation range for affine warp (relative).
             seed: Random seed.
             shard_id: Shard ID for distributed training.
             num_shards: Total number of shards.
@@ -229,6 +238,43 @@ if DALI_AVAILABLE:
         # =====================================================================
         # Augmentations (applied independently to src and dst)
         # =====================================================================
+
+        # Legacy-style affine warp via external_source generators
+        src_warp_mat = fn.external_source(
+            source=DALIAffineGenerator(
+                size=image_size,
+                rotation_range=warp_rotation_range,
+                scale_range=warp_scale_range,
+                translation_range=warp_translation_range,
+                seed=seed + 101,
+            ),
+            batch=False,
+            device="cpu",
+        )
+        dst_warp_mat = fn.external_source(
+            source=DALIAffineGenerator(
+                size=image_size,
+                rotation_range=warp_rotation_range,
+                scale_range=warp_scale_range,
+                translation_range=warp_translation_range,
+                seed=seed + 202,
+            ),
+            batch=False,
+            device="cpu",
+        )
+
+        src_images = fn.warp_affine(
+            src_images,
+            matrix=src_warp_mat,
+            fill_value=0,
+            interp_type=types.INTERP_LINEAR,
+        )
+        dst_images = fn.warp_affine(
+            dst_images,
+            matrix=dst_warp_mat,
+            fill_value=0,
+            interp_type=types.INTERP_LINEAR,
+        )
 
         # Random horizontal flip
         src_flip = fn.random.coin_flip(probability=flip_prob)

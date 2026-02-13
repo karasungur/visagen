@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import gradio as gr
 
 from visagen.gui.batch import BatchItem, BatchQueue, BatchStatus
+from visagen.gui.command_builders import build_extract_command, build_merge_command
 from visagen.gui.components import (
     PathInput,
     PathInputConfig,
@@ -19,6 +20,9 @@ from visagen.gui.tabs.base import BaseTab
 if TYPE_CHECKING:
     from visagen.gui.i18n import I18n
     from visagen.gui.state.app_state import AppState
+
+
+logger = logging.getLogger(__name__)
 
 
 class BatchTab(BaseTab):
@@ -167,8 +171,11 @@ class BatchTab(BaseTab):
             for file in files:
                 # Handle both file objects and string paths
                 input_path = file.name if hasattr(file, "name") else str(file)
-                out_name = Path(input_path).stem + "_processed.mp4"
-                out_path = str(output_path / out_name)
+                stem = Path(input_path).stem
+                if operation == "extract":
+                    out_path = str(output_path / stem)
+                else:
+                    out_path = str(output_path / f"{stem}_processed.mp4")
                 self.batch_queue.add(input_path, out_path, operation)
                 added_count += 1
 
@@ -197,29 +204,19 @@ class BatchTab(BaseTab):
             def process_item(item: BatchItem) -> None:
                 """Process a single batch item."""
                 if item.operation == "merge":
-                    cmd = [
-                        sys.executable,
-                        "-m",
-                        "visagen.tools.merge",
-                        "--input",
+                    cmd = build_merge_command(
                         item.input_path,
-                        "--output",
                         item.output_path,
-                        "--checkpoint",
                         checkpoint,
-                    ]
+                    )
                 elif item.operation == "extract":
-                    cmd = [
-                        sys.executable,
-                        "-m",
-                        "visagen.tools.extract",
-                        "--input",
+                    cmd = build_extract_command(
                         item.input_path,
-                        "--output",
                         item.output_path,
-                    ]
+                    )
                 else:
                     raise ValueError(f"Unknown operation: {item.operation}")
+                logger.debug("Resolved argv: %s", " ".join(cmd))
 
                 item.process = subprocess.Popen(
                     cmd,

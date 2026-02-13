@@ -17,7 +17,7 @@ Features:
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Union
 
@@ -44,7 +44,8 @@ class FrameProcessorConfig:
         face_type: Face alignment type. Default: "whole_face".
         output_size: Model input/output size. Default: 256.
         color_transfer_mode: Color transfer algorithm. Default: "rct".
-            Options: "rct", "lct", "sot", None (disabled).
+            Options: "rct", "lct", "sot", "mkl", "idt", "mix",
+            "hist-match", None (disabled).
         blend_mode: Blending algorithm. Default: "laplacian".
             Options: "laplacian", "poisson", "feather".
         blend_amount: Blending intensity (0-1). Default: 1.0.
@@ -65,10 +66,12 @@ class FrameProcessorConfig:
 
     # Color transfer
     color_transfer_mode: str | None = "rct"
+    masked_hist_match: bool = True
     hist_match_threshold: int = 238  # 0-255, used for hist-match mode
 
     # Blending
     blend_mode: str = "laplacian"
+    mask_mode: str = "segmented"
     blend_amount: float = 1.0
     mask_erode: int = 5
     mask_dilate: int = 0
@@ -118,6 +121,9 @@ class ProcessedFrame:
         faces_detected: Number of faces detected.
         faces_swapped: Number of faces successfully swapped.
         processing_time: Processing time in seconds.
+        had_errors: Whether processing encountered recoverable errors.
+        error_count: Number of recoverable processing errors.
+        error_messages: Collected processing error messages.
         metadata: Optional additional metadata.
     """
 
@@ -126,6 +132,9 @@ class ProcessedFrame:
     faces_detected: int
     faces_swapped: int
     processing_time: float
+    had_errors: bool = False
+    error_count: int = 0
+    error_messages: list[str] = field(default_factory=list)
     metadata: dict[str, Any] | None = None
 
 
@@ -193,6 +202,7 @@ class FrameProcessor:
 
         # Optical flow state for motion blur auto-detection
         self._prev_frame_gray: np.ndarray | None = None
+        self._current_mask: np.ndarray | None = None
 
     def _load_model(
         self, model: Union[str, Path, "torch.nn.Module"]
@@ -314,6 +324,7 @@ class FrameProcessor:
         output = frame.copy()
         faces_detected = 0
         faces_swapped = 0
+        error_messages: list[str] = []
 
         try:
             # Detect and align faces
@@ -321,7 +332,10 @@ class FrameProcessor:
             faces_detected = len(aligned_faces)
 
             # Process each face
-            for aligned_face, face_meta, mask in aligned_faces[: self.config.max_faces]:
+            for face_idx, (aligned_face, face_meta, mask) in enumerate(
+                aligned_faces[: self.config.max_faces]
+            ):
+                self._current_mask = mask
                 try:
                     # Run inference
                     swapped_face = self._run_inference(aligned_face)
@@ -381,18 +395,27 @@ class FrameProcessor:
                             np.uint8
                         )
 
+                    # Apply sharpening after all face-level enhancements
+                    swapped_face = self._apply_sharpen(swapped_face)
+
                     # Blend back to frame
                     output = self._blend_to_frame(output, swapped_face, face_meta, mask)
 
                     faces_swapped += 1
                 except Exception as e:
-                    # Skip this face on error
-                    logger.debug(f"Face processing failed: {e}")
+                    # Skip this face on error but surface telemetry to caller.
+                    msg = f"face[{face_idx}] processing failed: {type(e).__name__}: {e}"
+                    logger.warning(msg)
+                    error_messages.append(msg)
                     continue
+                finally:
+                    self._current_mask = None
 
         except Exception as e:
             # Return original frame on error
-            logger.debug(f"Frame processing failed: {e}")
+            msg = f"frame processing failed: {type(e).__name__}: {e}"
+            logger.warning(msg)
+            error_messages.append(msg)
 
         # Apply full-frame degradation if enabled
         if self.config.degrade_full_frame and (
@@ -412,6 +435,11 @@ class FrameProcessor:
             output = np.clip(output_f32 * 255, 0, 255).astype(np.uint8)
 
         processing_time = time.time() - start_time
+        had_errors = len(error_messages) > 0
+        metadata = {
+            "status": "frame_processed_with_errors" if had_errors else "ok",
+            "error_count": len(error_messages),
+        }
 
         return ProcessedFrame(
             frame_idx=frame_idx,
@@ -419,6 +447,10 @@ class FrameProcessor:
             faces_detected=faces_detected,
             faces_swapped=faces_swapped,
             processing_time=processing_time,
+            had_errors=had_errors,
+            error_count=len(error_messages),
+            error_messages=error_messages,
+            metadata=metadata,
         )
 
     def _detect_and_align(
@@ -434,36 +466,55 @@ class FrameProcessor:
             List of (aligned_face, metadata, mask) tuples.
         """
         # Detect faces
-        faces = self.detector.detect(frame, threshold=self.config.min_confidence)
+        faces = self.detector.detect(
+            frame,
+            max_faces=self.config.max_faces,
+        )
+        faces = [f for f in faces if f.confidence >= self.config.min_confidence]
 
         if not faces:
             return []
 
         results = []
         for face in faces:
+            if face.landmarks is None:
+                logger.debug("Skipping face without landmarks")
+                continue
+
+            try:
+                landmarks_68 = self._normalize_landmarks(face.landmarks)
+            except ValueError as e:
+                logger.debug(f"Skipping face due to invalid landmarks: {e}")
+                continue
+
             # 1. Input matrix - for model inference (scale=1.0 FIXED)
-            aligned, _input_matrix = self.aligner.align(
+            aligned, input_matrix = self.aligner.align(
                 frame,
-                face.landmarks,
+                landmarks_68,
                 scale=1.0,
             )
+            aligned_landmarks = cv2.transform(
+                np.expand_dims(landmarks_68.astype(np.float32), axis=1),
+                input_matrix,
+            ).squeeze(axis=1)
 
             # 2. Output matrix - for warp-back (user setting)
             output_scale = 1.0 + 0.01 * self.config.face_scale
             output_matrix = self.aligner.get_transform_mat(
-                face.landmarks,
+                landmarks_68,
                 self.config.output_size,
                 self.aligner.face_type,
                 scale=output_scale,
             )
 
             # Generate mask
-            mask = self._generate_mask(aligned)
+            mask = self._generate_mask(aligned, aligned_landmarks)
 
             # Store metadata for warp-back (use OUTPUT matrix)
             metadata = {
                 "bbox": face.bbox,
-                "landmarks": face.landmarks,
+                "landmarks": landmarks_68,
+                "aligned_landmarks": aligned_landmarks,
                 "matrix": output_matrix,
                 "original_shape": frame.shape[:2],
             }
@@ -471,6 +522,33 @@ class FrameProcessor:
             results.append((aligned, metadata, mask))
 
         return results
+
+    def _normalize_landmarks(self, landmarks: np.ndarray) -> np.ndarray:
+        """
+        Normalize detector landmarks to DFL-compatible 68-point format.
+
+        Args:
+            landmarks: Detector landmarks (typically 68, 106, or 5 points).
+
+        Returns:
+            68-point landmarks array as float32.
+        """
+        lm = np.asarray(landmarks, dtype=np.float32)
+        if lm.ndim != 2 or lm.shape[1] != 2:
+            raise ValueError(f"Expected landmarks with shape (N,2), got {lm.shape}")
+
+        if lm.shape[0] == 68:
+            return lm
+
+        if lm.shape[0] == 106:
+            return self.aligner.convert_106_to_68(lm).astype(np.float32)
+
+        if lm.shape[0] == 5:
+            raise ValueError(
+                "5-point landmarks are not supported by DFL alignment pipeline"
+            )
+
+        raise ValueError(f"Unsupported landmark count: {lm.shape[0]}")
 
     def _run_inference(self, aligned_face: np.ndarray) -> np.ndarray:
         """
@@ -530,24 +608,24 @@ class FrameProcessor:
         Returns:
             Color-corrected face (H, W, 3) BGR.
         """
-        from visagen.postprocess.color_transfer import (
-            linear_color_transfer,
-            reinhard_color_transfer,
-        )
+        from visagen.postprocess.color_transfer import color_hist_match, color_transfer
 
         mode = self.config.color_transfer_mode.lower()
 
-        if mode == "rct":
-            return reinhard_color_transfer(swapped_face, target_face)
-        elif mode == "lct":
-            return linear_color_transfer(swapped_face, target_face)
-        elif mode == "hist-match":
-            from visagen.postprocess.color_transfer import color_hist_match
-
-            # Mask oluştur (face bölgesi için)
+        if mode == "hist-match":
             face_mask = None
-            if hasattr(self, "_current_mask"):
-                face_mask = (self._current_mask > 0.5).astype(np.uint8)
+            if self.config.masked_hist_match and self._current_mask is not None:
+                if self._current_mask.ndim == 3:
+                    face_mask = self._current_mask[..., 0]
+                else:
+                    face_mask = self._current_mask
+
+                if face_mask.dtype != np.uint8:
+                    max_value = float(face_mask.max()) if face_mask.size else 0.0
+                    if max_value <= 1.0:
+                        face_mask = (face_mask * 255.0).astype(np.uint8)
+                    else:
+                        face_mask = np.clip(face_mask, 0, 255).astype(np.uint8)
 
             return color_hist_match(
                 swapped_face,
@@ -555,9 +633,13 @@ class FrameProcessor:
                 hist_match_threshold=self.config.hist_match_threshold,
                 mask=face_mask,
             )
-        else:
-            # Unknown mode, return unchanged
-            return swapped_face
+
+        swapped_f32 = swapped_face.astype(np.float32) / 255.0
+        target_f32 = target_face.astype(np.float32) / 255.0
+
+        transferred = color_transfer(mode, swapped_f32, target_f32)
+
+        return np.clip(transferred * 255.0, 0, 255).astype(np.uint8)
 
     def _apply_restoration(self, swapped_face: np.ndarray) -> np.ndarray:
         """
@@ -662,8 +744,9 @@ class FrameProcessor:
 
         # Warp face and mask back to frame coordinates
         warped_face = self._warp_back(swapped_face, (orig_h, orig_w), matrix)
+        mask_uint8 = self._to_uint8_mask(mask)
         warped_mask = self._warp_back(
-            (mask * 255).astype(np.uint8),
+            mask_uint8,
             (orig_h, orig_w),
             matrix,
             is_mask=True,
@@ -677,9 +760,11 @@ class FrameProcessor:
 
         # POST-SEAMLESS COLOR TRANSFER
         # After seamless clone, warp result back to aligned space for color transfer
+        color_transfer_mode = self.config.color_transfer_mode
         if (
             self.config.blend_mode.lower() == "poisson"
-            and self.config.color_transfer_mode
+            and color_transfer_mode is not None
+            and color_transfer_mode.lower() == "hist-match"
         ):
             # 1. Warp result back to aligned space
             aligned_result = cv2.warpAffine(
@@ -754,17 +839,39 @@ class FrameProcessor:
 
         return warped
 
-    def _generate_mask(self, aligned_face: np.ndarray) -> np.ndarray:
+    def _generate_mask(
+        self,
+        aligned_face: np.ndarray,
+        aligned_landmarks: np.ndarray | None = None,
+    ) -> np.ndarray:
         """
         Generate segmentation mask for face region.
 
         Args:
             aligned_face: Aligned face (H, W, 3) BGR.
+            aligned_landmarks: Optional aligned 68-point landmarks.
 
         Returns:
             Mask (H, W) float32 with values 0 or 255.
             Note: Normalized to [0, 1] by _process_mask before blending.
         """
+        mode = self.config.mask_mode.lower()
+        h, w = aligned_face.shape[:2]
+
+        if mode == "full":
+            return np.full((h, w), 255.0, dtype=np.float32)
+
+        if mode == "convex_hull":
+            if aligned_landmarks is not None:
+                hull = cv2.convexHull(aligned_landmarks.astype(np.int32))
+                mask = np.zeros((h, w), dtype=np.float32)
+                cv2.fillConvexPoly(mask, hull, 255.0)
+                return mask
+            logger.debug("Convex hull mask requested but landmarks are missing")
+
+        if mode not in {"segmented", "dst"}:
+            raise ValueError(f"Unsupported mask mode: {mode}")
+
         try:
             # Use segmenter if available
             result = self.segmenter.segment(aligned_face)
@@ -772,12 +879,18 @@ class FrameProcessor:
         except Exception as e:
             # Fallback to ellipse mask
             logger.debug(f"Segmenter failed, using ellipse mask: {e}")
-            h, w = aligned_face.shape[:2]
             mask = np.zeros((h, w), dtype=np.float32)
             center = (w // 2, h // 2)
             axes = (int(w * 0.4), int(h * 0.45))
-            cv2.ellipse(mask, center, axes, 0, 0, 360, 1.0, -1)
+            cv2.ellipse(mask, center, axes, 0, 0, 360, 255.0, -1)
             return mask
+
+    def _to_uint8_mask(self, mask: np.ndarray) -> np.ndarray:
+        """Convert mask to uint8 [0, 255] robustly."""
+        mask_f32 = mask.astype(np.float32)
+        if mask_f32.max() <= 1.0:
+            return np.clip(mask_f32 * 255.0, 0, 255).astype(np.uint8)
+        return np.clip(mask_f32, 0, 255).astype(np.uint8)
 
     def _process_mask(self, mask: np.ndarray) -> np.ndarray:
         """
@@ -792,8 +905,10 @@ class FrameProcessor:
         Returns:
             Processed mask (H, W) float32 in [0, 1].
         """
-        # Convert to float
-        mask = mask.astype(np.float32) / 255.0
+        # Convert to float in [0, 1]
+        mask = mask.astype(np.float32)
+        if mask.max() > 1.0:
+            mask /= 255.0
         h, w = mask.shape[:2]
 
         # Calculate padding size based on max morphological operation
@@ -859,25 +974,33 @@ class FrameProcessor:
         """
         from visagen.postprocess.blending import (
             feather_blend,
-            laplacian_blend,
+            laplacian_pyramid_blend,
         )
 
         mode = self.config.blend_mode.lower()
 
-        # Ensure mask is 3-channel for blending
-        if mask.ndim == 2:
-            mask = np.stack([mask] * 3, axis=-1)
+        # Normalize mask to [0, 1] and keep a 2D version for Poisson
+        mask_f32 = mask.astype(np.float32)
+        if mask_f32.max() > 1.0:
+            mask_f32 /= 255.0
+        mask_2d = mask_f32[..., 0] if mask_f32.ndim == 3 else mask_f32
+
+        # Normalize images to [0, 1] for non-Poisson blend ops
+        background_f32 = background.astype(np.float32) / 255.0
+        foreground_f32 = foreground.astype(np.float32) / 255.0
 
         if mode == "laplacian":
-            return laplacian_blend(foreground, background, mask)
-        elif mode == "poisson":
+            blended = laplacian_pyramid_blend(foreground_f32, background_f32, mask_2d)
+            return np.clip(blended * 255.0, 0, 255).astype(np.uint8)
+        if mode == "poisson":
             # Poisson blending via OpenCV
             try:
-                center = self._get_mask_center(mask)
+                center = self._get_mask_center(mask_2d)
+                mask_uint8 = (np.clip(mask_2d, 0, 1) * 255.0).astype(np.uint8)
                 result = cv2.seamlessClone(
                     foreground,
                     background,
-                    (mask * 255).astype(np.uint8),
+                    mask_uint8,
                     center,
                     cv2.NORMAL_CLONE,
                 )
@@ -885,10 +1008,12 @@ class FrameProcessor:
             except Exception as e:
                 # Fallback to feather
                 logger.debug(f"Poisson blending failed, using feather: {e}")
-                return feather_blend(foreground, background, mask)
-        else:
-            # Default: feather blend
-            return feather_blend(foreground, background, mask)
+                blended = feather_blend(foreground_f32, background_f32, mask_2d)
+                return np.clip(blended * 255.0, 0, 255).astype(np.uint8)
+
+        # Default: feather blend
+        blended = feather_blend(foreground_f32, background_f32, mask_2d)
+        return np.clip(blended * 255.0, 0, 255).astype(np.uint8)
 
     def _get_mask_center(self, mask: np.ndarray) -> tuple[int, int]:
         """Get center point of mask for Poisson blending."""

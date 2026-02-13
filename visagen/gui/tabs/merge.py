@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
 import gradio as gr
 
+from visagen.gui.command_builders import build_merge_command
 from visagen.gui.components import (
     DropdownConfig,
     DropdownInput,
@@ -82,7 +82,16 @@ class MergeTab(BaseTab):
                 components["color_transfer"] = DropdownInput(
                     DropdownConfig(
                         key="merge.color_transfer",
-                        choices=["rct", "lct", "sot", "none"],
+                        choices=[
+                            "none",
+                            "rct",
+                            "lct",
+                            "sot",
+                            "mkl",
+                            "idt",
+                            "mix",
+                            "hist-match",
+                        ],
                         default="rct",
                     ),
                     self.i18n,
@@ -205,31 +214,20 @@ class MergeTab(BaseTab):
             yield self.i18n.t("errors.path_not_found")
             return
 
-        # Build command
-        cmd = [
-            sys.executable,
-            "-m",
-            "visagen.tools.merge",
-            str(input_video),
-            str(output_video) if output_video else "./output.mp4",
-            "--checkpoint",
-            str(checkpoint),
-            "--color-transfer",
-            color_transfer if color_transfer != "none" else "none",
-            "--blend-mode",
-            blend_mode,
-            "--codec",
-            codec,
-            "--crf",
-            str(int(crf)),
-        ]
+        cmd = build_merge_command(
+            input_video,
+            output_video if output_video else "./output.mp4",
+            checkpoint,
+            color_transfer=color_transfer if color_transfer != "none" else "none",
+            blend_mode=blend_mode,
+            restore_face=restore_face,
+            restore_strength=restore_strength,
+            restore_model=restore_version,
+            codec=codec,
+            crf=int(crf),
+        )
 
-        if restore_face:
-            cmd.append("--restore-face")
-            cmd.extend(["--restore-strength", str(restore_strength)])
-            cmd.extend(["--restore-model", str(restore_version)])
-
-        yield f"Starting merge...\n$ {' '.join(cmd)}\n"
+        yield f"Starting merge...\nResolved argv: {' '.join(cmd)}\n$ {' '.join(cmd)}\n"
 
         try:
             self.state.processes.merge = subprocess.Popen(

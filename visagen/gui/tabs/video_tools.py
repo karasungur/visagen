@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
 import gradio as gr
 
+from visagen.gui.command_builders import (
+    build_video_create_command,
+    build_video_cut_command,
+    build_video_denoise_command,
+    build_video_extract_command,
+)
 from visagen.gui.components import (
     DropdownConfig,
     DropdownInput,
@@ -308,22 +313,18 @@ class VideoToolsTab(BaseTab):
             yield self.i18n.t("errors.path_not_found")
             return
 
-        cmd = [
-            sys.executable,
-            "-m",
-            "visagen.tools.video_ed",
-            "extract",
-            str(input_video),
-            "--output",
+        cmd = build_video_extract_command(
+            input_video,
             output_dir or "./frames",
-            "--format",
-            output_format,
-        ]
+            fps=fps if fps and fps > 0 else None,
+            output_format=output_format,
+        )
 
-        if fps and fps > 0:
-            cmd.extend(["--fps", str(fps)])
-
-        yield f"Starting frame extraction...\n$ {' '.join(cmd)}\n"
+        yield (
+            f"Starting frame extraction...\n"
+            f"Resolved argv: {' '.join(cmd)}\n"
+            f"$ {' '.join(cmd)}\n"
+        )
 
         try:
             self.state.processes.video_tools = subprocess.Popen(
@@ -362,23 +363,19 @@ class VideoToolsTab(BaseTab):
             yield self.i18n.t("errors.path_not_found")
             return
 
-        cmd = [
-            sys.executable,
-            "-m",
-            "visagen.tools.video_ed",
-            "create",
-            str(input_dir),
-            "--output",
+        cmd = build_video_create_command(
+            input_dir,
             output_video or "./output.mp4",
-            "--fps",
-            str(fps),
-            "--codec",
-            codec,
-            "--bitrate",
-            bitrate,
-        ]
+            fps=fps,
+            codec=codec,
+            bitrate=bitrate,
+        )
 
-        yield f"Starting video creation...\n$ {' '.join(cmd)}\n"
+        yield (
+            f"Starting video creation...\n"
+            f"Resolved argv: {' '.join(cmd)}\n"
+            f"$ {' '.join(cmd)}\n"
+        )
 
         try:
             self.state.processes.video_tools = subprocess.Popen(
@@ -416,21 +413,18 @@ class VideoToolsTab(BaseTab):
             yield self.i18n.t("errors.path_not_found")
             return
 
-        cmd = [
-            sys.executable,
-            "-m",
-            "visagen.tools.video_ed",
-            "cut",
-            str(input_video),
-            "--output",
+        cmd = build_video_cut_command(
+            input_video,
             output_video or "./cut_output.mp4",
-            "--start",
-            start_time,
-            "--end",
-            end_time,
-        ]
+            start_time=start_time,
+            end_time=end_time,
+        )
 
-        yield f"Starting video cut...\n$ {' '.join(cmd)}\n"
+        yield (
+            f"Starting video cut...\n"
+            f"Resolved argv: {' '.join(cmd)}\n"
+            f"$ {' '.join(cmd)}\n"
+        )
 
         try:
             self.state.processes.video_tools = subprocess.Popen(
@@ -467,20 +461,17 @@ class VideoToolsTab(BaseTab):
             yield self.i18n.t("errors.path_not_found")
             return
 
-        cmd = [
-            sys.executable,
-            "-m",
-            "visagen.tools.video_ed",
-            "denoise",
-            str(input_dir),
-            "--factor",
-            str(factor),
-        ]
+        cmd = build_video_denoise_command(
+            input_dir,
+            output_dir=output_dir if output_dir else None,
+            factor=factor,
+        )
 
-        if output_dir:
-            cmd.extend(["--output", output_dir])
-
-        yield f"Starting temporal denoising...\n$ {' '.join(cmd)}\n"
+        yield (
+            f"Starting temporal denoising...\n"
+            f"Resolved argv: {' '.join(cmd)}\n"
+            f"$ {' '.join(cmd)}\n"
+        )
 
         try:
             self.state.processes.video_tools = subprocess.Popen(

@@ -101,8 +101,6 @@ class InteractiveMergeTab(BaseTab):
                             "hist-match",
                             "seamless",
                             "seamless-hist-match",
-                            "raw-rgb",
-                            "raw-predict",
                         ],
                         default="overlay",
                     ),
@@ -123,7 +121,16 @@ class InteractiveMergeTab(BaseTab):
                 components["color_transfer"] = DropdownInput(
                     DropdownConfig(
                         key="interactive_merge.color_transfer",
-                        choices=["none", "rct", "lct", "mkl", "idt", "sot", "mix"],
+                        choices=[
+                            "none",
+                            "rct",
+                            "lct",
+                            "sot",
+                            "mkl",
+                            "idt",
+                            "mix",
+                            "hist-match",
+                        ],
                         default="rct",
                     ),
                     self.i18n,
@@ -572,6 +579,9 @@ class InteractiveMergeTab(BaseTab):
 
             # Get status string from config
             status = self.state._interactive_merger.session.config.to_status_string()
+            process_status = self.state._interactive_merger.get_last_process_status()
+            if process_status != "ok":
+                status = f"{status} | Warning: {process_status}"
             return preview, status
 
         except Exception as e:

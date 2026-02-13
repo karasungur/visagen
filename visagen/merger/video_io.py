@@ -312,12 +312,13 @@ def probe_video(video_path: Path) -> VideoInfo:
         raise FileNotFoundError(f"Video not found: {video_path}")
 
     ffmpeg = _get_ffmpeg()
-    ffmpeg_exe = _get_ffmpeg_exe()
+    ffprobe_exe = _get_ffprobe_exe()
 
     try:
-        probe = ffmpeg.probe(
-            str(video_path), cmd=ffmpeg_exe.replace("ffmpeg", "ffprobe")
-        )
+        probe = ffmpeg.probe(str(video_path), cmd=ffprobe_exe)
+    except FileNotFoundError:
+        # Fallback to system ffprobe when bundled binary is incomplete
+        probe = ffmpeg.probe(str(video_path), cmd="ffprobe")
     except ffmpeg.Error as e:
         raise RuntimeError(
             f"Failed to probe video: {e.stderr.decode() if e.stderr else str(e)}"

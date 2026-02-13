@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import gradio as gr
 
+from visagen.gui.command_builders import (
+    build_extract_command,
+    build_merge_command,
+    build_train_command,
+)
 from visagen.gui.components import (
     PathInput,
     PathInputConfig,
@@ -409,19 +413,13 @@ class WizardTab(BaseTab):
             src_video = self._workspace_dir / "data_src" / "source.mp4"
             src_output = self._workspace_dir / "data_src" / "aligned"
 
-            cmd = [
-                sys.executable,
-                "-m",
-                "visagen.tools.extract",
-                "--input",
-                str(src_video),
-                "--output",
-                str(src_output),
-                "--face-type",
-                face_type,
-                "--output-size",
-                str(output_size),
-            ]
+            cmd = build_extract_command(
+                src_video,
+                src_output,
+                face_type=face_type,
+                output_size=output_size,
+            )
+            log_lines.append(f"Resolved argv: {' '.join(cmd)}")
 
             try:
                 proc = subprocess.Popen(
@@ -454,19 +452,13 @@ class WizardTab(BaseTab):
             dst_video = self._workspace_dir / "data_dst" / "destination.mp4"
             dst_output = self._workspace_dir / "data_dst" / "aligned"
 
-            cmd = [
-                sys.executable,
-                "-m",
-                "visagen.tools.extract",
-                "--input",
-                str(dst_video),
-                "--output",
-                str(dst_output),
-                "--face-type",
-                face_type,
-                "--output-size",
-                str(output_size),
-            ]
+            cmd = build_extract_command(
+                dst_video,
+                dst_output,
+                face_type=face_type,
+                output_size=output_size,
+            )
+            log_lines.append(f"Resolved argv: {' '.join(cmd)}")
 
             try:
                 proc = subprocess.Popen(
@@ -555,27 +547,22 @@ class WizardTab(BaseTab):
             dst_dir = self._workspace_dir / "data_dst" / "aligned"
             model_dir = self._workspace_dir / "model"
 
-            cmd = [
-                sys.executable,
-                "-m",
-                "visagen.tools.train",
-                "--src-dir",
-                str(src_dir),
-                "--dst-dir",
-                str(dst_dir),
-                "--output-dir",
-                str(model_dir),
-                "--max-epochs",
-                str(epochs),
-                "--batch-size",
-                str(batch_size),
-            ]
-
-            # Add preset-specific options
+            precision: str | None = None
+            lpips_weight: float | None = None
             if preset == "quick":
-                cmd.extend(["--precision", "16-mixed"])
+                precision = "16-mixed"
             elif preset == "quality":
-                cmd.extend(["--lpips-weight", "1.0"])
+                lpips_weight = 1.0
+            cmd = build_train_command(
+                src_dir,
+                dst_dir,
+                model_dir,
+                batch_size=batch_size,
+                max_epochs=epochs,
+                precision=precision,
+                lpips_weight=lpips_weight,
+            )
+            log_lines.append(f"Resolved argv: {' '.join(cmd)}")
 
             try:
                 self.state.processes.training = subprocess.Popen(
@@ -688,21 +675,14 @@ class WizardTab(BaseTab):
                 )
                 return
 
-            cmd = [
-                sys.executable,
-                "-m",
-                "visagen.tools.merge",
-                "--input",
-                str(input_video),
-                "--output",
+            cmd = build_merge_command(
+                input_video,
                 output_path,
-                "--checkpoint",
-                str(checkpoint),
-                "--color-transfer",
-                color_transfer,
-                "--blend-mode",
-                blend_mode,
-            ]
+                checkpoint,
+                color_transfer=color_transfer,
+                blend_mode=blend_mode,
+            )
+            log_lines.append(f"Resolved argv: {' '.join(cmd)}")
 
             try:
                 proc = subprocess.Popen(

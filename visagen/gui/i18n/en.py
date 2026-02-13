@@ -357,12 +357,16 @@ TRANSLATIONS = {
         },
         "color_transfer": {
             "label": "Color Transfer Mode",
-            "info": "RCT=Reinhard, LCT=Linear, SOT=Sliced OT",
+            "info": "RCT=Reinhard, LCT=Linear, SOT/MKL/IDT/MIX/Hist-Match supported",
             "choices": {
+                "none": "None",
                 "rct": "RCT (Reinhard)",
                 "lct": "LCT (Linear)",
                 "sot": "SOT (Sliced OT)",
-                "none": "None",
+                "mkl": "MKL (Monge-Kantorovitch)",
+                "idt": "IDT (Iterative)",
+                "mix": "Mix (LCT+SOT Best)",
+                "hist-match": "Histogram Match",
             },
         },
         "blend_mode": {
@@ -453,8 +457,6 @@ TRANSLATIONS = {
                 "hist-match": "Histogram Match",
                 "seamless": "Seamless",
                 "seamless-hist-match": "Seamless + Hist Match",
-                "raw-rgb": "Raw RGB",
-                "raw-predict": "Raw Predict",
             },
         },
         "mask_mode": {
@@ -463,6 +465,7 @@ TRANSLATIONS = {
             "choices": {
                 "full": "Full",
                 "convex_hull": "Convex Hull",
+                "dst": "Destination",
                 "segmented": "Segmented",
             },
         },
@@ -477,6 +480,7 @@ TRANSLATIONS = {
                 "idt": "IDT (Iterative)",
                 "sot": "SOT (Sliced OT)",
                 "mix": "Mix (LCT+SOT Best)",
+                "hist-match": "Histogram Match",
             },
         },
         # Mask processing

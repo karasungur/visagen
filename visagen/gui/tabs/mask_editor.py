@@ -58,7 +58,9 @@ class MaskEditorTab(BaseTab):
         self._gallery_page_size: int = 18
         self._samples_count: int = 0
         self._training_thread: threading.Thread | None = None
+        self._trainer: Any | None = None
         self._training_active: bool = False
+        self._training_stop_timeout_sec: float = 5.0
 
     @property
     def segmenter(self) -> FaceSegmenter:
@@ -694,6 +696,7 @@ class MaskEditorTab(BaseTab):
             )
 
             trainer = SegFormerTrainer(config)
+            self._trainer = trainer
 
             log_messages = []
 
@@ -714,8 +717,14 @@ class MaskEditorTab(BaseTab):
                     log_messages.append(f"Error: {e}")
                 finally:
                     self._training_active = False
+                    self._trainer = None
+                    self._training_thread = None
 
-            self._training_thread = threading.Thread(target=train_fn)
+            self._training_thread = threading.Thread(
+                target=train_fn,
+                name="segformer_train_thread",
+                daemon=True,
+            )
             self._training_thread.start()
 
             return "Training started...", "\n".join(log_messages)
@@ -725,6 +734,18 @@ class MaskEditorTab(BaseTab):
 
     def _stop_training(self) -> str:
         """Stop training."""
+        if self._trainer is not None:
+            try:
+                self._trainer.stop()
+            except Exception as e:
+                logger.debug(f"Failed to stop trainer cleanly: {e}")
+
+        if self._training_thread is not None and self._training_thread.is_alive():
+            self._training_thread.join(timeout=self._training_stop_timeout_sec)
+            if self._training_thread.is_alive():
+                self._training_active = False
+                return "Training stop requested (thread is still shutting down)"
+
         self._training_active = False
         return "Training stopped"
 

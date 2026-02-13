@@ -125,7 +125,12 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--share", action="store_true")
     parser.add_argument("--locale", default="en")
-    parser.add_argument("--settings", type=str, default=None)
+    parser.add_argument(
+        "--settings",
+        type=str,
+        default=None,
+        help="Path to settings file (default: ./settings.json if present)",
+    )
     parser.add_argument("--dark", action="store_true", help="Use dark theme")
 
     args = parser.parse_args()

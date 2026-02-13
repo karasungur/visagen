@@ -183,6 +183,7 @@ class FaceDetector:
         image: np.ndarray,
         max_faces: int | None = None,
         sort_by_size: bool = True,
+        threshold: float | None = None,
     ) -> list[DetectedFace]:
         """
         Detect faces in an image.
@@ -191,6 +192,8 @@ class FaceDetector:
             image: Input image as numpy array (BGR format).
             max_faces: Maximum number of faces to return. Default: None (all).
             sort_by_size: Sort faces by area (largest first). Default: True.
+            threshold: Optional confidence threshold override.
+                If provided, detections below this value are filtered out.
 
         Returns:
             List of DetectedFace objects.
@@ -242,6 +245,10 @@ class FaceDetector:
                     embedding=face.embedding if hasattr(face, "embedding") else None,
                 )
             )
+
+        # Optional confidence filtering (runtime override)
+        if threshold is not None:
+            detected = [face for face in detected if face.confidence >= threshold]
 
         # Sort by size (largest first)
         if sort_by_size:
