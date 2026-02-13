@@ -106,7 +106,15 @@ if TORCH_AVAILABLE and TORCHVISION_AVAILABLE:
             self.use_input_norm = use_input_norm
 
             # Load pretrained VGG19
-            vgg = models.vgg19(weights=models.VGG19_Weights.IMAGENET1K_V1)
+            try:
+                vgg = models.vgg19(weights=models.VGG19_Weights.IMAGENET1K_V1)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load pretrained VGG19 weights for neural color transfer; "
+                    "falling back to untrained VGG19. Reason: %s",
+                    exc,
+                )
+                vgg = models.vgg19(weights=None)
             self.features = vgg.features
 
             # Freeze all parameters

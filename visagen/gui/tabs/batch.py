@@ -112,7 +112,7 @@ class BatchTab(BaseTab):
             datatype=["str", "str", "str", "str"],
             interactive=False,
             wrap=True,
-            row_count=(5, "dynamic"),
+            row_count=5,
         )
 
         # Progress section
@@ -190,20 +190,24 @@ class BatchTab(BaseTab):
             if self.batch_queue.is_running():
                 return self.t("status.already_running")
 
-            if not checkpoint or not Path(checkpoint).exists():
-                return self.i18n.t("errors.path_not_found")
-
-            pending_count = sum(
-                1
+            pending_items = [
+                item
                 for item in self.batch_queue.items
                 if item.status == BatchStatus.PENDING
-            )
+            ]
+            pending_count = len(pending_items)
             if pending_count == 0:
                 return self.t("status.no_pending")
+
+            if self._pending_merge_requires_checkpoint(pending_items):
+                if not checkpoint or not Path(checkpoint).exists():
+                    return self.i18n.t("errors.path_not_found")
 
             def process_item(item: BatchItem) -> None:
                 """Process a single batch item."""
                 if item.operation == "merge":
+                    if not checkpoint:
+                        raise ValueError("Checkpoint is required for merge operation")
                     cmd = build_merge_command(
                         item.input_path,
                         item.output_path,
@@ -295,6 +299,11 @@ class BatchTab(BaseTab):
             fn=refresh_table,
             outputs=[c["queue_table"], c["progress_text"]],
         )
+
+    @staticmethod
+    def _pending_merge_requires_checkpoint(items: list[BatchItem]) -> bool:
+        """Return True when pending queue contains at least one merge task."""
+        return any(item.operation == "merge" for item in items)
 
     def _get_progress_text(self) -> str:
         """Get formatted progress text."""

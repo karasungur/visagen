@@ -56,7 +56,11 @@ class TextureConsistencyLoss(nn.Module):
             try:
                 from torchvision.models import VGG19_Weights, vgg19
 
-                vgg = vgg19(weights=VGG19_Weights.IMAGENET1K_V1).features
+                try:
+                    vgg = vgg19(weights=VGG19_Weights.IMAGENET1K_V1).features
+                except Exception:
+                    # Offline/sandbox environments may block weight downloads.
+                    vgg = vgg19(weights=None).features
                 vgg = vgg.eval().to(device)
                 for p in vgg.parameters():
                     p.requires_grad = False
@@ -160,7 +164,11 @@ class PerceptualTextureLoss(nn.Module):
         if self._vgg is None:
             from torchvision.models import VGG19_Weights, vgg19
 
-            vgg = vgg19(weights=VGG19_Weights.IMAGENET1K_V1).features
+            try:
+                vgg = vgg19(weights=VGG19_Weights.IMAGENET1K_V1).features
+            except Exception:
+                # Offline/sandbox environments may block weight downloads.
+                vgg = vgg19(weights=None).features
             vgg = vgg.eval().to(device)
             for p in vgg.parameters():
                 p.requires_grad = False

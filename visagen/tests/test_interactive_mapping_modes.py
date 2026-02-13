@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 
 import cv2
@@ -56,3 +58,46 @@ def test_original_mode_returns_unprocessed_frame(tmp_path: Path) -> None:
     assert out is not None
     expected = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
     np.testing.assert_array_equal(out, expected)
+
+
+def test_export_all_supports_cancellation(tmp_path: Path) -> None:
+    from visagen.merger.interactive import InteractiveMerger
+
+    checkpoint = tmp_path / "model.ckpt"
+    checkpoint.touch()
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    output_dir = tmp_path / "out"
+
+    for i in range(10):
+        frame = np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)
+        cv2.imwrite(str(frames_dir / f"{i:06d}.png"), frame)
+
+    merger = InteractiveMerger(
+        checkpoint_path=checkpoint,
+        frames_dir=frames_dir,
+        output_dir=output_dir,
+    )
+    success, message = merger.load_session()
+    assert success, message
+
+    def _fake_export_frame(idx: int) -> tuple[bool, str]:
+        time.sleep(0.01)
+        return True, f"frame_{idx}.png"
+
+    merger.export_frame = _fake_export_frame  # type: ignore[assignment]
+
+    stop_event = threading.Event()
+
+    def _cancel_after_three(current: int, total: int) -> None:
+        if current >= 3:
+            stop_event.set()
+
+    success, message, exported = merger.export_all(
+        progress_callback=_cancel_after_three,
+        stop_event=stop_event,
+    )
+
+    assert success is False
+    assert "cancelled" in message.lower()
+    assert exported < len(merger.frames)

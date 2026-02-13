@@ -68,6 +68,8 @@ class FrameProcessorConfig:
     color_transfer_mode: str | None = "rct"
     masked_hist_match: bool = True
     hist_match_threshold: int = 238  # 0-255, used for hist-match mode
+    neural_color_mode: str = "statistics"
+    neural_color_strength: float = 0.8
 
     # Blending
     blend_mode: str = "laplacian"
@@ -637,7 +639,13 @@ class FrameProcessor:
         swapped_f32 = swapped_face.astype(np.float32) / 255.0
         target_f32 = target_face.astype(np.float32) / 255.0
 
-        transferred = color_transfer(mode, swapped_f32, target_f32)
+        transfer_kwargs: dict[str, Any] = {}
+        if mode == "neural":
+            transfer_kwargs["mode"] = self.config.neural_color_mode
+            transfer_kwargs["strength"] = self.config.neural_color_strength
+            transfer_kwargs["preserve_luminance"] = True
+
+        transferred = color_transfer(mode, swapped_f32, target_f32, **transfer_kwargs)
 
         return np.clip(transferred * 255.0, 0, 255).astype(np.uint8)
 

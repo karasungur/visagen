@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+import threading
+from typing import TYPE_CHECKING, Any
 
 import gradio as gr
 import numpy as np
@@ -18,6 +19,10 @@ from visagen.gui.components import (
 from visagen.gui.tabs.base import BaseTab
 from visagen.merger.interactive_config import MASK_MODES
 
+if TYPE_CHECKING:
+    from visagen.gui.i18n import I18n
+    from visagen.gui.state.app_state import AppState
+
 
 class InteractiveMergeTab(BaseTab):
     """
@@ -30,6 +35,89 @@ class InteractiveMergeTab(BaseTab):
     - Export current frame or all frames
     - Save/load session configuration
     """
+
+    def __init__(self, app_state: AppState, i18n: I18n) -> None:
+        """Initialize export worker state."""
+        super().__init__(app_state, i18n)
+        self._export_lock = threading.Lock()
+        self._export_stop_event = threading.Event()
+        self._export_thread: threading.Thread | None = None
+        self._export_state: dict[str, Any] = {
+            "running": False,
+            "current": 0,
+            "total": 0,
+            "message": "Idle",
+            "success": None,
+        }
+
+    def _set_export_state(self, **updates: Any) -> None:
+        """Update shared export state under lock."""
+        with self._export_lock:
+            self._export_state.update(updates)
+
+    def _get_export_snapshot(self) -> dict[str, Any]:
+        """Get a thread-safe snapshot of export state."""
+        with self._export_lock:
+            return dict(self._export_state)
+
+    @staticmethod
+    def _format_export_snapshot(snapshot: dict[str, Any]) -> tuple[str, str]:
+        """Format export status + progress strings for UI."""
+        status = str(snapshot.get("message", "Idle"))
+        total = int(snapshot.get("total", 0) or 0)
+        current = int(snapshot.get("current", 0) or 0)
+
+        if total > 0:
+            current = max(0, min(current, total))
+            percent = (current / total) * 100.0
+            progress = f"{current}/{total} ({percent:.1f}%)"
+        else:
+            progress = "Idle"
+
+        return status, progress
+
+    def _run_export_worker(self) -> None:
+        """Background worker that exports all frames with cancellation support."""
+        merger = self.state._interactive_merger
+        if merger is None:
+            self._set_export_state(
+                running=False,
+                message=self.t("errors.no_session"),
+                success=False,
+                total=0,
+                current=0,
+            )
+            return
+
+        def _progress_cb(current: int, total: int) -> None:
+            self._set_export_state(
+                current=int(current),
+                total=int(total),
+                message=f"Exporting {int(current)}/{int(total)}",
+            )
+
+        try:
+            success, message, exported = merger.export_all(
+                progress_callback=_progress_cb,
+                stop_event=self._export_stop_event,
+            )
+            total = len(merger.frames)
+            final_current = max(0, min(int(exported), int(total)))
+            self._set_export_state(
+                running=False,
+                current=final_current,
+                total=int(total),
+                message=message,
+                success=bool(success),
+            )
+        except Exception as e:
+            self._set_export_state(
+                running=False,
+                message=f"{self.t('export.failed')}: {e}",
+                success=False,
+            )
+        finally:
+            self._export_stop_event.clear()
 
     @property
     def id(self) -> str:
@@ -341,6 +429,10 @@ class InteractiveMergeTab(BaseTab):
                         self.t("export.all"),
                         variant="primary",
                     )
+                    components["export_stop_btn"] = gr.Button(
+                        "Stop export",
+                        variant="stop",
+                    )
                     components["save_session_btn"] = gr.Button(
                         self.t("export.save_session")
                     )
@@ -349,6 +441,12 @@ class InteractiveMergeTab(BaseTab):
                     label=self.t("export.status_label"),
                     interactive=False,
                 )
+                components["export_progress"] = gr.Textbox(
+                    label="Export progress",
+                    value="Idle",
+                    interactive=False,
+                )
+                components["export_timer"] = gr.Timer(value=1)
 
         return components
 
@@ -467,13 +565,23 @@ class InteractiveMergeTab(BaseTab):
         )
 
         c["export_all_btn"].click(
-            fn=self._on_export_all,
-            outputs=c["export_status"],
+            fn=self._on_export_all_start,
+            outputs=[c["export_status"], c["export_progress"]],
+        )
+
+        c["export_stop_btn"].click(
+            fn=self._on_export_stop,
+            outputs=[c["export_status"], c["export_progress"]],
         )
 
         c["save_session_btn"].click(
             fn=self._on_save_session,
             outputs=c["export_status"],
+        )
+
+        c["export_timer"].tick(
+            fn=self._poll_export_progress,
+            outputs=[c["export_status"], c["export_progress"]],
         )
 
     # =========================================================================
@@ -490,6 +598,14 @@ class InteractiveMergeTab(BaseTab):
         from visagen.merger.interactive import InteractiveMerger
 
         try:
+            self._export_stop_event.set()
+            self._set_export_state(
+                running=False,
+                current=0,
+                total=0,
+                message="Idle",
+                success=None,
+            )
             # Create new merger instance
             self.state._interactive_merger = InteractiveMerger(
                 checkpoint_path=checkpoint_path if checkpoint_path else None,
@@ -666,18 +782,71 @@ class InteractiveMergeTab(BaseTab):
         except Exception as e:
             return f"{self.t('export.failed')}: {e}"
 
-    def _on_export_all(self) -> str:
-        """Export all frames with current configuration."""
+    def _on_export_all_start(self) -> tuple[str, str]:
+        """Start asynchronous export worker."""
         if self.state._interactive_merger is None:
-            return self.t("errors.no_session")
+            return self.t("errors.no_session"), "Idle"
 
         try:
-            success, message, count = self.state._interactive_merger.export_all()
-            if success:
-                return self.t("export.all_success", count=count)
-            return f"{self.t('export.failed')}: {message}"
+            with self._export_lock:
+                if (
+                    self._export_thread is not None
+                    and self._export_thread.is_alive()
+                    and self._export_state.get("running", False)
+                ):
+                    snapshot = dict(self._export_state)
+                    return self._format_export_snapshot(snapshot)
+
+                total = len(self.state._interactive_merger.frames)
+                self._export_stop_event.clear()
+                self._export_state.update(
+                    {
+                        "running": True,
+                        "current": 0,
+                        "total": int(total),
+                        "message": f"Export started (0/{int(total)})",
+                        "success": None,
+                    }
+                )
+                self._export_thread = threading.Thread(
+                    target=self._run_export_worker,
+                    name="visagen-interactive-export",
+                    daemon=True,
+                )
+                thread = self._export_thread
+
+            thread.start()
+            return self._format_export_snapshot(self._get_export_snapshot())
         except Exception as e:
-            return f"{self.t('export.failed')}: {e}"
+            self._set_export_state(
+                running=False,
+                message=f"{self.t('export.failed')}: {e}",
+                success=False,
+            )
+            return self._format_export_snapshot(self._get_export_snapshot())
+
+    def _on_export_stop(self) -> tuple[str, str]:
+        """Request cancellation for running export worker."""
+        snapshot = self._get_export_snapshot()
+        if not snapshot.get("running", False):
+            return self._format_export_snapshot(snapshot)
+
+        self._export_stop_event.set()
+        self._set_export_state(message="Stopping export...")
+        return self._format_export_snapshot(self._get_export_snapshot())
+
+    def _poll_export_progress(self) -> tuple[str, str]:
+        """Poll export state for timer-driven UI refresh."""
+        with self._export_lock:
+            if (
+                self._export_thread is not None
+                and not self._export_thread.is_alive()
+                and not self._export_state.get("running", False)
+            ):
+                self._export_thread = None
+            snapshot = dict(self._export_state)
+
+        return self._format_export_snapshot(snapshot)
 
     def _on_save_session(self) -> str:
         """Save current interactive session."""

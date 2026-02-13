@@ -50,8 +50,10 @@ def create_app(
 
     from visagen.gui.theme import create_dark_theme
 
+    settings_file = Path(settings_path) if settings_path else None
+
     # Initialize state and i18n
-    state = AppState.create(settings_path)
+    state = AppState.create(settings_file)
     i18n = I18n(locale=locale)
 
     # Tab classes in DeepFaceLab workflow order
@@ -83,9 +85,9 @@ def create_app(
     with gr.Blocks(
         title=i18n.t("app.title"),
     ) as app:
-        # Store theme and css for launch
-        app._visagen_theme = theme
+        # Store css for launch
         app._visagen_css = custom_css
+        app._visagen_theme = theme
 
         # Header with branding
         with gr.Row(elem_classes=["header"]):
@@ -99,7 +101,10 @@ def create_app(
         # Create all tabs
         with gr.Tabs():
             for tab_cls in tab_classes:
-                tab_instance = tab_cls(state, i18n)
+                if tab_cls is SettingsTab:
+                    tab_instance = tab_cls(state, i18n, settings_path=settings_file)
+                else:
+                    tab_instance = tab_cls(state, i18n)
                 tab_instance.create()
 
         # Footer
@@ -141,14 +146,15 @@ def main() -> int:
         dark_mode=args.dark,
     )
 
-    # Get theme and css from app (stored during creation)
-    _theme = getattr(app, "_visagen_theme", None)  # Reserved for future theme parameter
+    # Get custom CSS from app
     css = getattr(app, "_visagen_css", None)
+    theme = getattr(app, "_visagen_theme", None)
 
     app.launch(
         server_name=args.host,
         server_port=args.port,
         share=args.share,
+        theme=theme,
         css=css,
     )
 

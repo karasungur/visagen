@@ -589,6 +589,38 @@ class TestMergeCLI:
         assert args.resume is True
         assert args.verbose is True
 
+    def test_parse_args_neural_color_options(self, temp_dir, monkeypatch):
+        """Test parsing neural color transfer arguments."""
+        from visagen.tools.merge import parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--color-transfer",
+                "neural",
+                "--neural-color-mode",
+                "gram",
+                "--neural-color-strength",
+                "0.65",
+            ],
+        )
+
+        args = parse_args()
+
+        assert args.color_transfer == "neural"
+        assert args.neural_color_mode == "gram"
+        assert args.neural_color_strength == 0.65
+
     def test_build_config(self, temp_dir, monkeypatch):
         """Test building config from args."""
         from visagen.tools.merge import build_config, parse_args
@@ -616,6 +648,39 @@ class TestMergeCLI:
 
         assert config.input_path == input_file
         assert config.frame_processor_config.color_transfer_mode is None
+
+    def test_build_config_neural_color_transfer(self, temp_dir, monkeypatch):
+        """Neural color CLI options should propagate to frame processor config."""
+        from visagen.tools.merge import build_config, parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--color-transfer",
+                "neural",
+                "--neural-color-mode",
+                "statistics",
+                "--neural-color-strength",
+                "0.9",
+            ],
+        )
+
+        args = parse_args()
+        config = build_config(args)
+
+        assert config.frame_processor_config.color_transfer_mode == "neural"
+        assert config.frame_processor_config.neural_color_mode == "statistics"
+        assert config.frame_processor_config.neural_color_strength == 0.9
 
 
 # =============================================================================

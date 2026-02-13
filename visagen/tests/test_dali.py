@@ -327,6 +327,69 @@ class TestDALIDataModuleFallback:
         )
         assert dm_auto.using_dali == DALI_AVAILABLE
 
+    def test_create_dali_datamodule_pytorch_fallback_uses_datamodule_contract(
+        self, tmp_path
+    ):
+        """Fallback path should map to FaceDataModule argument names correctly."""
+        from visagen.data.dali_loader import create_dali_datamodule
+        from visagen.data.datamodule import FaceDataModule
+
+        src_dir = tmp_path / "src"
+        dst_dir = tmp_path / "dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+
+        dm = create_dali_datamodule(
+            src_dir=src_dir,
+            dst_dir=dst_dir,
+            batch_size=4,
+            image_size=128,
+            force_pytorch=True,
+            num_workers=2,
+            val_split=0.2,
+            augmentation_config={"random_warp": False},
+            uniform_yaw=True,
+        )
+
+        assert isinstance(dm, FaceDataModule)
+        assert dm.target_size == 128
+        assert dm.num_workers == 2
+        assert dm.val_split == 0.2
+        assert dm.uniform_yaw is True
+
+    def test_dali_iterator_wrapper_returns_training_tuple_format(self):
+        """Wrapper should expose (src_dict, dst_dict) expected by DFLModule."""
+        from visagen.data.dali_loader import DALIIteratorWrapper
+
+        class _FakeIterator:
+            batch_size = 2
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                return [
+                    {
+                        "src_images": np.zeros((2, 3, 64, 64), dtype=np.float32),
+                        "dst_images": np.ones((2, 3, 64, 64), dtype=np.float32),
+                    }
+                ]
+
+            def reset(self):
+                return None
+
+            def epoch_size(self, _reader_name):
+                return 8
+
+        wrapped = DALIIteratorWrapper(_FakeIterator())
+        src_dict, dst_dict = next(iter(wrapped))
+
+        assert isinstance(src_dict, dict)
+        assert isinstance(dst_dict, dict)
+        assert "image" in src_dict
+        assert "image" in dst_dict
+        assert src_dict["image"].shape == (2, 3, 64, 64)
+
 
 class TestDALIModuleExports:
     """Tests for module exports from __init__.py."""

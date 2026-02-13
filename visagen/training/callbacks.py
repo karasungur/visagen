@@ -619,6 +619,15 @@ class CommandFileReaderCallback(Callback):
                 logger.warning(f"Unknown parameter '{key}' in command file, skipping")
                 continue
 
+            if key in {"temporal_power", "temporal_consistency_weight"} and not getattr(
+                pl_module, "temporal_enabled", False
+            ):
+                logger.warning(
+                    "Ignoring '%s' update because temporal training is disabled.",
+                    key,
+                )
+                continue
+
             try:
                 float_value = float(value)
             except (TypeError, ValueError):

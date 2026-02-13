@@ -472,12 +472,14 @@ class InteractiveMerger:
     def export_all(
         self,
         progress_callback: Callable[[int, int], None] | None = None,
+        stop_event: threading.Event | None = None,
     ) -> tuple[bool, str, int]:
         """
         Export all frames with current configuration.
 
         Args:
             progress_callback: Optional callback(current, total) for progress.
+            stop_event: Optional cancellation event checked between frames.
 
         Returns:
             Tuple of (success, message, num_exported).
@@ -493,12 +495,18 @@ class InteractiveMerger:
             exported = 0
 
             for idx, _frame_path in enumerate(self.frames):
+                if stop_event is not None and stop_event.is_set():
+                    return False, f"Export cancelled ({exported}/{total})", exported
+
                 if progress_callback:
                     progress_callback(idx, total)
 
                 success, _ = self.export_frame(idx)
                 if success:
                     exported += 1
+
+            if progress_callback:
+                progress_callback(total, total)
 
             # Save session with export
             self.save_session()

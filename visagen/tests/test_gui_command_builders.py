@@ -88,7 +88,9 @@ def test_build_train_command_supports_preset_overrides() -> None:
 
 
 def test_build_video_extract_command_uses_positional_output() -> None:
-    cmd = build_video_extract_command("video.mp4", "frames", fps=25.0, output_format="jpg")
+    cmd = build_video_extract_command(
+        "video.mp4", "frames", fps=25.0, output_format="jpg"
+    )
 
     assert cmd[2] == "visagen.tools.video_ed"
     assert cmd[3] == "extract"

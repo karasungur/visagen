@@ -23,7 +23,7 @@ class TrainingPreset:
     lpips_weight: float = 0.0
     # GAN and model
     gan_power: float = 0.0
-    precision: str = "32"
+    precision: str = "16-mixed"
     model_type: str = "standard"
     # Experimental
     texture_weight: float = 0.0
@@ -36,6 +36,7 @@ class TrainingPreset:
     bg_style_weight: float = 0.0
     id_weight: float = 0.0
     # Temporal parameters
+    temporal_enabled: bool = False
     temporal_power: float = 0.1
     temporal_consistency_weight: float = 1.0
     # Advanced

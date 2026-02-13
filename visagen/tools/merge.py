@@ -101,8 +101,31 @@ Examples:
         "--color-transfer",
         type=str,
         default="rct",
-        choices=["rct", "lct", "sot", "none"],
+        choices=[
+            "rct",
+            "lct",
+            "sot",
+            "mkl",
+            "idt",
+            "mix",
+            "hist-match",
+            "neural",
+            "none",
+        ],
         help="Color transfer mode (default: rct)",
+    )
+    color.add_argument(
+        "--neural-color-mode",
+        type=str,
+        default="statistics",
+        choices=["histogram", "statistics", "gram"],
+        help="Neural color transfer mode (default: statistics)",
+    )
+    color.add_argument(
+        "--neural-color-strength",
+        type=float,
+        default=0.8,
+        help="Neural color transfer strength 0.0-1.0 (default: 0.8)",
     )
 
     # Blending options
@@ -289,6 +312,8 @@ def build_config(args: argparse.Namespace) -> MergerConfig:
         color_transfer_mode=args.color_transfer
         if args.color_transfer != "none"
         else None,
+        neural_color_mode=args.neural_color_mode,
+        neural_color_strength=args.neural_color_strength,
         blend_mode=args.blend_mode,
         mask_erode=args.mask_erode,
         mask_blur=args.mask_blur,

@@ -66,12 +66,14 @@ def gen_dali_warp_grid(
         # Displacement magnitude: cell_size * 0.24 (legacy value)
         displacement = cell_size * 0.24
         if cell_count > 2:
-            noise_x = rng.standard_normal((cell_count - 2, cell_count - 2)).astype(
-                np.float32
-            ) * displacement
-            noise_y = rng.standard_normal((cell_count - 2, cell_count - 2)).astype(
-                np.float32
-            ) * displacement
+            noise_x = (
+                rng.standard_normal((cell_count - 2, cell_count - 2)).astype(np.float32)
+                * displacement
+            )
+            noise_y = (
+                rng.standard_normal((cell_count - 2, cell_count - 2)).astype(np.float32)
+                * displacement
+            )
 
             mapx[1:-1, 1:-1] += noise_x
             mapy[1:-1, 1:-1] += noise_y

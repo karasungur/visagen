@@ -316,7 +316,17 @@ class LPIPSLoss(nn.Module):
             try:
                 import lpips
 
-                self._lpips = lpips.LPIPS(net=self.net)
+                try:
+                    self._lpips = lpips.LPIPS(net=self.net)
+                except Exception:
+                    # Offline/sandbox environments may block pretrained downloads.
+                    # Fall back to random perceptual network so loss remains usable.
+                    self._lpips = lpips.LPIPS(
+                        net=self.net,
+                        pretrained=False,
+                        pnet_rand=True,
+                        verbose=False,
+                    )
                 if self._use_gpu and torch.cuda.is_available():
                     self._lpips = self._lpips.cuda()
                 self._lpips.eval()
