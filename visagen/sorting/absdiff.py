@@ -8,7 +8,7 @@ This is a modern PyTorch reimplementation of DeepFaceLab's sort_by_absdiff.
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import cv2
 import numpy as np
@@ -52,10 +52,12 @@ class AbsDiffSorter(SortMethod):
         similar: bool = True,
         batch_size: int = 64,
         target_size: int = 128,
+        exact_limit: int = 3000,
     ) -> None:
         self.similar = similar
         self.batch_size = batch_size
         self.target_size = target_size
+        self.exact_limit = exact_limit
 
     def compute_score(
         self,
@@ -91,6 +93,10 @@ class AbsDiffSorter(SortMethod):
         # Load and preprocess all images
         images: list[tuple[Path, np.ndarray]] = []
         trash: list[SortResult] = []
+        use_approx = len(image_paths) > self.exact_limit
+        comparison_size = (
+            self.target_size if not use_approx else min(self.target_size, 32)
+        )
 
         logger.info(f"Loading {len(image_paths)} images...")
         for filepath in image_paths:
@@ -103,7 +109,7 @@ class AbsDiffSorter(SortMethod):
                 # Resize for faster comparison
                 resized = cv2.resize(
                     image,
-                    (self.target_size, self.target_size),
+                    (comparison_size, comparison_size),
                     interpolation=cv2.INTER_AREA,
                 )
                 # Normalize to float32 [0, 1]
@@ -117,18 +123,21 @@ class AbsDiffSorter(SortMethod):
             return SortOutput([], trash, self.name, time.time() - start_time)
 
         n = len(images)
-        logger.info(f"Computing distance matrix for {n} images...")
+        if use_approx:
+            logger.info(
+                f"Large dataset detected (n={n}), using approximate path (limit={self.exact_limit})"
+            )
+            sorted_indices = self._approximate_sort(images, self.similar)
+        else:
+            logger.info(f"Computing distance matrix for {n} images...")
+            try:
+                distance_matrix = self._compute_distance_matrix_gpu(images)
+            except Exception as e:
+                logger.warning(f"GPU computation failed, falling back to CPU: {e}")
+                distance_matrix = self._compute_distance_matrix_cpu(images)
 
-        # Compute distance matrix
-        try:
-            distance_matrix = self._compute_distance_matrix_gpu(images)
-        except Exception as e:
-            logger.warning(f"GPU computation failed, falling back to CPU: {e}")
-            distance_matrix = self._compute_distance_matrix_cpu(images)
-
-        # Greedy sorting
-        logger.info("Performing greedy sorting...")
-        sorted_indices = self._greedy_sort(distance_matrix, self.similar)
+            logger.info("Performing greedy sorting...")
+            sorted_indices = self._greedy_sort(distance_matrix, self.similar)
 
         # Build results
         results = [
@@ -139,6 +148,28 @@ class AbsDiffSorter(SortMethod):
         logger.info(f"Sorting completed in {elapsed:.1f}s")
 
         return SortOutput(results, trash, self.name, elapsed)
+
+    def _approximate_sort(
+        self,
+        images: list[tuple[Path, np.ndarray]],
+        similar: bool,
+    ) -> list[int]:
+        """
+        Approximate large-scale ordering without full NxN matrix allocation.
+
+        Similar mode: order by 1D projection for locality.
+        Dissimilar mode: rank by L1 distance to centroid.
+        """
+        flat = np.stack([img.flatten() for _, img in images], axis=0).astype(np.float32)
+
+        if similar:
+            weights = np.linspace(-1.0, 1.0, flat.shape[1], dtype=np.float32)
+            projection = flat @ weights
+            return cast(list[int], np.argsort(projection).tolist())
+
+        centroid = np.mean(flat, axis=0, keepdims=True)
+        scores = np.abs(flat - centroid).sum(axis=1)
+        return cast(list[int], np.argsort(scores)[::-1].tolist())
 
     def _compute_distance_matrix_gpu(
         self,
@@ -169,7 +200,7 @@ class AbsDiffSorter(SortMethod):
         tensor = torch.from_numpy(image_flat).to(device)
 
         # Compute pairwise L1 distances in batches
-        distance_matrix = np.zeros((n, n), dtype=np.float32)
+        distance_matrix: np.ndarray = np.zeros((n, n), dtype=np.float32)
 
         batch_size = self.batch_size
         for i in range(0, n, batch_size):
@@ -214,7 +245,7 @@ class AbsDiffSorter(SortMethod):
         image_flat = np.array([img.flatten() for _, img in images])
 
         # Compute pairwise L1 distances
-        distance_matrix = np.zeros((n, n), dtype=np.float32)
+        distance_matrix: np.ndarray = np.zeros((n, n), dtype=np.float32)
 
         for i in range(n):
             for j in range(i + 1, n):
@@ -281,5 +312,11 @@ class AbsDiffDissimilaritySorter(AbsDiffSorter):
         self,
         batch_size: int = 64,
         target_size: int = 128,
+        exact_limit: int = 3000,
     ) -> None:
-        super().__init__(similar=False, batch_size=batch_size, target_size=target_size)
+        super().__init__(
+            similar=False,
+            batch_size=batch_size,
+            target_size=target_size,
+            exact_limit=exact_limit,
+        )

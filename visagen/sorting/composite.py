@@ -51,10 +51,12 @@ class FinalSorter(SortMethod):
         target_count: int = 2000,
         faster: bool = False,
         yaw_bins: int = 128,
+        exact_limit: int = 3000,
     ) -> None:
         self.target_count = target_count
         self.faster = faster
         self.yaw_bins = yaw_bins
+        self.exact_limit = exact_limit
 
     def compute_score(
         self,
@@ -95,6 +97,7 @@ class FinalSorter(SortMethod):
             compute_sharpness=not self.faster,
             compute_pose=True,
             compute_histogram=True,
+            compute_source_rect=self.faster,
         )
 
         # Filter out failed loads
@@ -147,8 +150,7 @@ class FinalSorter(SortMethod):
 
             # Sort by sharpness (or rect area if faster mode)
             if self.faster:
-                # Use a placeholder metric - could be enhanced with source rect
-                bin_images.sort(key=lambda x: x.sharpness, reverse=True)
+                bin_images.sort(key=lambda x: x.source_rect_area, reverse=True)
             else:
                 bin_images.sort(key=lambda x: x.sharpness, reverse=True)
 
@@ -158,7 +160,7 @@ class FinalSorter(SortMethod):
                     trash.append(
                         SortResult(
                             img.filepath,
-                            img.sharpness,
+                            img.source_rect_area if self.faster else img.sharpness,
                             {"reason": "below sharpness threshold"},
                         )
                     )
@@ -192,24 +194,44 @@ class FinalSorter(SortMethod):
                     continue
 
                 # Compute histogram dissimilarity scores
-                for img in pitch_bin_images:
-                    img_hist = img.histogram
-                    if img_hist is None:
-                        continue
-
-                    dissim_score = 0.0
-                    for other in pitch_bin_images:
-                        if other is img or other.histogram is None:
+                if len(pitch_bin_images) <= self.exact_limit:
+                    for img in pitch_bin_images:
+                        img_hist = img.histogram
+                        if img_hist is None:
                             continue
-                        score = cv2.compareHist(
-                            img_hist.reshape(-1, 1).astype(np.float32),
-                            other.histogram.reshape(-1, 1).astype(np.float32),
-                            cv2.HISTCMP_BHATTACHARYYA,
-                        )
-                        dissim_score += score
 
-                    # Store in extra field via monkey patching
-                    img._dissim_score = dissim_score  # type: ignore
+                        dissim_score = 0.0
+                        for other in pitch_bin_images:
+                            if other is img or other.histogram is None:
+                                continue
+                            score = cv2.compareHist(
+                                img_hist.reshape(-1, 1).astype(np.float32),
+                                other.histogram.reshape(-1, 1).astype(np.float32),
+                                cv2.HISTCMP_BHATTACHARYYA,
+                            )
+                            dissim_score += score
+                        img._dissim_score = dissim_score  # type: ignore[attr-defined]
+                else:
+                    valid_hists: list[np.ndarray] = [
+                        x.histogram.astype(np.float32)
+                        for x in pitch_bin_images
+                        if x.histogram is not None
+                    ]
+                    if valid_hists:
+                        centroid = np.mean(np.stack(valid_hists, axis=0), axis=0)
+                    else:
+                        centroid = None
+                    for img in pitch_bin_images:
+                        if centroid is None or img.histogram is None:
+                            img._dissim_score = 0.0  # type: ignore[attr-defined]
+                            continue
+                        img._dissim_score = float(  # type: ignore[attr-defined]
+                            cv2.compareHist(
+                                img.histogram.reshape(-1, 1).astype(np.float32),
+                                centroid.reshape(-1, 1).astype(np.float32),
+                                cv2.HISTCMP_BHATTACHARYYA,
+                            )
+                        )
 
                 # Sort by dissimilarity (most unique first)
                 pitch_bin_images.sort(
@@ -251,13 +273,19 @@ class FinalSorter(SortMethod):
                     trash.append(
                         SortResult(
                             img.filepath,
-                            img.sharpness,
+                            img.source_rect_area if self.faster else img.sharpness,
                             {"reason": "not selected in final round-robin"},
                         )
                     )
 
         # Build final results
-        sorted_results = [SortResult(img.filepath, img.sharpness) for img in final_list]
+        sorted_results = [
+            SortResult(
+                img.filepath,
+                img.source_rect_area if self.faster else img.sharpness,
+            )
+            for img in final_list
+        ]
 
         elapsed = time.time() - start_time
         print(
@@ -296,5 +324,11 @@ class FinalFastSorter(FinalSorter):
         self,
         target_count: int = 2000,
         yaw_bins: int = 128,
+        exact_limit: int = 3000,
     ) -> None:
-        super().__init__(target_count=target_count, faster=True, yaw_bins=yaw_bins)
+        super().__init__(
+            target_count=target_count,
+            faster=True,
+            yaw_bins=yaw_bins,
+            exact_limit=exact_limit,
+        )

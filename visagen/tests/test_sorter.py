@@ -234,6 +234,17 @@ class TestMotionBlurSorter:
         assert sorter.name == "motion-blur"
 
 
+class TestBlurFastSorter:
+    """Tests for BlurFastSorter."""
+
+    def test_name(self):
+        """Test sorter name."""
+        from visagen.sorting.blur import BlurFastSorter
+
+        sorter = BlurFastSorter()
+        assert sorter.name == "blur-fast"
+
+
 class TestFaceHullMask:
     """Tests for face hull mask utility."""
 
@@ -522,6 +533,39 @@ class TestFinalFastSorter:
         sorter = FinalFastSorter()
         assert sorter.name == "final-fast"
 
+    def test_uses_source_rect_area_for_fast_filtering(self, temp_dir):
+        """Final fast should keep larger source rects when trimming."""
+        from visagen.sorting.composite import FinalFastSorter
+        from visagen.sorting.processor import ProcessedImage
+
+        image_paths = [temp_dir / f"img_{i:03d}.jpg" for i in range(11)]
+
+        processed = []
+        for i, path in enumerate(image_paths):
+            processed.append(
+                ProcessedImage(
+                    filepath=path,
+                    image=np.zeros((8, 8, 3), dtype=np.uint8),
+                    sharpness=0.0,
+                    yaw=0.0,
+                    pitch=0.0,
+                    histogram=np.zeros(256, dtype=np.float32),
+                    source_rect_area=float(i),
+                    error=None,
+                )
+            )
+
+        class DummyProcessor:
+            def load_and_process_all(self, *args, **kwargs):
+                return processed
+
+        sorter = FinalFastSorter(target_count=1, yaw_bins=1)
+        result = sorter.sort(image_paths, processor=DummyProcessor())
+
+        trashed = {item.filepath for item in result.trash_images}
+        assert image_paths[0] in trashed  # Smallest area should be dropped first.
+        assert image_paths[-1] not in trashed  # Largest area should be retained.
+
 
 # =============================================================================
 # Processor Tests
@@ -616,6 +660,10 @@ class TestSorterCLI:
         assert "final" in methods
         assert "face-yaw" in methods
         assert "hist" in methods
+        assert "blur-fast" in methods
+        assert "absdiff-dissim" in methods
+        assert "id-sim" in methods
+        assert "id-dissim" in methods
 
     def test_get_image_paths(self, sample_images_dir):
         """Test image path discovery."""

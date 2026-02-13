@@ -28,6 +28,7 @@ class ProcessedImage:
     yaw: float
     pitch: float
     histogram: np.ndarray | None
+    source_rect_area: float
     error: str | None = None
 
 
@@ -36,6 +37,7 @@ def _load_and_process_single(
     compute_sharpness: bool = True,
     compute_pose: bool = True,
     compute_histogram: bool = True,
+    compute_source_rect: bool = False,
 ) -> ProcessedImage:
     """
     Load and process a single image.
@@ -68,6 +70,7 @@ def _load_and_process_single(
                 yaw=0.0,
                 pitch=0.0,
                 histogram=None,
+                source_rect_area=0.0,
                 error="Failed to load image",
             )
 
@@ -101,6 +104,18 @@ def _load_and_process_single(
         if compute_histogram:
             histogram = compute_grayscale_histogram(masked_image)
 
+        source_rect_area = 0.0
+        if (
+            compute_source_rect
+            and metadata is not None
+            and metadata.source_rect is not None
+        ):
+            try:
+                x1, y1, x2, y2 = metadata.source_rect
+                source_rect_area = float(abs(x2 - x1) * abs(y2 - y1))
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
+
         return ProcessedImage(
             filepath=filepath,
             image=image,
@@ -108,6 +123,7 @@ def _load_and_process_single(
             yaw=yaw,
             pitch=pitch,
             histogram=histogram,
+            source_rect_area=source_rect_area,
         )
 
     except Exception as e:
@@ -118,6 +134,7 @@ def _load_and_process_single(
             yaw=0.0,
             pitch=0.0,
             histogram=None,
+            source_rect_area=0.0,
             error=str(e),
         )
 
@@ -163,9 +180,9 @@ class ParallelSortProcessor:
         """
         results: list[SortResult] = []
 
-        ExecutorClass = ThreadPoolExecutor if self.use_threads else ProcessPoolExecutor
-
-        with ExecutorClass(max_workers=self.max_workers) as executor:
+        # Keep this path on threads because compute_fn may be a local closure and
+        # therefore not picklable for process pools.
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {executor.submit(compute_fn, p): p for p in image_paths}
 
             if show_progress:
@@ -199,6 +216,7 @@ class ParallelSortProcessor:
         compute_sharpness: bool = True,
         compute_pose: bool = True,
         compute_histogram: bool = True,
+        compute_source_rect: bool = False,
         show_progress: bool = True,
     ) -> list[ProcessedImage]:
         """
@@ -218,16 +236,20 @@ class ParallelSortProcessor:
         """
         results: list[ProcessedImage] = []
 
-        def process_single(path: Path) -> ProcessedImage:
-            return _load_and_process_single(
-                path,
-                compute_sharpness=compute_sharpness,
-                compute_pose=compute_pose,
-                compute_histogram=compute_histogram,
-            )
+        ExecutorClass = ThreadPoolExecutor if self.use_threads else ProcessPoolExecutor
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(process_single, p): p for p in image_paths}
+        with ExecutorClass(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _load_and_process_single,
+                    p,
+                    compute_sharpness,
+                    compute_pose,
+                    compute_histogram,
+                    compute_source_rect,
+                ): p
+                for p in image_paths
+            }
 
             if show_progress:
                 try:
@@ -258,6 +280,7 @@ class ParallelSortProcessor:
                             yaw=0.0,
                             pitch=0.0,
                             histogram=None,
+                            source_rect_area=0.0,
                             error=str(e),
                         )
                     )

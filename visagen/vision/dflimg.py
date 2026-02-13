@@ -11,7 +11,7 @@ import pickle
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import cv2
 import numpy as np
@@ -35,6 +35,7 @@ class FaceMetadata:
         eyebrows_expand_mod: Eyebrow expansion modifier. Default: 1.0.
         xseg_mask: Compressed segmentation mask bytes. Default: None.
         seg_ie_polys: Interactive editor polygon data. Default: None.
+        embedding: Face identity embedding vector. Default: None.
     """
 
     landmarks: np.ndarray
@@ -46,6 +47,7 @@ class FaceMetadata:
     eyebrows_expand_mod: float = 1.0
     xseg_mask: bytes | None = None
     seg_ie_polys: Any | None = None
+    embedding: np.ndarray | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to legacy DFL dictionary format."""
@@ -71,6 +73,13 @@ class FaceMetadata:
         if self.seg_ie_polys is not None:
             data["seg_ie_polys"] = self.seg_ie_polys
 
+        if self.embedding is not None:
+            data["embedding"] = (
+                self.embedding.tolist()
+                if isinstance(self.embedding, np.ndarray)
+                else self.embedding
+            )
+
         return data
 
     @classmethod
@@ -88,6 +97,9 @@ class FaceMetadata:
             eyebrows_expand_mod=data.get("eyebrows_expand_mod", 1.0),
             xseg_mask=data.get("xseg_mask"),
             seg_ie_polys=data.get("seg_ie_polys"),
+            embedding=np.array(data["embedding"], dtype=np.float32)
+            if data.get("embedding") is not None
+            else None,
         )
 
 
@@ -249,7 +261,10 @@ class DFLImage:
             if marker == DFLImage._APP15:
                 chunk_data = data[pos : pos + seg_length - 2]
                 try:
-                    return pickle.loads(chunk_data)
+                    loaded = pickle.loads(chunk_data)
+                    if isinstance(loaded, dict):
+                        return loaded
+                    return None
                 except Exception:
                     return None
 
@@ -297,9 +312,9 @@ class DFLImage:
             f.write(output)
 
     @staticmethod
-    def _parse_jpeg_chunks(data: bytes) -> list:
+    def _parse_jpeg_chunks(data: bytes) -> list[dict[str, Any]]:
         """Parse JPEG into list of chunks."""
-        chunks = []
+        chunks: list[dict[str, Any]] = []
         pos = 0
         length = len(data)
 
@@ -311,7 +326,7 @@ class DFLImage:
             marker = data[pos + 1]
             pos += 2
 
-            chunk = {"marker": marker, "data": None, "ex_data": None}
+            chunk: dict[str, Any] = {"marker": marker, "data": None, "ex_data": None}
 
             # Markers without payload
             if marker in (DFLImage._SOI, DFLImage._EOI) or 0xD0 <= marker <= 0xD7:
@@ -343,7 +358,7 @@ class DFLImage:
         return chunks
 
     @staticmethod
-    def _build_jpeg(chunks: list) -> bytes:
+    def _build_jpeg(chunks: list[dict[str, Any]]) -> bytes:
         """Build JPEG bytes from chunks."""
         output = b""
 
@@ -385,7 +400,7 @@ class DFLImage:
         if len(mask.shape) == 2:
             mask = mask[..., np.newaxis]
 
-        return mask.astype(np.float32) / 255.0
+        return cast(np.ndarray, mask.astype(np.float32) / 255.0)
 
     @staticmethod
     def set_xseg_mask(

@@ -22,12 +22,15 @@ def get_sort_methods():
         AbsDiffDissimilaritySorter,
         AbsDiffSorter,
         BlackPixelSorter,
+        BlurFastSorter,
         BlurSorter,
         BrightnessSorter,
         FinalSorter,
         HistogramDissimilaritySorter,
         HistogramSimilaritySorter,
         HueSorter,
+        IDDissimilaritySorter,
+        IDSimilaritySorter,
         MotionBlurSorter,
         OneFaceSorter,
         OrigNameSorter,
@@ -39,6 +42,7 @@ def get_sort_methods():
 
     return {
         "blur": BlurSorter,
+        "blur-fast": BlurFastSorter,
         "motion-blur": MotionBlurSorter,
         "face-yaw": YawSorter,
         "face-pitch": PitchSorter,
@@ -47,6 +51,8 @@ def get_sort_methods():
         "hist-dissim": HistogramDissimilaritySorter,
         "absdiff": AbsDiffSorter,
         "absdiff-dissim": AbsDiffDissimilaritySorter,
+        "id-sim": IDSimilaritySorter,
+        "id-dissim": IDDissimilaritySorter,
         "brightness": BrightnessSorter,
         "hue": HueSorter,
         "black": BlackPixelSorter,
@@ -70,7 +76,8 @@ Examples:
   visagen-sort ./aligned_faces -m hist --dry-run
 
 Available methods:
-  blur              Sort by image sharpness (blur detection)
+  blur              Sort by image sharpness (CPBD, legacy-compatible)
+  blur-fast         Sort by image sharpness (fast Laplacian)
   motion-blur       Sort by motion blur
   face-yaw          Sort by face yaw angle (left-right)
   face-pitch        Sort by face pitch angle (up-down)
@@ -79,6 +86,8 @@ Available methods:
   hist-dissim       Sort by histogram dissimilarity (unique first)
   absdiff           Sort by absolute pixel difference (GPU, similar)
   absdiff-dissim    Sort by absolute pixel difference (GPU, dissimilar)
+  id-sim            Sort by identity similarity (embedding based)
+  id-dissim         Sort by identity dissimilarity (embedding outliers)
   brightness        Sort by brightness
   hue               Sort by hue
   black             Sort by amount of black pixels
@@ -134,6 +143,21 @@ Available methods:
     )
 
     parser.add_argument(
+        "--exec-mode",
+        type=str,
+        choices=["auto", "process", "thread"],
+        default="auto",
+        help="Parallel execution mode (default: auto)",
+    )
+
+    parser.add_argument(
+        "--exact-limit",
+        type=int,
+        default=3000,
+        help="Max image count for exact O(n^2) methods before approximation",
+    )
+
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be done without making changes",
@@ -175,7 +199,7 @@ Available methods:
 def get_image_paths(directory: Path) -> list[Path]:
     """Get all image paths from a directory."""
     extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
-    paths = []
+    paths: list[Path] = []
 
     for ext in extensions:
         paths.extend(directory.glob(f"*{ext}"))
@@ -195,45 +219,55 @@ def apply_sort_result(
 ):
     """Apply sorting result by renaming/moving files."""
     from visagen.sorting.base import SortOutput
+    from visagen.tools.dataset_trash import move_to_trash
 
-    result: SortOutput = result
+    sort_output: SortOutput = result
 
     # Handle trash
-    if len(result.trash_images) > 0:
+    if len(sort_output.trash_images) > 0:
         if trash_dir is None:
-            trash_dir = input_dir.parent / f"{input_dir.name}_trash"
-
-        if not dry_run:
-            trash_dir.mkdir(parents=True, exist_ok=True)
-
-        print(f"Moving {len(result.trash_images)} images to {trash_dir}")
-
-        for item in result.trash_images:
-            src = item.filepath
-            dst = trash_dir / src.name
-
-            if verbose:
-                print(f"  Trash: {src.name}")
-
+            print(f"Moving {len(sort_output.trash_images)} images to managed trash...")
             if not dry_run:
-                try:
-                    shutil.move(str(src), str(dst))
-                except Exception as e:
-                    print(f"  Failed to move {src.name}: {e}")
+                batch = move_to_trash(
+                    [item.filepath for item in sort_output.trash_images],
+                    dataset_root=input_dir,
+                    reason=f"sort:{sort_output.method}",
+                )
+                print(
+                    f"  Trash batch: {batch.batch_id} | moved: {batch.count} | dir: {batch.trash_dir}"
+                )
+        else:
+            if not dry_run:
+                trash_dir.mkdir(parents=True, exist_ok=True)
+
+            print(f"Moving {len(sort_output.trash_images)} images to {trash_dir}")
+
+            for item in sort_output.trash_images:
+                src = item.filepath
+                dst = trash_dir / src.name
+
+                if verbose:
+                    print(f"  Trash: {src.name}")
+
+                if not dry_run:
+                    try:
+                        shutil.move(str(src), str(dst))
+                    except Exception as e:
+                        print(f"  Failed to move {src.name}: {e}")
 
     # Handle sorted images
-    if len(result.sorted_images) > 0:
+    if len(sort_output.sorted_images) > 0:
         target_dir = output_dir if output_dir else input_dir
 
         if output_dir and not dry_run:
             output_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"Processing {len(result.sorted_images)} sorted images")
+        print(f"Processing {len(sort_output.sorted_images)} sorted images")
 
         if no_rename:
             # Just copy/move without renaming
             if output_dir:
-                for item in result.sorted_images:
+                for item in sort_output.sorted_images:
                     src = item.filepath
                     dst = output_dir / src.name
 
@@ -250,7 +284,7 @@ def apply_sort_result(
             # Phase 1: Rename to temp names
             temp_names: list[tuple[Path, Path, Path]] = []
 
-            for i, item in enumerate(result.sorted_images):
+            for i, item in enumerate(sort_output.sorted_images):
                 src = item.filepath
                 temp_name = target_dir / f"_sort_temp_{i:08d}_{src.name}"
                 final_name = target_dir / f"{i:08d}{src.suffix}"
@@ -303,7 +337,16 @@ def main(argv=None):
 
     # Initialize sorter
     if args.method in ("final", "final-fast"):
-        sorter = sorter_cls(target_count=args.target)
+        sorter = sorter_cls(target_count=args.target, exact_limit=args.exact_limit)
+    elif args.method in (
+        "hist",
+        "hist-dissim",
+        "absdiff",
+        "absdiff-dissim",
+        "id-sim",
+        "id-dissim",
+    ):
+        sorter = sorter_cls(exact_limit=args.exact_limit)
     else:
         sorter = sorter_cls()
 
@@ -312,7 +355,15 @@ def main(argv=None):
     # Initialize processor
     from visagen.sorting.processor import ParallelSortProcessor
 
-    processor = ParallelSortProcessor(max_workers=args.jobs)
+    if args.exec_mode == "thread":
+        use_threads = True
+    elif args.exec_mode == "process":
+        use_threads = False
+    else:
+        # Auto: prefer process pools for CPU-heavy composite path.
+        use_threads = args.method not in ("final", "final-fast")
+
+    processor = ParallelSortProcessor(max_workers=args.jobs, use_threads=use_threads)
 
     # Run sorting
     result = sorter.sort(image_paths, processor)

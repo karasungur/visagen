@@ -269,6 +269,7 @@ class TestFaceMetadata:
             face_type="whole_face",
             image_to_face_mat=np.eye(2, 3, dtype=np.float32),
             eyebrows_expand_mod=1.0,
+            embedding=np.random.randn(512).astype(np.float32),
         )
 
     def test_to_dict(self, sample_metadata):
@@ -282,6 +283,7 @@ class TestFaceMetadata:
         assert "source_filename" in d
         assert "face_type" in d
         assert "image_to_face_mat" in d
+        assert "embedding" in d
 
     def test_from_dict_roundtrip(self, sample_metadata):
         """Dict conversion should be reversible."""
@@ -293,6 +295,10 @@ class TestFaceMetadata:
         )
         assert recovered.source_filename == sample_metadata.source_filename
         assert recovered.face_type == sample_metadata.face_type
+        assert recovered.embedding is not None
+        np.testing.assert_allclose(
+            recovered.embedding, sample_metadata.embedding, atol=1e-6
+        )
 
     def test_from_dict_minimal(self):
         """Minimal dict should work with defaults."""
@@ -306,6 +312,7 @@ class TestFaceMetadata:
         assert metadata.landmarks.shape == (68, 2)
         assert metadata.eyebrows_expand_mod == 1.0
         assert metadata.xseg_mask is None
+        assert metadata.embedding is None
 
 
 class TestDFLImage:

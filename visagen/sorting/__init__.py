@@ -17,9 +17,10 @@ Example:
 
 from visagen.sorting.absdiff import AbsDiffDissimilaritySorter, AbsDiffSorter
 from visagen.sorting.base import SortMethod, SortOutput, SortResult
-from visagen.sorting.blur import BlurSorter, MotionBlurSorter
+from visagen.sorting.blur import BlurFastSorter, BlurSorter, MotionBlurSorter
 from visagen.sorting.color import BlackPixelSorter, BrightnessSorter, HueSorter
 from visagen.sorting.composite import FinalSorter
+from visagen.sorting.embedding import IDDissimilaritySorter, IDSimilaritySorter
 from visagen.sorting.histogram import (
     HistogramDissimilaritySorter,
     HistogramSimilaritySorter,
@@ -38,7 +39,11 @@ __all__ = [
     "AbsDiffDissimilaritySorter",
     # Blur
     "BlurSorter",
+    "BlurFastSorter",
     "MotionBlurSorter",
+    # Embedding
+    "IDSimilaritySorter",
+    "IDDissimilaritySorter",
     # Pose
     "YawSorter",
     "PitchSorter",
