@@ -92,3 +92,31 @@ def test_main_managed_trash_move(tmp_path: Path):
     assert rc == 0
     assert not broken.exists()
     assert manifest.exists()
+
+
+def test_main_custom_trash_collision(tmp_path: Path):
+    """Custom trash directory should resolve name collisions safely."""
+    broken = tmp_path / "broken.jpg"
+    broken.write_bytes(b"")
+
+    custom_trash = tmp_path / "custom_trash"
+    custom_trash.mkdir(parents=True, exist_ok=True)
+    (custom_trash / "broken.jpg").write_bytes(b"existing")
+
+    rc = dataset_cleaner.main(
+        [
+            str(tmp_path),
+            "--broken",
+            "--trash-dir",
+            str(custom_trash),
+            "--exec-mode",
+            "thread",
+            "--jobs",
+            "1",
+        ]
+    )
+
+    assert rc == 0
+    assert not broken.exists()
+    assert (custom_trash / "broken.jpg").exists()
+    assert (custom_trash / "broken_restored_1.jpg").exists()

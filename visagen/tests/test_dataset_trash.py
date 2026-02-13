@@ -2,7 +2,12 @@
 
 from pathlib import Path
 
-from visagen.tools.dataset_trash import list_batches, move_to_trash, undo_last_batch
+from visagen.tools.dataset_trash import (
+    list_batches,
+    move_to_trash,
+    resolve_collision_path,
+    undo_last_batch,
+)
 
 
 def test_move_to_trash_and_undo(tmp_path: Path):
@@ -87,3 +92,16 @@ def test_undo_failure_keeps_manifest_entry(tmp_path: Path, monkeypatch):
 
     # Batch entry must remain in manifest for a future retry.
     assert batch.batch_id in list_batches(dataset)
+
+
+def test_resolve_collision_path(tmp_path: Path):
+    """Collision helper should generate deterministic incremented filename."""
+    target = tmp_path / "dup.jpg"
+    target.write_bytes(b"a")
+
+    resolved = resolve_collision_path(target)
+    assert resolved.name == "dup_restored_1.jpg"
+
+    resolved.write_bytes(b"b")
+    resolved_next = resolve_collision_path(target)
+    assert resolved_next.name == "dup_restored_2.jpg"

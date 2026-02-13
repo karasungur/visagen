@@ -396,6 +396,13 @@ class TestHistogramSimilaritySorter:
         assert len(result.sorted_images) == len(image_paths)
         assert result.method == "hist"
 
+    def test_default_disables_exact_path(self):
+        """Default configuration should avoid exact O(n^2) mode."""
+        from visagen.sorting.histogram import HistogramSimilaritySorter
+
+        sorter = HistogramSimilaritySorter()
+        assert sorter.exact_limit == 0
+
 
 class TestHistogramDissimilaritySorter:
     """Tests for HistogramDissimilaritySorter."""
@@ -452,6 +459,13 @@ class TestSSIMSorters:
 
         assert result.method == "ssim"
         assert result.sorted_images[-1].filepath == p3
+
+    def test_default_disables_exact_path(self):
+        """Default configuration should avoid exact O(n^2) mode."""
+        from visagen.sorting.similarity import SSIMSimilaritySorter
+
+        sorter = SSIMSimilaritySorter()
+        assert sorter.exact_limit == 0
 
 
 # =============================================================================
@@ -662,6 +676,8 @@ class TestSorterCLI:
         assert args.input == sample_images_dir
         assert args.method == "blur"
         assert args.target == 2000
+        assert args.exact_limit is None
+        assert args.undo_last_trash is False
 
     def test_parse_args_full(self, sample_images_dir, temp_dir, monkeypatch):
         """Test full argument parsing."""
@@ -695,6 +711,31 @@ class TestSorterCLI:
         assert args.jobs == 4
         assert args.dry_run is True
         assert args.verbose is True
+        assert args.exact_limit is None
+
+    def test_parse_args_with_exact_limit(self, sample_images_dir, monkeypatch):
+        """Test explicit exact-limit parsing."""
+        from visagen.tools.sorter import parse_args
+
+        monkeypatch.setattr(
+            "sys.argv",
+            ["visagen-sort", str(sample_images_dir), "--exact-limit", "128"],
+        )
+
+        args = parse_args()
+        assert args.exact_limit == 128
+
+    def test_parse_args_undo(self, sample_images_dir, monkeypatch):
+        """Undo mode should parse cleanly."""
+        from visagen.tools.sorter import parse_args
+
+        monkeypatch.setattr(
+            "sys.argv",
+            ["visagen-sort", str(sample_images_dir), "--undo-last-trash"],
+        )
+
+        args = parse_args()
+        assert args.undo_last_trash is True
 
     def test_get_sort_methods(self):
         """Test available sort methods."""
@@ -779,6 +820,59 @@ class TestSorterCLI:
 
         assert len(paths) == 5
         assert all(p.suffix == ".jpg" for p in paths)
+
+    def test_apply_sort_result_custom_trash_collision(self, tmp_path):
+        """Custom trash dir should resolve destination filename collisions."""
+        from visagen.sorting.base import SortOutput, SortResult
+        from visagen.tools.sorter import apply_sort_result
+
+        dataset = tmp_path / "aligned"
+        trash_dir = tmp_path / "trash"
+        dataset.mkdir(parents=True, exist_ok=True)
+        trash_dir.mkdir(parents=True, exist_ok=True)
+
+        src = dataset / "dup.jpg"
+        src.write_bytes(b"source")
+        (trash_dir / "dup.jpg").write_bytes(b"existing")
+
+        output = SortOutput(
+            sorted_images=[],
+            trash_images=[SortResult(src, 0.0, {"reason": "test"})],
+            method="hist",
+            elapsed_seconds=0.0,
+        )
+
+        apply_sort_result(
+            output,
+            input_dir=dataset,
+            output_dir=None,
+            trash_dir=trash_dir,
+            no_rename=False,
+            dry_run=False,
+            verbose=False,
+        )
+
+        assert not src.exists()
+        assert (trash_dir / "dup.jpg").exists()
+        assert (trash_dir / "dup_restored_1.jpg").exists()
+
+    def test_main_undo_last_trash(self, tmp_path):
+        """Sorter CLI should support undoing the last managed trash batch."""
+        from visagen.tools import sorter as sorter_module
+        from visagen.tools.dataset_trash import move_to_trash
+
+        dataset = tmp_path / "aligned"
+        dataset.mkdir(parents=True, exist_ok=True)
+        target = dataset / "restore.jpg"
+        target.write_bytes(b"x")
+
+        batch = move_to_trash([target], dataset_root=dataset, reason="test-sort")
+        assert batch.count_moved == 1
+        assert not target.exists()
+
+        rc = sorter_module.main([str(dataset), "--undo-last-trash"])
+        assert rc == 0
+        assert target.exists()
 
 
 # =============================================================================

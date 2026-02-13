@@ -46,7 +46,7 @@ def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _resolve_restore_collision(path: Path) -> Path:
+def resolve_collision_path(path: Path) -> Path:
     """Resolve destination collision by appending deterministic suffix."""
     if not path.exists():
         return path
@@ -60,6 +60,11 @@ def _resolve_restore_collision(path: Path) -> Path:
         if not candidate.exists():
             return candidate
         i += 1
+
+
+def _resolve_restore_collision(path: Path) -> Path:
+    """Backward-compatible internal alias."""
+    return resolve_collision_path(path)
 
 
 def _read_manifest(manifest_path: Path) -> list[dict]:
@@ -137,7 +142,7 @@ def move_to_trash(
             continue
         dst = batch_dir / src.name
         if dst.exists():
-            dst = _resolve_restore_collision(dst)
+            dst = resolve_collision_path(dst)
         try:
             src.rename(dst)
             moved_count += 1
@@ -227,7 +232,7 @@ def undo_last_batch(dataset_root: Path) -> UndoResult:
             continue
         try:
             src.parent.mkdir(parents=True, exist_ok=True)
-            restore_target = _resolve_restore_collision(src)
+            restore_target = resolve_collision_path(src)
             dst.rename(restore_target)
             restored += 1
         except Exception as e:

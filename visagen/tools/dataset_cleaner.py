@@ -17,7 +17,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from visagen.tools.dataset_trash import move_to_trash
+from visagen.tools.dataset_trash import move_to_trash, resolve_collision_path
 
 
 @dataclass
@@ -224,7 +224,10 @@ def main(argv=None) -> int:
         failed = 0
         for path in paths_to_clean:
             try:
-                shutil.move(str(path), str(args.trash_dir / path.name))
+                destination = args.trash_dir / path.name
+                if destination.exists():
+                    destination = resolve_collision_path(destination)
+                shutil.move(str(path), str(destination))
                 moved += 1
             except Exception:
                 failed += 1

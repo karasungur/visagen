@@ -8,6 +8,7 @@ Examples:
     visagen-sort ./aligned_faces --method blur
     visagen-sort ./aligned_faces --method final --target 2000
     visagen-sort ./aligned_faces --method face-yaw --output sorted/
+    visagen-sort ./aligned_faces --undo-last-trash
 """
 
 import argparse
@@ -78,6 +79,7 @@ Examples:
   visagen-sort ./aligned_faces --method final --target 2000
   visagen-sort ./aligned_faces -m face-yaw -o sorted/
   visagen-sort ./aligned_faces -m hist --dry-run
+  visagen-sort ./aligned_faces --undo-last-trash
 
 Available methods:
   blur              Sort by image sharpness (CPBD, legacy-compatible)
@@ -137,7 +139,7 @@ Available methods:
         "--trash-dir",
         type=Path,
         default=None,
-        help="Directory for discarded images (default: <input>_trash)",
+        help="Directory for discarded images (default: managed <input>/.visagen_trash)",
     )
 
     parser.add_argument(
@@ -159,8 +161,14 @@ Available methods:
     parser.add_argument(
         "--exact-limit",
         type=int,
-        default=3000,
-        help="Max image count for exact O(n^2) methods before approximation",
+        default=None,
+        help="Override exact O(n^2) cutoff for methods that support it",
+    )
+
+    parser.add_argument(
+        "--undo-last-trash",
+        action="store_true",
+        help="Undo last managed trash batch for this dataset and exit",
     )
 
     parser.add_argument(
@@ -191,13 +199,17 @@ Available methods:
     if not args.input.is_dir():
         parser.error(f"Input is not a directory: {args.input}")
 
+    if args.exact_limit is not None and args.exact_limit < 0:
+        parser.error("--exact-limit must be >= 0")
+
     # Validate method
-    methods = get_sort_methods()
-    if args.method not in methods:
-        parser.error(
-            f"Unknown method: {args.method}\n"
-            f"Available methods: {', '.join(methods.keys())}"
-        )
+    if not args.undo_last_trash:
+        methods = get_sort_methods()
+        if args.method not in methods:
+            parser.error(
+                f"Unknown method: {args.method}\n"
+                f"Available methods: {', '.join(methods.keys())}"
+            )
 
     return args
 
@@ -225,7 +237,7 @@ def apply_sort_result(
 ):
     """Apply sorting result by renaming/moving files."""
     from visagen.sorting.base import SortOutput
-    from visagen.tools.dataset_trash import move_to_trash
+    from visagen.tools.dataset_trash import move_to_trash, resolve_collision_path
 
     sort_output: SortOutput = result
 
@@ -256,6 +268,8 @@ def apply_sort_result(
             for item in sort_output.trash_images:
                 src = item.filepath
                 dst = trash_dir / src.name
+                if dst.exists():
+                    dst = resolve_collision_path(dst)
 
                 if verbose:
                     print(f"  Trash: {src.name}")
@@ -334,6 +348,22 @@ def main(argv=None):
     """Main entry point."""
     args = parse_args(argv)
 
+    if args.undo_last_trash:
+        from visagen.tools.dataset_trash import undo_last_batch
+
+        restored = undo_last_batch(args.input)
+        if not restored.batch_id:
+            print("No trash batch to undo.")
+            return 0
+
+        print(
+            f"Undo {restored.batch_id}: restored={restored.restored}, "
+            f"skipped={restored.skipped}, failed={restored.failed}"
+        )
+        if restored.errors:
+            print(f"  First error: {restored.errors[0]}")
+        return 0
+
     # Get image paths
     image_paths = get_image_paths(args.input)
     print(f"Found {len(image_paths)} images in {args.input}")
@@ -348,7 +378,10 @@ def main(argv=None):
 
     # Initialize sorter
     if args.method in ("final", "final-fast"):
-        sorter = sorter_cls(target_count=args.target, exact_limit=args.exact_limit)
+        kwargs = {"target_count": args.target}
+        if args.exact_limit is not None:
+            kwargs["exact_limit"] = args.exact_limit
+        sorter = sorter_cls(**kwargs)
     elif args.method in (
         "hist",
         "hist-dissim",
@@ -359,7 +392,10 @@ def main(argv=None):
         "ssim",
         "ssim-dissim",
     ):
-        sorter = sorter_cls(exact_limit=args.exact_limit)
+        kwargs = {}
+        if args.exact_limit is not None:
+            kwargs["exact_limit"] = args.exact_limit
+        sorter = sorter_cls(**kwargs)
     else:
         sorter = sorter_cls()
 
