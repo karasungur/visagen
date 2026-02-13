@@ -173,6 +173,7 @@ visagen-benchmark = "visagen.tools.benchmark:main"
 visagen-video = "visagen.tools.video_ed:main"
 visagen-enhance = "visagen.tools.faceset_enhancer:main"
 visagen-resize = "visagen.tools.faceset_resizer:main"
+visagen-clean = "visagen.tools.dataset_cleaner:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
