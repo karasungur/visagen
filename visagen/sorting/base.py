@@ -5,7 +5,9 @@ Provides abstract base class for sort methods and data classes for results.
 """
 
 from abc import ABC, abstractmethod
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -74,6 +76,70 @@ class ImageData:
     extra: dict = field(default_factory=dict)
 
 
+def _compute_sort_result(sorter: "SortMethod", filepath: Path) -> SortResult:
+    """
+    Compute a single sort result in a process-safe way.
+
+    This is a top-level function so it can be pickled when using
+    ProcessPoolExecutor.
+    """
+    import cv2
+
+    from visagen.vision.dflimg import DFLImage
+
+    try:
+        # Load image and metadata
+        image: np.ndarray | None
+        if sorter.requires_dfl_metadata:
+            image, metadata = DFLImage.load(filepath)
+            if metadata is None:
+                return SortResult(filepath, 0.0, {"error": "No DFL metadata"})
+        else:
+            image = cv2.imread(str(filepath))
+            metadata = None
+
+        if image is None:
+            return SortResult(filepath, 0.0, {"error": "Failed to load image"})
+
+        score = sorter.compute_score(image, metadata)
+        return SortResult(filepath, score)
+    except Exception as e:
+        return SortResult(filepath, 0.0, {"error": str(e)})
+
+
+def _is_process_safe_value(value: object) -> bool:
+    """Return whether a value can be safely pickled for process workers."""
+    return isinstance(value, (str, int, float, bool, type(None)))
+
+
+def _serialize_sorter_state(sorter: "SortMethod") -> dict[str, object]:
+    """Serialize sorter state for process workers."""
+    state: dict[str, object] = {}
+    for key, value in sorter.__dict__.items():
+        if _is_process_safe_value(value):
+            state[key] = value
+    return state
+
+
+def _compute_sort_result_from_spec(
+    sorter_module: str,
+    sorter_class: str,
+    sorter_state: dict[str, object],
+    filepath: Path,
+) -> SortResult:
+    """
+    Compute sort result by reconstructing sorter inside subprocess.
+
+    Avoids pickling sorter instances that may hold non-picklable objects.
+    """
+    module = import_module(sorter_module)
+    cls = getattr(module, sorter_class)
+    sorter = cls()
+    for key, value in sorter_state.items():
+        setattr(sorter, key, value)
+    return _compute_sort_result(sorter, filepath)
+
+
 class SortMethod(ABC):
     """
     Abstract base class for sorting methods.
@@ -92,6 +158,7 @@ class SortMethod(ABC):
     name: str = "base"
     description: str = "Base sorting method"
     requires_dfl_metadata: bool = False
+    execution_profile: str = "cpu_bound"  # cpu_bound | io_bound | gpu_bound
 
     @abstractmethod
     def compute_score(
@@ -141,41 +208,50 @@ class SortMethod(ABC):
         """
         import time
 
-        import cv2
-
-        from visagen.vision.dflimg import DFLImage
-
         start_time = time.time()
 
         results: list[SortResult] = []
         trash: list[SortResult] = []
 
-        for filepath in image_paths:
-            try:
-                # Load image and metadata
-                if self.requires_dfl_metadata:
-                    image, metadata = DFLImage.load(filepath)
-                    if metadata is None:
-                        trash.append(
-                            SortResult(filepath, 0.0, {"error": "No DFL metadata"})
-                        )
-                        continue
-                else:
-                    image = cv2.imread(str(filepath))
-                    metadata = None
+        if processor is None:
+            computed = [
+                _compute_sort_result(self, filepath) for filepath in image_paths
+            ]
+        elif not processor.use_threads:
+            computed = []
+            sorter_module = self.__class__.__module__
+            sorter_class = self.__class__.__name__
+            sorter_state = _serialize_sorter_state(self)
+            with ProcessPoolExecutor(max_workers=processor.max_workers) as executor:
+                futures = {
+                    executor.submit(
+                        _compute_sort_result_from_spec,
+                        sorter_module,
+                        sorter_class,
+                        sorter_state,
+                        filepath,
+                    ): filepath
+                    for filepath in image_paths
+                }
+                for future in as_completed(futures):
+                    path = futures[future]
+                    try:
+                        computed.append(future.result())
+                    except Exception as e:
+                        computed.append(SortResult(path, 0.0, {"error": str(e)}))
+        else:
+            computed = processor.process_images(
+                image_paths=image_paths,
+                compute_fn=lambda p: _compute_sort_result(self, p),
+                desc=f"Sort:{self.name}",
+                show_progress=True,
+            )
 
-                if image is None:
-                    trash.append(
-                        SortResult(filepath, 0.0, {"error": "Failed to load image"})
-                    )
-                    continue
-
-                # Compute score
-                score = self.compute_score(image, metadata)
-                results.append(SortResult(filepath, score))
-
-            except Exception as e:
-                trash.append(SortResult(filepath, 0.0, {"error": str(e)}))
+        for item in computed:
+            if item.metadata is not None and "error" in item.metadata:
+                trash.append(item)
+            else:
+                results.append(item)
 
         # Sort by score
         results.sort(key=lambda x: x.score, reverse=self.reverse_sort)

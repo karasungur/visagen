@@ -6,7 +6,7 @@ import subprocess
 import sys
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import gradio as gr
 
@@ -72,12 +72,19 @@ class SortTab(BaseTab):
                         key="sort.method",
                         choices=[
                             "blur",
+                            "blur-fast",
                             "motion-blur",
                             "face-yaw",
                             "face-pitch",
                             "face-source-rect-size",
                             "hist",
                             "hist-dissim",
+                            "absdiff",
+                            "absdiff-dissim",
+                            "id-sim",
+                            "id-dissim",
+                            "ssim",
+                            "ssim-dissim",
                             "brightness",
                             "hue",
                             "black",
@@ -108,6 +115,29 @@ class SortTab(BaseTab):
                     info=self.t("dry_run.info"),
                 )
 
+                components["exec_mode"] = DropdownInput(
+                    DropdownConfig(
+                        key="sort.exec_mode",
+                        choices=["auto", "process", "thread"],
+                        default="auto",
+                    ),
+                    self.i18n,
+                ).build()
+
+                components["exact_limit"] = gr.Number(
+                    label=self.t("exact_limit.label"),
+                    value=0,
+                    precision=0,
+                    info=self.t("exact_limit.info"),
+                )
+
+                components["jobs"] = gr.Number(
+                    label=self.t("jobs.label"),
+                    value=0,
+                    precision=0,
+                    info=self.t("jobs.info"),
+                )
+
         # Process Control
         with gr.Row():
             process_ctrl = ProcessControl("sort", self.i18n)
@@ -131,6 +161,9 @@ class SortTab(BaseTab):
                 c["method"],
                 c["target_count"],
                 c["dry_run"],
+                c["exec_mode"],
+                c["exact_limit"],
+                c["jobs"],
             ],
             outputs=c["log"],
         )
@@ -147,6 +180,9 @@ class SortTab(BaseTab):
         method: str,
         target_count: int,
         dry_run: bool,
+        exec_mode: str,
+        exact_limit: int,
+        jobs: int,
     ) -> Generator[str, None, None]:
         """Start sort subprocess."""
         if not input_dir or not Path(input_dir).exists():
@@ -172,6 +208,12 @@ class SortTab(BaseTab):
 
         if dry_run:
             cmd.append("--dry-run")
+
+        cmd.extend(["--exec-mode", exec_mode])
+        if int(exact_limit) > 0:
+            cmd.extend(["--exact-limit", str(int(exact_limit))])
+        if int(jobs) > 0:
+            cmd.extend(["--jobs", str(int(jobs))])
 
         yield f"Starting sorting...\n$ {' '.join(cmd)}\n"
 
@@ -210,5 +252,5 @@ class SortTab(BaseTab):
     def _stop_sort(self) -> str:
         """Stop sort process."""
         if self.state.processes.terminate("sort"):
-            return self.i18n.t("status.stopped")
-        return self.i18n.t("status.no_sorting")
+            return cast(str, self.i18n.t("status.stopped"))
+        return cast(str, self.i18n.t("status.no_sorting"))

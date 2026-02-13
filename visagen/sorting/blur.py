@@ -1,7 +1,7 @@
 """
 Blur-based sorting methods.
 
-Provides sharpness estimation using Laplacian variance.
+Provides sharpness estimation using CPBD and Laplacian variance.
 """
 
 import logging
@@ -13,6 +13,7 @@ import numpy as np
 from visagen.sorting.base import SortMethod
 
 logger = logging.getLogger(__name__)
+_CPBD_FAILURE_LOGGED = False
 
 if TYPE_CHECKING:
     from visagen.vision.dflimg import FaceMetadata
@@ -33,7 +34,7 @@ def get_face_hull_mask(
         Binary mask as float32 array with same H, W as shape.
     """
     h, w = shape[:2]
-    mask = np.zeros((h, w, 1), dtype=np.float32)
+    mask: np.ndarray = np.zeros((h, w, 1), dtype=np.float32)
 
     # Use jaw + eyebrows for face hull (points 0-16, 17-26)
     hull_points = np.concatenate([landmarks[0:17], landmarks[17:27]], axis=0)
@@ -67,11 +68,31 @@ def estimate_sharpness(image: np.ndarray) -> float:
     return float(laplacian.var())
 
 
+def estimate_sharpness_cpbd(image: np.ndarray) -> tuple[float, str]:
+    """
+    Estimate sharpness using CPBD with deterministic fallback.
+
+    Returns:
+        Tuple of (score, metric_name), where metric_name is either
+        "cpbd" or "laplacian-fallback".
+    """
+    try:
+        from visagen.sorting.cpbd import estimate_cpbd_sharpness
+
+        return estimate_cpbd_sharpness(image), "cpbd"
+    except Exception as e:
+        global _CPBD_FAILURE_LOGGED
+        if not _CPBD_FAILURE_LOGGED:
+            logger.warning(f"CPBD unavailable, falling back to Laplacian: {e}")
+            _CPBD_FAILURE_LOGGED = True
+        return estimate_sharpness(image), "laplacian-fallback"
+
+
 class BlurSorter(SortMethod):
     """
     Sort by image sharpness (blur detection).
 
-    Uses Laplacian variance to estimate sharpness.
+    Uses CPBD (legacy-compatible) to estimate sharpness.
     Higher scores indicate sharper (less blurry) images.
 
     If DFL metadata is available, applies face mask to focus
@@ -79,8 +100,9 @@ class BlurSorter(SortMethod):
     """
 
     name = "blur"
-    description = "Sort by image sharpness (blur detection)"
+    description = "Sort by image sharpness (CPBD, legacy-compatible)"
     requires_dfl_metadata = True
+    execution_profile = "cpu_bound"
 
     def compute_score(
         self,
@@ -89,6 +111,38 @@ class BlurSorter(SortMethod):
     ) -> float:
         """Compute sharpness score."""
         # Apply face mask if landmarks available
+        if metadata is not None and metadata.landmarks is not None:
+            try:
+                mask = get_face_hull_mask(image.shape, metadata.landmarks)
+                image = (image * mask).astype(np.uint8)
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
+
+        score, metric = estimate_sharpness_cpbd(image)
+        if metric != "cpbd":
+            logger.debug("BlurSorter used Laplacian fallback")
+        return score
+
+
+class BlurFastSorter(SortMethod):
+    """
+    Fast blur sorter using Laplacian variance.
+
+    This mode is optimized for throughput and does not guarantee
+    legacy CPBD parity.
+    """
+
+    name = "blur-fast"
+    description = "Sort by image sharpness (fast Laplacian)"
+    requires_dfl_metadata = True
+    execution_profile = "cpu_bound"
+
+    def compute_score(
+        self,
+        image: np.ndarray,
+        metadata: "FaceMetadata | None" = None,
+    ) -> float:
+        """Compute fast sharpness score."""
         if metadata is not None and metadata.landmarks is not None:
             try:
                 mask = get_face_hull_mask(image.shape, metadata.landmarks)
@@ -112,6 +166,7 @@ class MotionBlurSorter(SortMethod):
     name = "motion-blur"
     description = "Sort by motion blur (Laplacian ksize=11)"
     requires_dfl_metadata = True
+    execution_profile = "cpu_bound"
 
     def compute_score(
         self,

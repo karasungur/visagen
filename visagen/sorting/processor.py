@@ -28,6 +28,7 @@ class ProcessedImage:
     yaw: float
     pitch: float
     histogram: np.ndarray | None
+    source_rect_area: float
     error: str | None = None
 
 
@@ -36,6 +37,8 @@ def _load_and_process_single(
     compute_sharpness: bool = True,
     compute_pose: bool = True,
     compute_histogram: bool = True,
+    histogram_mode: str = "gray",
+    compute_source_rect: bool = False,
 ) -> ProcessedImage:
     """
     Load and process a single image.
@@ -53,7 +56,12 @@ def _load_and_process_single(
     """
     try:
         from visagen.sorting.blur import estimate_sharpness, get_face_hull_mask
-        from visagen.sorting.histogram import compute_grayscale_histogram
+        from visagen.sorting.histogram import (
+            compute_grayscale_histogram,
+        )
+        from visagen.sorting.histogram import (
+            compute_histogram as compute_color_histogram,
+        )
         from visagen.vision.aligner import FaceAligner
         from visagen.vision.dflimg import DFLImage
 
@@ -68,6 +76,7 @@ def _load_and_process_single(
                 yaw=0.0,
                 pitch=0.0,
                 histogram=None,
+                source_rect_area=0.0,
                 error="Failed to load image",
             )
 
@@ -99,7 +108,22 @@ def _load_and_process_single(
         # Compute histogram
         histogram = None
         if compute_histogram:
-            histogram = compute_grayscale_histogram(masked_image)
+            if histogram_mode == "color":
+                histogram = compute_color_histogram(masked_image)
+            else:
+                histogram = compute_grayscale_histogram(masked_image)
+
+        source_rect_area = 0.0
+        if (
+            compute_source_rect
+            and metadata is not None
+            and metadata.source_rect is not None
+        ):
+            try:
+                x1, y1, x2, y2 = metadata.source_rect
+                source_rect_area = float(abs(x2 - x1) * abs(y2 - y1))
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
 
         return ProcessedImage(
             filepath=filepath,
@@ -108,6 +132,7 @@ def _load_and_process_single(
             yaw=yaw,
             pitch=pitch,
             histogram=histogram,
+            source_rect_area=source_rect_area,
         )
 
     except Exception as e:
@@ -118,6 +143,7 @@ def _load_and_process_single(
             yaw=0.0,
             pitch=0.0,
             histogram=None,
+            source_rect_area=0.0,
             error=str(e),
         )
 
@@ -139,7 +165,7 @@ class ParallelSortProcessor:
         max_workers: int | None = None,
         use_threads: bool = True,
     ) -> None:
-        self.max_workers = max_workers or min(os.cpu_count() or 4, 8)
+        self.max_workers = max_workers or (os.cpu_count() or 4)
         self.use_threads = use_threads
 
     def process_images(
@@ -148,6 +174,7 @@ class ParallelSortProcessor:
         compute_fn: Callable[[Path], SortResult],
         desc: str = "Processing",
         show_progress: bool = True,
+        use_threads: bool | None = None,
     ) -> list[SortResult]:
         """
         Process images in parallel.
@@ -157,16 +184,20 @@ class ParallelSortProcessor:
             compute_fn: Function to compute score for each image.
             desc: Description for progress bar.
             show_progress: Whether to show progress bar.
+            use_threads: Override processor mode for this call.
 
         Returns:
             List of SortResult objects.
         """
-        results: list[SortResult] = []
+        results_by_index: list[SortResult | None] = [None] * len(image_paths)
+        run_on_threads = self.use_threads if use_threads is None else use_threads
+        executor_class = ThreadPoolExecutor if run_on_threads else ProcessPoolExecutor
 
-        ExecutorClass = ThreadPoolExecutor if self.use_threads else ProcessPoolExecutor
-
-        with ExecutorClass(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(compute_fn, p): p for p in image_paths}
+        with executor_class(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(compute_fn, path): idx
+                for idx, path in enumerate(image_paths)
+            }
 
             if show_progress:
                 try:
@@ -183,15 +214,21 @@ class ParallelSortProcessor:
                 iterator = as_completed(futures)
 
             for future in iterator:
-                path = futures[future]
+                idx = futures[future]
+                path = image_paths[idx]
                 try:
                     result = future.result()
-                    results.append(result)
+                    results_by_index[idx] = result
                 except Exception as e:
                     logger.warning(f"Failed to process {path}: {e}")
-                    results.append(SortResult(path, 0.0, {"error": str(e)}))
+                    results_by_index[idx] = SortResult(path, 0.0, {"error": str(e)})
 
-        return results
+        return [
+            result
+            if result is not None
+            else SortResult(path, 0.0, {"error": "Unknown processing failure"})
+            for path, result in zip(image_paths, results_by_index, strict=True)
+        ]
 
     def load_and_process_all(
         self,
@@ -199,6 +236,8 @@ class ParallelSortProcessor:
         compute_sharpness: bool = True,
         compute_pose: bool = True,
         compute_histogram: bool = True,
+        histogram_mode: str = "gray",
+        compute_source_rect: bool = False,
         show_progress: bool = True,
     ) -> list[ProcessedImage]:
         """
@@ -211,23 +250,29 @@ class ParallelSortProcessor:
             compute_sharpness: Compute sharpness scores.
             compute_pose: Compute pose angles.
             compute_histogram: Compute histograms.
+            histogram_mode: Histogram mode ("gray" or "color").
             show_progress: Show progress bar.
 
         Returns:
             List of ProcessedImage objects.
         """
-        results: list[ProcessedImage] = []
+        results_by_index: list[ProcessedImage | None] = [None] * len(image_paths)
 
-        def process_single(path: Path) -> ProcessedImage:
-            return _load_and_process_single(
-                path,
-                compute_sharpness=compute_sharpness,
-                compute_pose=compute_pose,
-                compute_histogram=compute_histogram,
-            )
+        ExecutorClass = ThreadPoolExecutor if self.use_threads else ProcessPoolExecutor
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(process_single, p): p for p in image_paths}
+        with ExecutorClass(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _load_and_process_single,
+                    p,
+                    compute_sharpness,
+                    compute_pose,
+                    compute_histogram,
+                    histogram_mode,
+                    compute_source_rect,
+                ): idx
+                for idx, p in enumerate(image_paths)
+            }
 
             if show_progress:
                 try:
@@ -244,22 +289,36 @@ class ParallelSortProcessor:
                 iterator = as_completed(futures)
 
             for future in iterator:
-                path = futures[future]
+                idx = futures[future]
+                path = image_paths[idx]
                 try:
                     result = future.result()
-                    results.append(result)
+                    results_by_index[idx] = result
                 except Exception as e:
                     logger.warning(f"Failed to process {path}: {e}")
-                    results.append(
-                        ProcessedImage(
-                            filepath=path,
-                            image=None,
-                            sharpness=0.0,
-                            yaw=0.0,
-                            pitch=0.0,
-                            histogram=None,
-                            error=str(e),
-                        )
+                    results_by_index[idx] = ProcessedImage(
+                        filepath=path,
+                        image=None,
+                        sharpness=0.0,
+                        yaw=0.0,
+                        pitch=0.0,
+                        histogram=None,
+                        source_rect_area=0.0,
+                        error=str(e),
                     )
 
-        return results
+        return [
+            result
+            if result is not None
+            else ProcessedImage(
+                filepath=path,
+                image=None,
+                sharpness=0.0,
+                yaw=0.0,
+                pitch=0.0,
+                histogram=None,
+                source_rect_area=0.0,
+                error="Unknown processing failure",
+            )
+            for path, result in zip(image_paths, results_by_index, strict=True)
+        ]

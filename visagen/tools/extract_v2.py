@@ -271,6 +271,9 @@ class FaceExtractor:
                 image_to_face_mat=aligned.transform_matrix,
                 eyebrows_expand_mod=1.0,
                 xseg_mask=xseg_mask,
+                embedding=face.embedding.astype(np.float32)
+                if face.embedding is not None
+                else None,
             )
 
             results.append(

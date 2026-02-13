@@ -30,6 +30,7 @@ class OrigNameSorter(SortMethod):
     name = "origname"
     description = "Sort by original filename"
     requires_dfl_metadata = True
+    execution_profile = "io_bound"
 
     def compute_score(
         self,
@@ -88,6 +89,7 @@ class SourceRectSorter(SortMethod):
     name = "face-source-rect-size"
     description = "Sort by face rect size in source image"
     requires_dfl_metadata = True
+    execution_profile = "io_bound"
 
     def compute_score(
         self,
@@ -118,6 +120,7 @@ class OneFaceSorter(SortMethod):
     name = "oneface"
     description = "Filter to keep only one face per source image"
     requires_dfl_metadata = False
+    execution_profile = "io_bound"
 
     def compute_score(
         self,

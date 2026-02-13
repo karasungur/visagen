@@ -8,6 +8,7 @@ Examples:
     visagen-sort ./aligned_faces --method blur
     visagen-sort ./aligned_faces --method final --target 2000
     visagen-sort ./aligned_faces --method face-yaw --output sorted/
+    visagen-sort ./aligned_faces --undo-last-trash
 """
 
 import argparse
@@ -22,23 +23,29 @@ def get_sort_methods():
         AbsDiffDissimilaritySorter,
         AbsDiffSorter,
         BlackPixelSorter,
+        BlurFastSorter,
         BlurSorter,
         BrightnessSorter,
         FinalSorter,
         HistogramDissimilaritySorter,
         HistogramSimilaritySorter,
         HueSorter,
+        IDDissimilaritySorter,
+        IDSimilaritySorter,
         MotionBlurSorter,
         OneFaceSorter,
         OrigNameSorter,
         PitchSorter,
         SourceRectSorter,
+        SSIMDissimilaritySorter,
+        SSIMSimilaritySorter,
         YawSorter,
     )
     from visagen.sorting.composite import FinalFastSorter
 
     return {
         "blur": BlurSorter,
+        "blur-fast": BlurFastSorter,
         "motion-blur": MotionBlurSorter,
         "face-yaw": YawSorter,
         "face-pitch": PitchSorter,
@@ -47,6 +54,10 @@ def get_sort_methods():
         "hist-dissim": HistogramDissimilaritySorter,
         "absdiff": AbsDiffSorter,
         "absdiff-dissim": AbsDiffDissimilaritySorter,
+        "id-sim": IDSimilaritySorter,
+        "id-dissim": IDDissimilaritySorter,
+        "ssim": SSIMSimilaritySorter,
+        "ssim-dissim": SSIMDissimilaritySorter,
         "brightness": BrightnessSorter,
         "hue": HueSorter,
         "black": BlackPixelSorter,
@@ -68,9 +79,11 @@ Examples:
   visagen-sort ./aligned_faces --method final --target 2000
   visagen-sort ./aligned_faces -m face-yaw -o sorted/
   visagen-sort ./aligned_faces -m hist --dry-run
+  visagen-sort ./aligned_faces --undo-last-trash
 
 Available methods:
-  blur              Sort by image sharpness (blur detection)
+  blur              Sort by image sharpness (CPBD, legacy-compatible)
+  blur-fast         Sort by image sharpness (fast Laplacian)
   motion-blur       Sort by motion blur
   face-yaw          Sort by face yaw angle (left-right)
   face-pitch        Sort by face pitch angle (up-down)
@@ -79,6 +92,10 @@ Available methods:
   hist-dissim       Sort by histogram dissimilarity (unique first)
   absdiff           Sort by absolute pixel difference (GPU, similar)
   absdiff-dissim    Sort by absolute pixel difference (GPU, dissimilar)
+  id-sim            Sort by identity similarity (embedding based)
+  id-dissim         Sort by identity dissimilarity (embedding outliers)
+  ssim              Sort by SSIM similarity (groups similar)
+  ssim-dissim       Sort by SSIM dissimilarity (outliers first)
   brightness        Sort by brightness
   hue               Sort by hue
   black             Sort by amount of black pixels
@@ -122,7 +139,7 @@ Available methods:
         "--trash-dir",
         type=Path,
         default=None,
-        help="Directory for discarded images (default: <input>_trash)",
+        help="Directory for discarded images (default: managed <input>/.visagen_trash)",
     )
 
     parser.add_argument(
@@ -131,6 +148,27 @@ Available methods:
         type=int,
         default=None,
         help="Number of parallel workers (default: CPU count)",
+    )
+
+    parser.add_argument(
+        "--exec-mode",
+        type=str,
+        choices=["auto", "process", "thread"],
+        default="auto",
+        help="Parallel execution mode (default: auto)",
+    )
+
+    parser.add_argument(
+        "--exact-limit",
+        type=int,
+        default=None,
+        help="Override exact O(n^2) cutoff for methods that support it",
+    )
+
+    parser.add_argument(
+        "--undo-last-trash",
+        action="store_true",
+        help="Undo last managed trash batch for this dataset and exit",
     )
 
     parser.add_argument(
@@ -161,13 +199,17 @@ Available methods:
     if not args.input.is_dir():
         parser.error(f"Input is not a directory: {args.input}")
 
+    if args.exact_limit is not None and args.exact_limit < 0:
+        parser.error("--exact-limit must be >= 0")
+
     # Validate method
-    methods = get_sort_methods()
-    if args.method not in methods:
-        parser.error(
-            f"Unknown method: {args.method}\n"
-            f"Available methods: {', '.join(methods.keys())}"
-        )
+    if not args.undo_last_trash:
+        methods = get_sort_methods()
+        if args.method not in methods:
+            parser.error(
+                f"Unknown method: {args.method}\n"
+                f"Available methods: {', '.join(methods.keys())}"
+            )
 
     return args
 
@@ -175,7 +217,7 @@ Available methods:
 def get_image_paths(directory: Path) -> list[Path]:
     """Get all image paths from a directory."""
     extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
-    paths = []
+    paths: list[Path] = []
 
     for ext in extensions:
         paths.extend(directory.glob(f"*{ext}"))
@@ -195,45 +237,62 @@ def apply_sort_result(
 ):
     """Apply sorting result by renaming/moving files."""
     from visagen.sorting.base import SortOutput
+    from visagen.tools.dataset_trash import move_to_trash, resolve_collision_path
 
-    result: SortOutput = result
+    sort_output: SortOutput = result
 
     # Handle trash
-    if len(result.trash_images) > 0:
+    if len(sort_output.trash_images) > 0:
         if trash_dir is None:
-            trash_dir = input_dir.parent / f"{input_dir.name}_trash"
-
-        if not dry_run:
-            trash_dir.mkdir(parents=True, exist_ok=True)
-
-        print(f"Moving {len(result.trash_images)} images to {trash_dir}")
-
-        for item in result.trash_images:
-            src = item.filepath
-            dst = trash_dir / src.name
-
-            if verbose:
-                print(f"  Trash: {src.name}")
-
+            print(f"Moving {len(sort_output.trash_images)} images to managed trash...")
             if not dry_run:
-                try:
-                    shutil.move(str(src), str(dst))
-                except Exception as e:
-                    print(f"  Failed to move {src.name}: {e}")
+                batch = move_to_trash(
+                    [item.filepath for item in sort_output.trash_images],
+                    dataset_root=input_dir,
+                    reason=f"sort:{sort_output.method}",
+                )
+                moved_count = getattr(batch, "count_moved", batch.count)
+                missing_count = getattr(batch, "count_missing", 0)
+                failed_count = getattr(batch, "count_failed", 0)
+                print(
+                    "  Trash batch: "
+                    f"{batch.batch_id} | moved: {moved_count} | missing: {missing_count} "
+                    f"| failed: {failed_count} | dir: {batch.trash_dir}"
+                )
+        else:
+            if not dry_run:
+                trash_dir.mkdir(parents=True, exist_ok=True)
+
+            print(f"Moving {len(sort_output.trash_images)} images to {trash_dir}")
+
+            for item in sort_output.trash_images:
+                src = item.filepath
+                dst = trash_dir / src.name
+                if dst.exists():
+                    dst = resolve_collision_path(dst)
+
+                if verbose:
+                    print(f"  Trash: {src.name}")
+
+                if not dry_run:
+                    try:
+                        shutil.move(str(src), str(dst))
+                    except Exception as e:
+                        print(f"  Failed to move {src.name}: {e}")
 
     # Handle sorted images
-    if len(result.sorted_images) > 0:
+    if len(sort_output.sorted_images) > 0:
         target_dir = output_dir if output_dir else input_dir
 
         if output_dir and not dry_run:
             output_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"Processing {len(result.sorted_images)} sorted images")
+        print(f"Processing {len(sort_output.sorted_images)} sorted images")
 
         if no_rename:
             # Just copy/move without renaming
             if output_dir:
-                for item in result.sorted_images:
+                for item in sort_output.sorted_images:
                     src = item.filepath
                     dst = output_dir / src.name
 
@@ -250,7 +309,7 @@ def apply_sort_result(
             # Phase 1: Rename to temp names
             temp_names: list[tuple[Path, Path, Path]] = []
 
-            for i, item in enumerate(result.sorted_images):
+            for i, item in enumerate(sort_output.sorted_images):
                 src = item.filepath
                 temp_name = target_dir / f"_sort_temp_{i:08d}_{src.name}"
                 final_name = target_dir / f"{i:08d}{src.suffix}"
@@ -289,6 +348,22 @@ def main(argv=None):
     """Main entry point."""
     args = parse_args(argv)
 
+    if args.undo_last_trash:
+        from visagen.tools.dataset_trash import undo_last_batch
+
+        restored = undo_last_batch(args.input)
+        if not restored.batch_id:
+            print("No trash batch to undo.")
+            return 0
+
+        print(
+            f"Undo {restored.batch_id}: restored={restored.restored}, "
+            f"skipped={restored.skipped}, failed={restored.failed}"
+        )
+        if restored.errors:
+            print(f"  First error: {restored.errors[0]}")
+        return 0
+
     # Get image paths
     image_paths = get_image_paths(args.input)
     print(f"Found {len(image_paths)} images in {args.input}")
@@ -303,7 +378,24 @@ def main(argv=None):
 
     # Initialize sorter
     if args.method in ("final", "final-fast"):
-        sorter = sorter_cls(target_count=args.target)
+        kwargs = {"target_count": args.target}
+        if args.exact_limit is not None:
+            kwargs["exact_limit"] = args.exact_limit
+        sorter = sorter_cls(**kwargs)
+    elif args.method in (
+        "hist",
+        "hist-dissim",
+        "absdiff",
+        "absdiff-dissim",
+        "id-sim",
+        "id-dissim",
+        "ssim",
+        "ssim-dissim",
+    ):
+        kwargs = {}
+        if args.exact_limit is not None:
+            kwargs["exact_limit"] = args.exact_limit
+        sorter = sorter_cls(**kwargs)
     else:
         sorter = sorter_cls()
 
@@ -312,7 +404,15 @@ def main(argv=None):
     # Initialize processor
     from visagen.sorting.processor import ParallelSortProcessor
 
-    processor = ParallelSortProcessor(max_workers=args.jobs)
+    if args.exec_mode == "thread":
+        use_threads = True
+    elif args.exec_mode == "process":
+        use_threads = False
+    else:
+        profile = getattr(sorter, "execution_profile", "cpu_bound")
+        use_threads = profile in ("io_bound", "gpu_bound")
+
+    processor = ParallelSortProcessor(max_workers=args.jobs, use_threads=use_threads)
 
     # Run sorting
     result = sorter.sort(image_paths, processor)

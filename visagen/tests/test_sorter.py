@@ -234,6 +234,17 @@ class TestMotionBlurSorter:
         assert sorter.name == "motion-blur"
 
 
+class TestBlurFastSorter:
+    """Tests for BlurFastSorter."""
+
+    def test_name(self):
+        """Test sorter name."""
+        from visagen.sorting.blur import BlurFastSorter
+
+        sorter = BlurFastSorter()
+        assert sorter.name == "blur-fast"
+
+
 class TestFaceHullMask:
     """Tests for face hull mask utility."""
 
@@ -385,6 +396,13 @@ class TestHistogramSimilaritySorter:
         assert len(result.sorted_images) == len(image_paths)
         assert result.method == "hist"
 
+    def test_default_disables_exact_path(self):
+        """Default configuration should avoid exact O(n^2) mode."""
+        from visagen.sorting.histogram import HistogramSimilaritySorter
+
+        sorter = HistogramSimilaritySorter()
+        assert sorter.exact_limit == 0
+
 
 class TestHistogramDissimilaritySorter:
     """Tests for HistogramDissimilaritySorter."""
@@ -395,6 +413,59 @@ class TestHistogramDissimilaritySorter:
 
         sorter = HistogramDissimilaritySorter()
         assert sorter.name == "hist-dissim"
+
+
+class TestSSIMSorters:
+    """Tests for SSIM-based sorters."""
+
+    def test_ssim_dissimilarity_outlier_first(self, temp_dir):
+        """Outlier image should be ranked first by SSIM dissimilarity."""
+        from visagen.sorting.similarity import SSIMDissimilaritySorter
+
+        img_base = np.full((128, 128, 3), 128, dtype=np.uint8)
+        img_near = np.full((128, 128, 3), 132, dtype=np.uint8)
+        img_outlier = np.full((128, 128, 3), 0, dtype=np.uint8)
+
+        p1 = temp_dir / "a.jpg"
+        p2 = temp_dir / "b.jpg"
+        p3 = temp_dir / "c.jpg"
+        cv2.imwrite(str(p1), img_base)
+        cv2.imwrite(str(p2), img_near)
+        cv2.imwrite(str(p3), img_outlier)
+
+        sorter = SSIMDissimilaritySorter(exact_limit=10, target_size=64)
+        result = sorter.sort([p1, p2, p3])
+
+        assert result.method == "ssim-dissim"
+        assert result.sorted_images[0].filepath == p3
+
+    def test_ssim_similarity_groups_similar_first(self, temp_dir):
+        """Nearest neighbor should be selected before distant outlier."""
+        from visagen.sorting.similarity import SSIMSimilaritySorter
+
+        img_base = np.full((128, 128, 3), 128, dtype=np.uint8)
+        img_near = np.full((128, 128, 3), 132, dtype=np.uint8)
+        img_outlier = np.full((128, 128, 3), 0, dtype=np.uint8)
+
+        p1 = temp_dir / "a.jpg"
+        p2 = temp_dir / "b.jpg"
+        p3 = temp_dir / "c.jpg"
+        cv2.imwrite(str(p1), img_base)
+        cv2.imwrite(str(p2), img_near)
+        cv2.imwrite(str(p3), img_outlier)
+
+        sorter = SSIMSimilaritySorter(exact_limit=10, target_size=64)
+        result = sorter.sort([p1, p2, p3])
+
+        assert result.method == "ssim"
+        assert result.sorted_images[-1].filepath == p3
+
+    def test_default_disables_exact_path(self):
+        """Default configuration should avoid exact O(n^2) mode."""
+        from visagen.sorting.similarity import SSIMSimilaritySorter
+
+        sorter = SSIMSimilaritySorter()
+        assert sorter.exact_limit == 0
 
 
 # =============================================================================
@@ -522,6 +593,39 @@ class TestFinalFastSorter:
         sorter = FinalFastSorter()
         assert sorter.name == "final-fast"
 
+    def test_uses_source_rect_area_for_fast_filtering(self, temp_dir):
+        """Final fast should keep larger source rects when trimming."""
+        from visagen.sorting.composite import FinalFastSorter
+        from visagen.sorting.processor import ProcessedImage
+
+        image_paths = [temp_dir / f"img_{i:03d}.jpg" for i in range(11)]
+
+        processed = []
+        for i, path in enumerate(image_paths):
+            processed.append(
+                ProcessedImage(
+                    filepath=path,
+                    image=np.zeros((8, 8, 3), dtype=np.uint8),
+                    sharpness=0.0,
+                    yaw=0.0,
+                    pitch=0.0,
+                    histogram=np.zeros(256, dtype=np.float32),
+                    source_rect_area=float(i),
+                    error=None,
+                )
+            )
+
+        class DummyProcessor:
+            def load_and_process_all(self, *args, **kwargs):
+                return processed
+
+        sorter = FinalFastSorter(target_count=1, yaw_bins=1)
+        result = sorter.sort(image_paths, processor=DummyProcessor())
+
+        trashed = {item.filepath for item in result.trash_images}
+        assert image_paths[0] in trashed  # Smallest area should be dropped first.
+        assert image_paths[-1] not in trashed  # Largest area should be retained.
+
 
 # =============================================================================
 # Processor Tests
@@ -572,6 +676,8 @@ class TestSorterCLI:
         assert args.input == sample_images_dir
         assert args.method == "blur"
         assert args.target == 2000
+        assert args.exact_limit is None
+        assert args.undo_last_trash is False
 
     def test_parse_args_full(self, sample_images_dir, temp_dir, monkeypatch):
         """Test full argument parsing."""
@@ -605,6 +711,31 @@ class TestSorterCLI:
         assert args.jobs == 4
         assert args.dry_run is True
         assert args.verbose is True
+        assert args.exact_limit is None
+
+    def test_parse_args_with_exact_limit(self, sample_images_dir, monkeypatch):
+        """Test explicit exact-limit parsing."""
+        from visagen.tools.sorter import parse_args
+
+        monkeypatch.setattr(
+            "sys.argv",
+            ["visagen-sort", str(sample_images_dir), "--exact-limit", "128"],
+        )
+
+        args = parse_args()
+        assert args.exact_limit == 128
+
+    def test_parse_args_undo(self, sample_images_dir, monkeypatch):
+        """Undo mode should parse cleanly."""
+        from visagen.tools.sorter import parse_args
+
+        monkeypatch.setattr(
+            "sys.argv",
+            ["visagen-sort", str(sample_images_dir), "--undo-last-trash"],
+        )
+
+        args = parse_args()
+        assert args.undo_last_trash is True
 
     def test_get_sort_methods(self):
         """Test available sort methods."""
@@ -616,6 +747,70 @@ class TestSorterCLI:
         assert "final" in methods
         assert "face-yaw" in methods
         assert "hist" in methods
+        assert "blur-fast" in methods
+        assert "absdiff-dissim" in methods
+        assert "id-sim" in methods
+        assert "id-dissim" in methods
+        assert "ssim" in methods
+        assert "ssim-dissim" in methods
+
+    @pytest.mark.parametrize(
+        ("profile", "expected_use_threads"),
+        [
+            ("cpu_bound", False),
+            ("io_bound", True),
+            ("gpu_bound", True),
+        ],
+    )
+    def test_main_auto_exec_mode_uses_profile(
+        self,
+        sample_images_dir,
+        monkeypatch,
+        profile,
+        expected_use_threads,
+    ):
+        """Auto mode should pick thread/process based on sorter profile."""
+        from visagen.sorting.base import SortOutput, SortResult
+        from visagen.tools import sorter as sorter_module
+
+        captured: dict[str, object] = {}
+
+        class DummyProcessor:
+            def __init__(self, max_workers=None, use_threads=True):
+                captured["max_workers"] = max_workers
+                captured["use_threads"] = use_threads
+
+        class DummySorter:
+            description = "dummy"
+            execution_profile = profile
+
+            def sort(self, image_paths, processor):
+                assert isinstance(processor, DummyProcessor)
+                return SortOutput(
+                    sorted_images=[SortResult(path, 0.0) for path in image_paths],
+                    trash_images=[],
+                    method="dummy",
+                    elapsed_seconds=0.0,
+                )
+
+        monkeypatch.setattr(
+            sorter_module, "get_sort_methods", lambda: {"blur": DummySorter}
+        )
+        monkeypatch.setattr(
+            "visagen.sorting.processor.ParallelSortProcessor",
+            DummyProcessor,
+        )
+        monkeypatch.setattr(
+            sorter_module, "apply_sort_result", lambda *args, **kwargs: None
+        )
+
+        rc = sorter_module.main(
+            [str(sample_images_dir), "--method", "blur", "--jobs", "3"],
+        )
+
+        assert rc == 0
+        assert captured["max_workers"] == 3
+        assert captured["use_threads"] is expected_use_threads
 
     def test_get_image_paths(self, sample_images_dir):
         """Test image path discovery."""
@@ -625,6 +820,59 @@ class TestSorterCLI:
 
         assert len(paths) == 5
         assert all(p.suffix == ".jpg" for p in paths)
+
+    def test_apply_sort_result_custom_trash_collision(self, tmp_path):
+        """Custom trash dir should resolve destination filename collisions."""
+        from visagen.sorting.base import SortOutput, SortResult
+        from visagen.tools.sorter import apply_sort_result
+
+        dataset = tmp_path / "aligned"
+        trash_dir = tmp_path / "trash"
+        dataset.mkdir(parents=True, exist_ok=True)
+        trash_dir.mkdir(parents=True, exist_ok=True)
+
+        src = dataset / "dup.jpg"
+        src.write_bytes(b"source")
+        (trash_dir / "dup.jpg").write_bytes(b"existing")
+
+        output = SortOutput(
+            sorted_images=[],
+            trash_images=[SortResult(src, 0.0, {"reason": "test"})],
+            method="hist",
+            elapsed_seconds=0.0,
+        )
+
+        apply_sort_result(
+            output,
+            input_dir=dataset,
+            output_dir=None,
+            trash_dir=trash_dir,
+            no_rename=False,
+            dry_run=False,
+            verbose=False,
+        )
+
+        assert not src.exists()
+        assert (trash_dir / "dup.jpg").exists()
+        assert (trash_dir / "dup_restored_1.jpg").exists()
+
+    def test_main_undo_last_trash(self, tmp_path):
+        """Sorter CLI should support undoing the last managed trash batch."""
+        from visagen.tools import sorter as sorter_module
+        from visagen.tools.dataset_trash import move_to_trash
+
+        dataset = tmp_path / "aligned"
+        dataset.mkdir(parents=True, exist_ok=True)
+        target = dataset / "restore.jpg"
+        target.write_bytes(b"x")
+
+        batch = move_to_trash([target], dataset_root=dataset, reason="test-sort")
+        assert batch.count_moved == 1
+        assert not target.exists()
+
+        rc = sorter_module.main([str(dataset), "--undo-last-trash"])
+        assert rc == 0
+        assert target.exists()
 
 
 # =============================================================================

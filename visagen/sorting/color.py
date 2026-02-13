@@ -26,6 +26,7 @@ class BrightnessSorter(SortMethod):
     name = "brightness"
     description = "Sort by brightness"
     requires_dfl_metadata = False
+    execution_profile = "io_bound"
 
     def compute_score(
         self,
@@ -48,6 +49,7 @@ class HueSorter(SortMethod):
     name = "hue"
     description = "Sort by hue"
     requires_dfl_metadata = False
+    execution_profile = "io_bound"
 
     def compute_score(
         self,
@@ -72,6 +74,7 @@ class BlackPixelSorter(SortMethod):
     name = "black"
     description = "Sort by amount of black pixels"
     requires_dfl_metadata = False
+    execution_profile = "io_bound"
 
     @property
     def reverse_sort(self) -> bool:
