@@ -632,7 +632,7 @@ TRANSLATIONS = {
         },
         "exact_limit": {
             "label": "Exact Limit",
-            "info": "Max image count before approximate large-scale path is used",
+            "info": "0 = method default. Higher values allow exact O(n^2) on small sets",
         },
         "jobs": {
             "label": "Parallel Workers",

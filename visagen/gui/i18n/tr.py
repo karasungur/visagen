@@ -632,7 +632,7 @@ TRANSLATIONS = {
         },
         "exact_limit": {
             "label": "Kesin Hesap Sınırı",
-            "info": "Bu sayının üstünde büyük veri approximate yola geçer",
+            "info": "0 = yöntem varsayılanı. Yüksek değerler küçük sette O(n^2) kesin yolu açar",
         },
         "jobs": {
             "label": "Paralel Worker",

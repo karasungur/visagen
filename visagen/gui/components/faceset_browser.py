@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -54,6 +57,9 @@ class FacesetBrowser:
         self._thumb_size: int = 256
         self._selected_preview_max_size: int = 1024
         self._page_size: int = config.page_size
+        self._thumb_workers: int = 4
+        self._cache_warm_budget: int = 8
+        self._cache_warm_thread: threading.Thread | None = None
 
     def t(self, key: str, **kwargs: Any) -> str:
         """Get translation for browser key."""
@@ -252,16 +258,24 @@ class FacesetBrowser:
             self._face_files = []
             return
 
-        files: list[Path] = []
-        for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp"):
-            files.extend(self._current_dir.glob(ext))
-            files.extend(self._current_dir.glob(ext.upper()))
-        self._face_files = list(set(files))
+        allowed_exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+        entries: list[tuple[Path, float]] = []
+        with os.scandir(self._current_dir) as scanner:
+            for entry in scanner:
+                if not entry.is_file():
+                    continue
+                suffix = Path(entry.name).suffix.lower()
+                if suffix not in allowed_exts:
+                    continue
+                mtime = entry.stat().st_mtime
+                entries.append((Path(entry.path), mtime))
 
         if self._sort_by == "date":
-            self._face_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            entries.sort(key=lambda item: item[1], reverse=True)
         else:
-            self._face_files.sort(key=lambda p: p.name)
+            entries.sort(key=lambda item: item[0].name)
+
+        self._face_files = [path for path, _mtime in entries]
 
     def _load_thumbnail(self, filepath: Path, show_masks: bool) -> np.ndarray | None:
         """Load thumbnail from cache or generate it."""
@@ -314,24 +328,8 @@ class FacesetBrowser:
         end = start + page_size
 
         page_files = self._face_files[start:end]
-        gallery_items: list[tuple[np.ndarray, str]] = []
-        load_errors = 0
-
-        for filepath in page_files:
-            try:
-                image = self._load_thumbnail(filepath, show_masks)
-                if image is None:
-                    load_errors += 1
-                    continue
-
-                image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                is_selected = filepath in self._selected_files
-                caption = f"[x] {filepath.stem}" if is_selected else filepath.stem
-                gallery_items.append((image_rgb, caption))
-
-            except Exception:
-                load_errors += 1
-                continue
+        gallery_items, load_errors = self._load_page_items(page_files, show_masks)
+        self._schedule_cache_warm(show_masks)
 
         total_pages = max(1, (len(self._face_files) + page_size - 1) // page_size)
         page_info = f"Page {self._current_page + 1}/{total_pages} ({len(self._face_files)} faces)"
@@ -339,6 +337,68 @@ class FacesetBrowser:
         if load_errors > 0:
             status = f"{status} | {self.t('status_load_errors', count=load_errors)}"
         return gallery_items, page_info, status
+
+    def _load_page_items(
+        self,
+        page_files: list[Path],
+        show_masks: bool,
+    ) -> tuple[list[tuple[np.ndarray, str]], int]:
+        """Load page thumbnails in parallel while preserving file order."""
+        if len(page_files) == 0:
+            return [], 0
+
+        max_workers = max(1, min(self._thumb_workers, len(page_files)))
+        loaded_by_index: list[np.ndarray | None] = [None] * len(page_files)
+        load_errors = 0
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(self._load_thumbnail, filepath, show_masks): idx
+                for idx, filepath in enumerate(page_files)
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                try:
+                    loaded_by_index[idx] = future.result()
+                except Exception:
+                    loaded_by_index[idx] = None
+
+        gallery_items: list[tuple[np.ndarray, str]] = []
+        for filepath, image in zip(page_files, loaded_by_index, strict=True):
+            if image is None:
+                load_errors += 1
+                continue
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            is_selected = filepath in self._selected_files
+            caption = f"[x] {filepath.stem}" if is_selected else filepath.stem
+            gallery_items.append((image_rgb, caption))
+
+        return gallery_items, load_errors
+
+    def _schedule_cache_warm(self, show_masks: bool) -> None:
+        """Warm thumbnail cache for the next page in background."""
+        if self._cache_warm_thread is not None and self._cache_warm_thread.is_alive():
+            return
+
+        page_size = self._page_size
+        next_start = (self._current_page + 1) * page_size
+        next_files = self._face_files[next_start : next_start + self._cache_warm_budget]
+        if len(next_files) == 0:
+            return
+
+        def _warm(files: list[Path], masks: bool) -> None:
+            for path in files:
+                try:
+                    self._load_thumbnail(path, masks)
+                except Exception:
+                    continue
+
+        self._cache_warm_thread = threading.Thread(
+            target=_warm,
+            args=(next_files, show_masks),
+            daemon=True,
+        )
+        self._cache_warm_thread.start()
 
     def _prev_page(
         self, show_masks: bool

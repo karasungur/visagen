@@ -126,7 +126,7 @@ class SortTab(BaseTab):
 
                 components["exact_limit"] = gr.Number(
                     label=self.t("exact_limit.label"),
-                    value=3000,
+                    value=0,
                     precision=0,
                     info=self.t("exact_limit.info"),
                 )
@@ -210,7 +210,8 @@ class SortTab(BaseTab):
             cmd.append("--dry-run")
 
         cmd.extend(["--exec-mode", exec_mode])
-        cmd.extend(["--exact-limit", str(int(exact_limit))])
+        if int(exact_limit) > 0:
+            cmd.extend(["--exact-limit", str(int(exact_limit))])
         if int(jobs) > 0:
             cmd.extend(["--jobs", str(int(jobs))])
 
