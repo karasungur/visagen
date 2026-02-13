@@ -119,6 +119,22 @@ class TestDALIWarpGridGenerator:
         # Successive calls should be different
         assert not np.allclose(grid1, grid2)
 
+    def test_generator_reset_reseeds_epoch(self):
+        """Reset should reseed generator for a new epoch stream."""
+
+        class MockSampleInfo:
+            idx = 0
+            idx_in_epoch = 0
+            idx_in_batch = 0
+            iteration = 0
+
+        generator = DALIWarpGridGenerator(size=128, seed=42)
+        grid1 = generator(MockSampleInfo())
+        generator.reset()
+        grid2 = generator(MockSampleInfo())
+
+        assert not np.allclose(grid1, grid2)
+
 
 class TestDALIAffineMatrix:
     """Tests for affine transformation matrix generation."""
@@ -182,6 +198,22 @@ class TestDALIAffineGenerator:
 
         assert matrix.shape == (2, 3)
         assert matrix.dtype == np.float32
+
+    def test_generator_reset_changes_stream(self):
+        """Reset should produce different affine samples for new epoch."""
+
+        class MockSampleInfo:
+            idx = 0
+            idx_in_epoch = 0
+            idx_in_batch = 0
+            iteration = 0
+
+        generator = DALIAffineGenerator(size=256, seed=42)
+        m1 = generator(MockSampleInfo())
+        generator.reset()
+        m2 = generator(MockSampleInfo())
+
+        assert not np.allclose(m1, m2)
 
 
 class TestApplyWarpGridNumpy:

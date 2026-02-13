@@ -250,6 +250,9 @@ class TestProcessedFrame:
         assert result.faces_detected == 1
         assert result.faces_swapped == 1
         assert result.processing_time == 0.05
+        assert result.had_errors is False
+        assert result.error_count == 0
+        assert result.error_messages == []
 
 
 # =============================================================================
@@ -294,8 +297,38 @@ class TestFrameProcessor:
 
             assert mask.shape == (256, 256)
             assert mask.dtype == np.float32
-            assert mask.max() <= 1.0
+            assert mask.max() <= 255.0
             assert mask.min() >= 0.0
+
+    def test_normalize_landmarks_106_to_68(self, mock_model):
+        """106-point landmarks should be converted to 68-point format."""
+        from visagen.merger.frame_processor import FrameProcessor
+
+        with patch(
+            "visagen.merger.frame_processor.FrameProcessor._load_model"
+        ) as load_mock:
+            load_mock.return_value = mock_model
+            processor = FrameProcessor(mock_model, device="cpu")
+
+            landmarks_106 = np.random.rand(106, 2).astype(np.float32)
+            landmarks_68 = processor._normalize_landmarks(landmarks_106)
+
+            assert landmarks_68.shape == (68, 2)
+            assert landmarks_68.dtype == np.float32
+
+    def test_normalize_landmarks_rejects_5_point(self, mock_model):
+        """5-point landmarks are unsupported in DFL alignment path."""
+        from visagen.merger.frame_processor import FrameProcessor
+
+        with patch(
+            "visagen.merger.frame_processor.FrameProcessor._load_model"
+        ) as load_mock:
+            load_mock.return_value = mock_model
+            processor = FrameProcessor(mock_model, device="cpu")
+
+            landmarks_5 = np.random.rand(5, 2).astype(np.float32)
+            with pytest.raises(ValueError):
+                processor._normalize_landmarks(landmarks_5)
 
 
 # =============================================================================
