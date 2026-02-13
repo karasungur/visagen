@@ -53,11 +53,13 @@ class FinalSorter(SortMethod):
         faster: bool = False,
         yaw_bins: int = 128,
         exact_limit: int = 3000,
+        per_bin_exact_limit: int = 512,
     ) -> None:
         self.target_count = target_count
         self.faster = faster
         self.yaw_bins = yaw_bins
         self.exact_limit = exact_limit
+        self.per_bin_exact_limit = max(0, per_bin_exact_limit)
 
     def compute_score(
         self,
@@ -189,13 +191,18 @@ class FinalSorter(SortMethod):
             yaw_pitch_binned.append(pitch_binned)
 
         # Step 6: Sort each pitch bin by histogram dissimilarity
+        exact_per_bin = (
+            0
+            if self.exact_limit <= 0
+            else min(self.exact_limit, self.per_bin_exact_limit)
+        )
         for _yaw_idx, pitch_bins_list in enumerate(yaw_pitch_binned):
             for _pitch_idx, pitch_bin_images in enumerate(pitch_bins_list):
                 if len(pitch_bin_images) <= 1:
                     continue
 
                 # Compute histogram dissimilarity scores
-                if len(pitch_bin_images) <= self.exact_limit:
+                if exact_per_bin > 0 and len(pitch_bin_images) <= exact_per_bin:
                     for img in pitch_bin_images:
                         img_hist = img.histogram
                         if img_hist is None:
@@ -326,10 +333,12 @@ class FinalFastSorter(FinalSorter):
         target_count: int = 2000,
         yaw_bins: int = 128,
         exact_limit: int = 3000,
+        per_bin_exact_limit: int = 512,
     ) -> None:
         super().__init__(
             target_count=target_count,
             faster=True,
             yaw_bins=yaw_bins,
             exact_limit=exact_limit,
+            per_bin_exact_limit=per_bin_exact_limit,
         )

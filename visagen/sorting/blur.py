@@ -13,6 +13,7 @@ import numpy as np
 from visagen.sorting.base import SortMethod
 
 logger = logging.getLogger(__name__)
+_CPBD_FAILURE_LOGGED = False
 
 if TYPE_CHECKING:
     from visagen.vision.dflimg import FaceMetadata
@@ -80,7 +81,10 @@ def estimate_sharpness_cpbd(image: np.ndarray) -> tuple[float, str]:
 
         return estimate_cpbd_sharpness(image), "cpbd"
     except Exception as e:
-        logger.warning(f"CPBD unavailable, falling back to Laplacian: {e}")
+        global _CPBD_FAILURE_LOGGED
+        if not _CPBD_FAILURE_LOGGED:
+            logger.warning(f"CPBD unavailable, falling back to Laplacian: {e}")
+            _CPBD_FAILURE_LOGGED = True
         return estimate_sharpness(image), "laplacian-fallback"
 
 

@@ -6,7 +6,9 @@ This is a modern PyTorch reimplementation of DeepFaceLab's sort_by_absdiff.
 """
 
 import logging
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -20,6 +22,27 @@ if TYPE_CHECKING:
     from visagen.vision.dflimg import FaceMetadata
 
 logger = logging.getLogger(__name__)
+
+
+def _load_absdiff_image(
+    filepath: Path,
+    comparison_size: int,
+) -> tuple[Path, np.ndarray | None, str | None]:
+    """Load and normalize single image for absdiff sorting."""
+    try:
+        image = cv2.imread(str(filepath))
+        if image is None:
+            return filepath, None, "Failed to load"
+
+        resized = cv2.resize(
+            image,
+            (comparison_size, comparison_size),
+            interpolation=cv2.INTER_AREA,
+        )
+        normalized = resized.astype(np.float32) / 255.0
+        return filepath, normalized, None
+    except Exception as e:
+        return filepath, None, str(e)
 
 
 class AbsDiffSorter(SortMethod):
@@ -100,25 +123,38 @@ class AbsDiffSorter(SortMethod):
         )
 
         logger.info(f"Loading {len(image_paths)} images...")
-        for filepath in image_paths:
-            try:
-                image = cv2.imread(str(filepath))
-                if image is None:
-                    trash.append(SortResult(filepath, 0.0, {"error": "Failed to load"}))
-                    continue
+        load_workers = (
+            processor.max_workers
+            if processor is not None and processor.max_workers is not None
+            else (os.cpu_count() or 4)
+        )
+        loaded_by_index: list[tuple[Path, np.ndarray | None, str | None] | None] = [
+            None
+        ] * len(image_paths)
+        with ThreadPoolExecutor(max_workers=load_workers) as executor:
+            futures = {
+                executor.submit(_load_absdiff_image, filepath, comparison_size): idx
+                for idx, filepath in enumerate(image_paths)
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                path = image_paths[idx]
+                try:
+                    loaded_by_index[idx] = future.result()
+                except Exception as e:
+                    loaded_by_index[idx] = (path, None, str(e))
 
-                # Resize for faster comparison
-                resized = cv2.resize(
-                    image,
-                    (comparison_size, comparison_size),
-                    interpolation=cv2.INTER_AREA,
+        loaded = [
+            result if result is not None else (image_paths[idx], None, "Unknown error")
+            for idx, result in enumerate(loaded_by_index)
+        ]
+        for filepath, normalized, error in loaded:
+            if normalized is None:
+                trash.append(
+                    SortResult(filepath, 0.0, {"error": error or "Failed to load"})
                 )
-                # Normalize to float32 [0, 1]
-                normalized = resized.astype(np.float32) / 255.0
-                images.append((filepath, normalized))
-
-            except Exception as e:
-                trash.append(SortResult(filepath, 0.0, {"error": str(e)}))
+                continue
+            images.append((filepath, normalized))
 
         if len(images) == 0:
             return SortOutput([], trash, self.name, time.time() - start_time)

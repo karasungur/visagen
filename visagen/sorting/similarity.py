@@ -53,21 +53,28 @@ def _load_images_for_ssim(
     if processor is None:
         loaded = [_load_ssim_image(path, target_size) for path in image_paths]
     else:
-        loaded = []
+        loaded_by_index: list[tuple[Path, np.ndarray | None, str | None] | None] = [
+            None
+        ] * len(image_paths)
         executor_class = (
             ThreadPoolExecutor if processor.use_threads else ProcessPoolExecutor
         )
         with executor_class(max_workers=processor.max_workers) as executor:
             futures = {
-                executor.submit(_load_ssim_image, path, target_size): path
-                for path in image_paths
+                executor.submit(_load_ssim_image, path, target_size): idx
+                for idx, path in enumerate(image_paths)
             }
             for future in as_completed(futures):
-                path = futures[future]
+                idx = futures[future]
+                path = image_paths[idx]
                 try:
-                    loaded.append(future.result())
+                    loaded_by_index[idx] = future.result()
                 except Exception as e:
-                    loaded.append((path, None, str(e)))
+                    loaded_by_index[idx] = (path, None, str(e))
+        loaded = [
+            result if result is not None else (image_paths[idx], None, "Unknown error")
+            for idx, result in enumerate(loaded_by_index)
+        ]
 
     for path, image, error in loaded:
         if image is None:
@@ -103,11 +110,45 @@ def _ssim_similarity(img1: np.ndarray, img2: np.ndarray) -> float:
     return float(np.clip(score, 0.0, 1.0))
 
 
-def _projection_order(matrix: np.ndarray) -> list[int]:
-    """Get projection-based order for approximate similarity chain."""
-    weights = np.linspace(-1.0, 1.0, matrix.shape[1], dtype=np.float32)
-    projection = matrix @ weights
-    return cast(list[int], np.argsort(projection).tolist())
+def _should_run_exact(n_items: int, exact_limit: int) -> bool:
+    """Return whether exact O(n^2) strategy should run."""
+    return exact_limit > 0 and n_items <= exact_limit
+
+
+def _projection_values(image_data: list[tuple[Path, np.ndarray]]) -> np.ndarray:
+    """Compute 1D projection values without building a full feature matrix."""
+    if len(image_data) == 0:
+        return np.zeros(0, dtype=np.float32)
+
+    feature_count = image_data[0][1].size
+    weights = np.linspace(-1.0, 1.0, feature_count, dtype=np.float32)
+    projection: np.ndarray = np.empty(len(image_data), dtype=np.float32)
+
+    for idx, (_path, image) in enumerate(image_data):
+        projection[idx] = float(np.dot(image.reshape(-1), weights))
+
+    return projection
+
+
+def _centroid_vector(image_data: list[tuple[Path, np.ndarray]]) -> np.ndarray:
+    """Compute flattened centroid vector for SSIM approximation."""
+    feature_count = image_data[0][1].size
+    total: np.ndarray = np.zeros(feature_count, dtype=np.float64)
+
+    for _path, image in image_data:
+        total += image.reshape(-1)
+
+    return cast(np.ndarray, (total / len(image_data)).astype(np.float32))
+
+
+def _centroid_l1_scores(
+    image_data: list[tuple[Path, np.ndarray]], centroid: np.ndarray
+) -> np.ndarray:
+    """Compute L1 distance to centroid for each image."""
+    scores: np.ndarray = np.empty(len(image_data), dtype=np.float32)
+    for idx, (_path, image) in enumerate(image_data):
+        scores[idx] = float(np.abs(image.reshape(-1) - centroid).sum())
+    return scores
 
 
 class SSIMSimilaritySorter(SortMethod):
@@ -118,7 +159,7 @@ class SSIMSimilaritySorter(SortMethod):
     requires_dfl_metadata = False
     execution_profile = "cpu_bound"
 
-    def __init__(self, exact_limit: int = 3000, target_size: int = 96) -> None:
+    def __init__(self, exact_limit: int = 0, target_size: int = 96) -> None:
         self.exact_limit = exact_limit
         self.target_size = target_size
 
@@ -147,7 +188,7 @@ class SSIMSimilaritySorter(SortMethod):
             return SortOutput([], trash, self.name, time.time() - start_time)
 
         n = len(image_data)
-        if n <= self.exact_limit:
+        if _should_run_exact(n, self.exact_limit):
             order = [0]
             remaining = set(range(1, n))
             for _ in range(n - 1):
@@ -162,10 +203,8 @@ class SSIMSimilaritySorter(SortMethod):
                 order.append(next_idx)
                 remaining.remove(next_idx)
         else:
-            matrix = np.stack([img.flatten() for _, img in image_data], axis=0).astype(
-                np.float32
-            )
-            order = _projection_order(matrix)
+            projection = _projection_values(image_data)
+            order = cast(list[int], np.argsort(projection).tolist())
 
         results = [
             SortResult(image_data[idx][0], float(i)) for i, idx in enumerate(order)
@@ -181,7 +220,7 @@ class SSIMDissimilaritySorter(SortMethod):
     requires_dfl_metadata = False
     execution_profile = "cpu_bound"
 
-    def __init__(self, exact_limit: int = 3000, target_size: int = 96) -> None:
+    def __init__(self, exact_limit: int = 0, target_size: int = 96) -> None:
         self.exact_limit = exact_limit
         self.target_size = target_size
 
@@ -212,7 +251,7 @@ class SSIMDissimilaritySorter(SortMethod):
         n = len(image_data)
         scores: list[float] = []
 
-        if n <= self.exact_limit:
+        if _should_run_exact(n, self.exact_limit):
             for i in range(n):
                 total_distance = 0.0
                 for j in range(n):
@@ -223,11 +262,13 @@ class SSIMDissimilaritySorter(SortMethod):
                     )
                 scores.append(total_distance)
         else:
-            matrix = np.stack([img.flatten() for _, img in image_data], axis=0).astype(
+            projection = _projection_values(image_data)
+            centroid = _centroid_vector(image_data)
+            centroid_scores = _centroid_l1_scores(image_data, centroid)
+            projection_outlier = np.abs(projection - np.mean(projection)).astype(
                 np.float32
             )
-            centroid = np.mean(matrix, axis=0, keepdims=True)
-            scores = np.abs(matrix - centroid).sum(axis=1).astype(np.float32).tolist()
+            scores = (centroid_scores + (0.1 * projection_outlier)).tolist()
 
         order = np.argsort(np.array(scores, dtype=np.float32))[::-1].tolist()
         results = [SortResult(image_data[idx][0], float(scores[idx])) for idx in order]

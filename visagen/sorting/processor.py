@@ -189,12 +189,15 @@ class ParallelSortProcessor:
         Returns:
             List of SortResult objects.
         """
-        results: list[SortResult] = []
+        results_by_index: list[SortResult | None] = [None] * len(image_paths)
         run_on_threads = self.use_threads if use_threads is None else use_threads
         executor_class = ThreadPoolExecutor if run_on_threads else ProcessPoolExecutor
 
         with executor_class(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(compute_fn, p): p for p in image_paths}
+            futures = {
+                executor.submit(compute_fn, path): idx
+                for idx, path in enumerate(image_paths)
+            }
 
             if show_progress:
                 try:
@@ -211,15 +214,21 @@ class ParallelSortProcessor:
                 iterator = as_completed(futures)
 
             for future in iterator:
-                path = futures[future]
+                idx = futures[future]
+                path = image_paths[idx]
                 try:
                     result = future.result()
-                    results.append(result)
+                    results_by_index[idx] = result
                 except Exception as e:
                     logger.warning(f"Failed to process {path}: {e}")
-                    results.append(SortResult(path, 0.0, {"error": str(e)}))
+                    results_by_index[idx] = SortResult(path, 0.0, {"error": str(e)})
 
-        return results
+        return [
+            result
+            if result is not None
+            else SortResult(path, 0.0, {"error": "Unknown processing failure"})
+            for path, result in zip(image_paths, results_by_index, strict=True)
+        ]
 
     def load_and_process_all(
         self,
@@ -247,7 +256,7 @@ class ParallelSortProcessor:
         Returns:
             List of ProcessedImage objects.
         """
-        results: list[ProcessedImage] = []
+        results_by_index: list[ProcessedImage | None] = [None] * len(image_paths)
 
         ExecutorClass = ThreadPoolExecutor if self.use_threads else ProcessPoolExecutor
 
@@ -261,8 +270,8 @@ class ParallelSortProcessor:
                     compute_histogram,
                     histogram_mode,
                     compute_source_rect,
-                ): p
-                for p in image_paths
+                ): idx
+                for idx, p in enumerate(image_paths)
             }
 
             if show_progress:
@@ -280,23 +289,36 @@ class ParallelSortProcessor:
                 iterator = as_completed(futures)
 
             for future in iterator:
-                path = futures[future]
+                idx = futures[future]
+                path = image_paths[idx]
                 try:
                     result = future.result()
-                    results.append(result)
+                    results_by_index[idx] = result
                 except Exception as e:
                     logger.warning(f"Failed to process {path}: {e}")
-                    results.append(
-                        ProcessedImage(
-                            filepath=path,
-                            image=None,
-                            sharpness=0.0,
-                            yaw=0.0,
-                            pitch=0.0,
-                            histogram=None,
-                            source_rect_area=0.0,
-                            error=str(e),
-                        )
+                    results_by_index[idx] = ProcessedImage(
+                        filepath=path,
+                        image=None,
+                        sharpness=0.0,
+                        yaw=0.0,
+                        pitch=0.0,
+                        histogram=None,
+                        source_rect_area=0.0,
+                        error=str(e),
                     )
 
-        return results
+        return [
+            result
+            if result is not None
+            else ProcessedImage(
+                filepath=path,
+                image=None,
+                sharpness=0.0,
+                yaw=0.0,
+                pitch=0.0,
+                histogram=None,
+                source_rect_area=0.0,
+                error="Unknown processing failure",
+            )
+            for path, result in zip(image_paths, results_by_index, strict=True)
+        ]

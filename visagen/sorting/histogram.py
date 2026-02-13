@@ -58,6 +58,100 @@ def compute_grayscale_histogram(image: np.ndarray, bins: int = 256) -> np.ndarra
     return cast(np.ndarray, cv2.normalize(hist, hist).flatten())
 
 
+def _should_run_exact(n_items: int, exact_limit: int) -> bool:
+    """Return whether exact O(n^2) strategy should run."""
+    return exact_limit > 0 and n_items <= exact_limit
+
+
+def _projection_values(hist_matrix: np.ndarray) -> np.ndarray:
+    """Project histogram vectors onto deterministic 1D axis."""
+    weights = np.linspace(-1.0, 1.0, hist_matrix.shape[1], dtype=np.float32)
+    return cast(np.ndarray, (hist_matrix @ weights).reshape(-1))
+
+
+def _refine_projection_chain(
+    hist_matrix: np.ndarray,
+    projection: np.ndarray,
+    base_order: np.ndarray,
+    window_size: int = 32,
+) -> list[int]:
+    """
+    Build a local-refined similarity chain from projection ordering.
+
+    Uses only a bounded neighborhood around current rank to avoid O(n^2) scans.
+    """
+    n_items = len(base_order)
+    if n_items <= 2:
+        return cast(list[int], base_order.tolist())
+
+    window = max(8, min(window_size, n_items - 1))
+    rank_lookup: np.ndarray = np.empty(n_items, dtype=np.int32)
+    rank_lookup[base_order] = np.arange(n_items, dtype=np.int32)
+
+    order: list[int] = [int(base_order[0])]
+    remaining: set[int] = set(cast(list[int], base_order[1:].tolist()))
+
+    while remaining:
+        current_idx = order[-1]
+        current_rank = int(rank_lookup[current_idx])
+        left = max(0, current_rank - window)
+        right = min(n_items, current_rank + window + 1)
+
+        candidates = [
+            int(base_order[pos])
+            for pos in range(left, right)
+            if int(base_order[pos]) in remaining
+        ]
+
+        if not candidates:
+            current_projection = float(projection[current_idx])
+            next_idx = min(
+                remaining,
+                key=lambda idx: abs(float(projection[idx]) - current_projection),
+            )
+        else:
+            current_hist = hist_matrix[current_idx].reshape(-1, 1)
+            next_idx = min(
+                candidates,
+                key=lambda idx: float(
+                    cv2.compareHist(
+                        current_hist,
+                        hist_matrix[idx].reshape(-1, 1),
+                        cv2.HISTCMP_BHATTACHARYYA,
+                    )
+                ),
+            )
+
+        order.append(next_idx)
+        remaining.remove(next_idx)
+
+    return order
+
+
+def _approx_hist_dissim_scores(hist_matrix: np.ndarray) -> np.ndarray:
+    """Compute scalable histogram dissimilarity scores."""
+    n_items = hist_matrix.shape[0]
+    centroid = np.mean(hist_matrix, axis=0, keepdims=True)
+    centroid_scores = np.abs(hist_matrix - centroid).sum(axis=1).astype(np.float32)
+
+    projection = _projection_values(hist_matrix)
+    projection_order = np.argsort(projection)
+    anchor_count = min(32, n_items)
+    anchor_positions = np.linspace(0, n_items - 1, num=anchor_count, dtype=np.int32)
+    anchor_indices = projection_order[anchor_positions]
+    anchors = hist_matrix[anchor_indices]
+
+    anchor_scores = np.zeros(n_items, dtype=np.float32)
+    chunk_size = 512
+    for start in range(0, n_items, chunk_size):
+        end = min(start + chunk_size, n_items)
+        chunk = hist_matrix[start:end]
+        distances = np.abs(chunk[:, None, :] - anchors[None, :, :]).sum(axis=2)
+        anchor_scores[start:end] = np.mean(distances, axis=1).astype(np.float32)
+
+    return cast(np.ndarray, centroid_scores + (0.25 * anchor_scores))
+
+
 class HistogramSimilaritySorter(SortMethod):
     """
     Sort by histogram similarity.
@@ -73,7 +167,7 @@ class HistogramSimilaritySorter(SortMethod):
     requires_dfl_metadata = False
     execution_profile = "cpu_bound"
 
-    def __init__(self, exact_limit: int = 3000) -> None:
+    def __init__(self, exact_limit: int = 0) -> None:
         self.exact_limit = exact_limit
 
     def compute_score(
@@ -143,7 +237,7 @@ class HistogramSimilaritySorter(SortMethod):
             return SortOutput([], trash, self.name, time.time() - start_time)
 
         n = len(image_data)
-        if n <= self.exact_limit:
+        if _should_run_exact(n, self.exact_limit):
             # Greedy nearest neighbor sorting (exact)
             sorted_indices = [0]
             remaining = set(range(1, n))
@@ -170,15 +264,17 @@ class HistogramSimilaritySorter(SortMethod):
                     sorted_indices.append(best_idx)
                     remaining.remove(best_idx)
         else:
-            # Approximate path for large datasets.
+            # Approximate path for large datasets (O(n*k)).
             hist_matrix = np.stack([h for _, h in image_data], axis=0).astype(
                 np.float32
             )
-            weights = np.linspace(
-                -1.0, 1.0, hist_matrix.shape[1], dtype=np.float32
-            ).reshape(-1, 1)
-            projection = (hist_matrix @ weights).reshape(-1)
-            sorted_indices = np.argsort(projection).tolist()
+            projection = _projection_values(hist_matrix)
+            base_order = np.argsort(projection).astype(np.int32)
+            sorted_indices = _refine_projection_chain(
+                hist_matrix,
+                projection,
+                base_order,
+            )
 
         # Build results
         results = [
@@ -205,7 +301,7 @@ class HistogramDissimilaritySorter(SortMethod):
     requires_dfl_metadata = True  # Uses face mask
     execution_profile = "cpu_bound"
 
-    def __init__(self, exact_limit: int = 3000) -> None:
+    def __init__(self, exact_limit: int = 0) -> None:
         self.exact_limit = exact_limit
 
     def compute_score(
@@ -287,7 +383,7 @@ class HistogramDissimilaritySorter(SortMethod):
 
         # Compute dissimilarity scores
         scores: list[float] = []
-        if n <= self.exact_limit:
+        if _should_run_exact(n, self.exact_limit):
             for i in range(n):
                 total_score = 0.0
                 hist_i = image_data[i][1].reshape(-1, 1)
@@ -304,14 +400,7 @@ class HistogramDissimilaritySorter(SortMethod):
             hist_matrix = np.stack([h for _, h in image_data], axis=0).astype(
                 np.float32
             )
-            centroid = np.mean(hist_matrix, axis=0).reshape(-1, 1)
-            for _path, hist in image_data:
-                score = cv2.compareHist(
-                    hist.reshape(-1, 1).astype(np.float32),
-                    centroid.astype(np.float32),
-                    cv2.HISTCMP_BHATTACHARYYA,
-                )
-                scores.append(float(score))
+            scores = _approx_hist_dissim_scores(hist_matrix).tolist()
 
         # Build results sorted by dissimilarity (highest first)
         indexed_scores = list(enumerate(scores))
