@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 
 class _DummyProcess:
     """Minimal subprocess-like stub."""
@@ -54,10 +56,10 @@ def test_clear_if_does_not_clear_newer_process() -> None:
     state = ProcessState()
     old = _DummyProcess()
     new = _DummyProcess()
-    state.training = new
+    state.training = cast(Any, new)
 
-    assert state.clear_if("training", old) is False
-    assert state.training is new
+    assert state.clear_if("training", cast(Any, old)) is False
+    assert state.training is cast(Any, new)
 
-    assert state.clear_if("training", new) is True
+    assert state.clear_if("training", cast(Any, new)) is True
     assert state.training is None

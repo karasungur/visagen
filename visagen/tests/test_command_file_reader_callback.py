@@ -16,7 +16,9 @@ class _TemporalLossStub:
 class _ModuleStub:
     def __init__(self) -> None:
         self.temporal_consistency_weight = 1.0
-        self.temporal_consistency_loss = _TemporalLossStub(weight=1.0)
+        self.temporal_consistency_loss: _TemporalLossStub | None = _TemporalLossStub(
+            weight=1.0
+        )
 
 
 def test_temporal_weight_update_syncs_loss_object() -> None:
@@ -28,13 +30,14 @@ def test_temporal_weight_update_syncs_loss_object() -> None:
     module = _ModuleStub()
 
     callback._update_module_param(
-        trainer,
-        module,  # type: ignore[arg-type]
-        "temporal_consistency_weight",
-        2.5,
+        trainer=trainer,  # type: ignore[arg-type]
+        pl_module=module,  # type: ignore[arg-type]
+        key="temporal_consistency_weight",
+        value=2.5,
     )
 
     assert module.temporal_consistency_weight == 2.5
+    assert module.temporal_consistency_loss is not None
     assert module.temporal_consistency_loss.weight == 2.5
 
 
@@ -48,10 +51,10 @@ def test_temporal_weight_update_without_loss_object_is_safe() -> None:
     module.temporal_consistency_loss = None
 
     callback._update_module_param(
-        trainer,
-        module,  # type: ignore[arg-type]
-        "temporal_consistency_weight",
-        3.0,
+        trainer=trainer,  # type: ignore[arg-type]
+        pl_module=module,  # type: ignore[arg-type]
+        key="temporal_consistency_weight",
+        value=3.0,
     )
 
     assert module.temporal_consistency_weight == 3.0

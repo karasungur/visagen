@@ -42,8 +42,10 @@ def test_detect_called_without_threshold_and_filtered_by_confidence() -> None:
     aligner.get_transform_mat.return_value = mat
     aligner.face_type = "whole_face"
     processor._aligner = aligner
-    processor._generate_mask = Mock(
-        return_value=np.full((256, 256), 255.0, dtype=np.float32)
+    object.__setattr__(
+        processor,
+        "_generate_mask",
+        Mock(return_value=np.full((256, 256), 255.0, dtype=np.float32)),
     )
 
     frame = np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)

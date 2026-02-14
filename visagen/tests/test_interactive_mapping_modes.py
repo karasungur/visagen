@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -20,7 +21,7 @@ def test_apply_config_maps_modes_to_expected_blend_and_color() -> None:
         def __init__(self) -> None:
             self.config = FrameProcessorConfig()
 
-    merger._processor = _StubProcessor()
+    merger._processor = cast(Any, _StubProcessor())
 
     merger.session.config.mode = "hist-match"
     merger.session.config.color_transfer = "rct"

@@ -151,7 +151,7 @@ class TestExtractFrames:
             video_path = Path(tmpdir) / "test.mp4"
 
             # Create a minimal test video using OpenCV
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore[attr-defined]
             writer = cv2.VideoWriter(str(video_path), fourcc, 30, (64, 64))
             for _ in range(10):
                 frame = np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)

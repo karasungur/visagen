@@ -89,6 +89,7 @@ class TestResizeSingleFace:
 
             # Check output size
             output_img = cv2.imread(str(output_path))
+            assert output_img is not None
             assert output_img.shape[:2] == (128, 128)
 
     def test_resize_upscale(self) -> None:
@@ -111,6 +112,7 @@ class TestResizeSingleFace:
 
             assert result is True
             output_img = cv2.imread(str(output_path))
+            assert output_img is not None
             assert output_img.shape[:2] == (256, 256)
 
     def test_resize_missing_input(self) -> None:
@@ -193,8 +195,9 @@ class TestResizeFaceset:
 
             # Check output sizes
             for f in output_files:
-                img = cv2.imread(str(f))
-                assert img.shape[:2] == (128, 128)
+                loaded_img = cv2.imread(str(f))
+                assert loaded_img is not None
+                assert loaded_img.shape[:2] == (128, 128)
 
     def test_resize_skip_already_correct(self) -> None:
         """Test that already correct size images are skipped."""
