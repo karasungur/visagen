@@ -702,6 +702,8 @@ class VideoWriter:
         """
         if self._process is None:
             self._start_process()
+        assert self._process is not None
+        assert self._process.stdin is not None
 
         # Ensure correct shape
         if frame.shape[:2] != (self.height, self.width):
@@ -717,6 +719,7 @@ class VideoWriter:
         """Finalize video encoding and add audio if needed."""
         if self._process is None:
             return
+        assert self._process.stdin is not None
 
         # Close stdin and wait for process
         self._process.stdin.close()

@@ -66,7 +66,7 @@ class SequenceFaceDataset(Dataset):
     def _scan_directory(self) -> list[Path]:
         """Scan directory for images and sort by name."""
         extensions = {".jpg", ".jpeg", ".png"}
-        paths = []
+        paths: list[Path] = []
 
         for ext in extensions:
             paths.extend(self.root_dir.glob(f"*{ext}"))
@@ -264,7 +264,7 @@ class RandomSequenceDataset(Dataset):
     def _scan_directory(self) -> list[Path]:
         """Scan directory for images and sort by name."""
         extensions = {".jpg", ".jpeg", ".png"}
-        paths = []
+        paths: list[Path] = []
 
         for ext in extensions:
             paths.extend(self.root_dir.glob(f"*{ext}"))

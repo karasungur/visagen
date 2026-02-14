@@ -13,7 +13,7 @@ import logging
 import shutil
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytorch_lightning as pl
 import torch
@@ -203,11 +203,13 @@ class PreviewCallback(Callback):
             # Log to TensorBoard
             if trainer.logger is not None:
                 try:
-                    trainer.logger.experiment.add_image(
-                        "preview/training",
-                        grid,
-                        trainer.global_step,
-                    )
+                    experiment = cast(Any, getattr(trainer.logger, "experiment", None))
+                    if experiment is not None:
+                        experiment.add_image(
+                            "preview/training",
+                            grid,
+                            trainer.global_step,
+                        )
                 except AttributeError:
                     # Logger doesn't support add_image (e.g., CSVLogger)
                     pass

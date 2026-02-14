@@ -264,7 +264,7 @@ class FaceDetector:
         self,
         image: np.ndarray,
         max_faces: int | None = None,
-        rotations: list[int] = None,
+        rotations: list[int] | None = None,
     ) -> tuple[list[DetectedFace], int]:
         """
         Detect faces with automatic rotation handling.

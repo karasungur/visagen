@@ -9,7 +9,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytorch_lightning as pl
@@ -124,7 +124,7 @@ class DiceLoss(nn.Module):
         dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
 
         # Return 1 - mean Dice (loss)
-        return 1.0 - dice.mean()
+        return cast(torch.Tensor, 1.0 - dice.mean())
 
 
 class SegFormerFinetuneModule(pl.LightningModule):
@@ -193,7 +193,7 @@ class SegFormerFinetuneModule(pl.LightningModule):
         labels: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         """Forward pass through LoRA model."""
-        return self.lora_model(pixel_values=pixel_values, labels=labels)
+        return cast(dict[str, torch.Tensor], self.lora_model(pixel_values=pixel_values, labels=labels))
 
     def training_step(
         self,
@@ -239,7 +239,7 @@ class SegFormerFinetuneModule(pl.LightningModule):
         self.log("train_ce", ce_loss)
         self.log("train_dice", dice_loss)
 
-        return total_loss
+        return cast(torch.Tensor, total_loss)
 
     def validation_step(
         self,
@@ -286,7 +286,7 @@ class SegFormerFinetuneModule(pl.LightningModule):
         if "miou" in metrics:
             self.log("val_miou", metrics["miou"], prog_bar=True)
 
-        return total_loss
+        return cast(torch.Tensor, total_loss)
 
     def _compute_iou(
         self,
@@ -332,7 +332,7 @@ class SegFormerFinetuneModule(pl.LightningModule):
                 uni = pred_c.sum() + label_c.sum() - inter
                 if uni > 0:
                     class_ious.append(float((inter + 1e-6) / (uni + 1e-6)))
-            metrics["miou"] = np.mean(class_ious) if class_ious else 0.0
+            metrics["miou"] = float(np.mean(class_ious)) if class_ious else 0.0
 
         # Dice score
         dice_inter = (pred_fg * label_fg).sum() * 2
@@ -346,7 +346,7 @@ class SegFormerFinetuneModule(pl.LightningModule):
 
         return metrics
 
-    def configure_optimizers(self) -> dict[str, Any]:
+    def configure_optimizers(self) -> Any:
         """Configure optimizer with warmup + cosine annealing scheduler."""
         # Only optimize LoRA parameters
         optimizer = AdamW(
@@ -366,7 +366,7 @@ class SegFormerFinetuneModule(pl.LightningModule):
             else:
                 # Cosine annealing
                 progress = (epoch - warmup_epochs) / (total_epochs - warmup_epochs)
-                return 0.5 * (1 + np.cos(np.pi * progress))
+                return float(0.5 * (1 + np.cos(np.pi * progress)))
 
         scheduler = LambdaLR(optimizer, lr_lambda)
 
@@ -461,7 +461,7 @@ class SegFormerTrainer:
         data_module.setup()
 
         # Create callbacks
-        callbacks = []
+        callbacks: list[pl.Callback] = []
 
         if progress_callback is not None:
             callbacks.append(
@@ -491,7 +491,7 @@ class SegFormerTrainer:
         # Configure trainer
         self._trainer = pl.Trainer(
             max_epochs=self.config.max_epochs,
-            precision=self.config.precision,
+            precision=cast(Any, self.config.precision),
             accelerator="auto",
             devices=1,
             callbacks=callbacks,

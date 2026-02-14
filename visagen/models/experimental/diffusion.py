@@ -23,6 +23,8 @@ Reference:
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -60,7 +62,7 @@ class TextureEncoder(nn.Module):
         self.pretrained = pretrained
 
         # Lazy load diffusers to avoid import errors
-        self._vae = None
+        self._vae: Any | None = None
 
         # Projection to match structure encoder dimensions
         # VAE latent is 4 channels, project to latent_dim
@@ -80,13 +82,15 @@ class TextureEncoder(nn.Module):
                     "stabilityai/sd-vae-ft-mse",
                     torch_dtype=torch.float32,
                 )
+                assert self._vae is not None
                 self._vae.requires_grad_(False)  # Freeze VAE
             except ImportError:
                 raise ImportError(
                     "diffusers package is required for TextureEncoder. "
                     "Install with: pip install 'visagen[experimental]'"
                 )
-        return self._vae
+        assert self._vae is not None
+        return cast(nn.Module, self._vae)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -106,7 +110,7 @@ class TextureEncoder(nn.Module):
             latent = latent * vae.config.scaling_factor
 
         # Project to match structure encoder
-        return self.projection(latent)
+        return cast(torch.Tensor, self.projection(latent))
 
 
 class TextureEncoderLite(nn.Module):
@@ -158,7 +162,7 @@ class TextureEncoderLite(nn.Module):
         Returns:
             Texture latent (B, latent_dim, H/8, W/8).
         """
-        return self.encoder(x)
+        return cast(torch.Tensor, self.encoder(x))
 
 
 class CrossAttentionFusion(nn.Module):
@@ -236,7 +240,7 @@ class CrossAttentionFusion(nn.Module):
         out = out.transpose(1, 2).reshape(B, C, H, W)
 
         # Residual connection
-        return structure + out
+        return cast(torch.Tensor, structure + out)
 
 
 class DiffusionDecoderBlock(nn.Module):
@@ -370,7 +374,7 @@ class DiffusionDecoder(nn.Module):
                 style = texture_styles[i]
             x = block(x, style)
 
-        return self.final(x)
+        return cast(torch.Tensor, self.final(x))
 
 
 class DiffusionAutoEncoder(nn.Module):
@@ -426,6 +430,7 @@ class DiffusionAutoEncoder(nn.Module):
         )
 
         # Texture encoder (SD VAE-based or lite)
+        self.texture_encoder: nn.Module
         if use_pretrained_vae:
             self.texture_encoder = TextureEncoder(
                 latent_dim=texture_dim,
@@ -502,7 +507,7 @@ class DiffusionAutoEncoder(nn.Module):
         # Progressive decoding with texture injection
         output = self.decoder(fused_latent, texture_styles)
 
-        return output
+        return cast(torch.Tensor, output)
 
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -558,4 +563,4 @@ class DiffusionAutoEncoder(nn.Module):
             style = tex_proj.mean(dim=[2, 3])
             texture_styles.append(style)
 
-        return self.decoder(fused, texture_styles)
+        return cast(torch.Tensor, self.decoder(fused, texture_styles))

@@ -477,7 +477,7 @@ class PolygonEditor:
         self,
         evt: gr.SelectData,
         image: np.ndarray | None,
-    ) -> tuple[np.ndarray, list]:
+    ) -> tuple[np.ndarray | None, list[list[Any]]]:
         """Handle canvas click event."""
         if self._state.current_image is None:
             return image, self._get_poly_list_data()
@@ -639,6 +639,7 @@ class PolygonEditor:
         if self._state.view_scale == 1.0:
             return self._state.polygons
 
+        assert self._state.current_image is not None
         scale = self._state.view_scale
         h, w = self._state.current_image.shape[:2]
         ox, oy = self._state.view_offset

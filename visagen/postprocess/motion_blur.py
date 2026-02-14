@@ -5,6 +5,8 @@ Applies directional motion blur based on optical flow analysis
 to reduce flickering in video face swaps.
 """
 
+from typing import cast
+
 import cv2
 import numpy as np
 
@@ -40,10 +42,10 @@ def linear_motion_blur(
     # Rotate kernel by angle
     center = (kernel_size / 2 - 0.5, kernel_size / 2 - 0.5)
     rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-    k = cv2.warpAffine(k, rotation_matrix, (kernel_size, kernel_size))
+    k = cast(np.ndarray, cv2.warpAffine(k, rotation_matrix, (kernel_size, kernel_size)))
 
     # Normalize kernel
-    k = k / np.sum(k)
+    k = (k / np.sum(k)).astype(np.float32)
 
     # Apply convolution
     return cv2.filter2D(image, -1, k)

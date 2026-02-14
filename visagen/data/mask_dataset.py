@@ -13,6 +13,7 @@ Features:
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -397,7 +398,7 @@ class MaskDataset(Dataset):
             + bg_only * (1 - blend_ratio)
         )
 
-        return np.clip(result, 0, 255).astype(np.uint8)
+        return cast(np.ndarray, np.clip(result, 0, 255).astype(np.uint8))
 
     def _adjust_brightness_contrast(self, image: np.ndarray) -> np.ndarray:
         """Apply random brightness and contrast adjustment."""
@@ -479,8 +480,8 @@ class MaskDataModule:
         self.num_workers = num_workers
         self.target_size = target_size
 
-        self._train_dataset: MaskDataset | None = None
-        self._val_dataset: MaskDataset | None = None
+        self._train_dataset: Dataset | None = None
+        self._val_dataset: Dataset | None = None
 
     def setup(self) -> None:
         """Set up train and validation datasets."""
@@ -521,6 +522,7 @@ class MaskDataModule:
         """Get training dataloader."""
         if self._train_dataset is None:
             self.setup()
+        assert self._train_dataset is not None
 
         return torch.utils.data.DataLoader(
             self._train_dataset,
@@ -534,6 +536,7 @@ class MaskDataModule:
         """Get validation dataloader."""
         if self._val_dataset is None:
             self.setup()
+        assert self._val_dataset is not None
 
         return torch.utils.data.DataLoader(
             self._val_dataset,
@@ -588,7 +591,7 @@ class _SampleListDataset(Dataset):
 
         # Apply augmentation
         if self.augment and variant > 0:
-            image, mask = MaskDataset._augment(None, image, mask, variant)
+            image, mask = cast(Any, MaskDataset._augment)(None, image, mask, variant)
 
         labels = (mask > 127).astype(np.int64)
         inputs = self.processor(images=image, return_tensors="pt")

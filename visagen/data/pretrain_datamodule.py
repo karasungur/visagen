@@ -5,20 +5,22 @@ Provides DataModule for pretraining on large face datasets (FFHQ, CelebA, etc.)
 with self-reconstruction training (input = target).
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sized
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, random_split
 
+pl: Any
 try:
     import pytorch_lightning as pl
 except ImportError:
     pl = None
 
-from visagen.data.augmentations import FaceAugmentationPipeline
+from visagen.data.augmentations import FaceAugmentationPipeline  # noqa: E402
 
 # Pretrain-specific augmentation config (matches legacy DFL pretrain behavior)
 PRETRAIN_AUGMENTATION_CONFIG = {
@@ -124,7 +126,7 @@ def scan_images_recursive(root_dir: Path) -> list[Path]:
         Sorted list of image file paths.
     """
     extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
-    paths = []
+    paths: list[Path] = []
 
     for ext in extensions:
         paths.extend(root_dir.rglob(f"*{ext}"))
@@ -144,7 +146,7 @@ def scan_images_flat(root_dir: Path) -> list[Path]:
         Sorted list of image file paths.
     """
     extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
-    paths = []
+    paths: list[Path] = []
 
     for ext in extensions:
         paths.extend(root_dir.glob(f"*{ext}"))
@@ -277,6 +279,7 @@ if pl is not None:
 
         def train_dataloader(self) -> DataLoader:
             """Get training DataLoader."""
+            assert self.train_dataset is not None
             return DataLoader(
                 self.train_dataset,
                 batch_size=self.batch_size,
@@ -289,6 +292,7 @@ if pl is not None:
 
         def val_dataloader(self) -> DataLoader:
             """Get validation DataLoader."""
+            assert self.val_dataset is not None
             return DataLoader(
                 self.val_dataset,
                 batch_size=self.batch_size,
@@ -300,15 +304,15 @@ if pl is not None:
         @property
         def num_train_samples(self) -> int:
             """Return number of training samples."""
-            if self.train_dataset is not None:
-                return len(self.train_dataset)
+            if self.train_dataset is not None and isinstance(self.train_dataset, Sized):
+                return int(len(self.train_dataset))
             return 0
 
         @property
         def num_val_samples(self) -> int:
             """Return number of validation samples."""
-            if self.val_dataset is not None:
-                return len(self.val_dataset)
+            if self.val_dataset is not None and isinstance(self.val_dataset, Sized):
+                return int(len(self.val_dataset))
             return 0
 
         @property

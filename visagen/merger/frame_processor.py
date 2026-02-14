@@ -19,13 +19,17 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Union
+from typing import TYPE_CHECKING, Any, Union, cast
 
 import cv2
 import numpy as np
 import torch
 
 from visagen.postprocess.motion_blur import apply_motion_blur_to_face
+
+if TYPE_CHECKING:
+    from visagen.export.onnx_runner import ONNXRunner
+    from visagen.export.tensorrt_runner import TensorRTRunner
 
 # Type alias for face metadata
 FaceMetadata = dict[str, Any]
@@ -192,15 +196,15 @@ class FrameProcessor:
         self.backend = backend
 
         # Load model based on backend
-        self.model = self._load_model(model)
+        self.model: Any = self._load_model(model)
         if self.backend == "pytorch":
-            self.model.eval()
+            cast(Any, self.model).eval()
 
         # Lazy-loaded components
-        self._detector = None
-        self._aligner = None
-        self._segmenter = None
-        self._restorer = None
+        self._detector: Any | None = None
+        self._aligner: Any | None = None
+        self._segmenter: Any | None = None
+        self._restorer: Any | None = None
 
         # Optical flow state for motion blur auto-detection
         self._prev_frame_gray: np.ndarray | None = None
@@ -212,12 +216,15 @@ class FrameProcessor:
         """Load model based on backend type."""
         if self.backend == "pytorch":
             return self._load_pytorch_model(model)
-        elif self.backend == "onnx":
+        if self.backend == "onnx":
+            if not isinstance(model, (str, Path)):
+                raise TypeError("ONNX backend requires path to .onnx model")
             return self._load_onnx_model(model)
-        elif self.backend == "tensorrt":
+        if self.backend == "tensorrt":
+            if not isinstance(model, (str, Path)):
+                raise TypeError("TensorRT backend requires path to .engine model")
             return self._load_tensorrt_model(model)
-        else:
-            raise ValueError(f"Unknown backend: {self.backend}")
+        raise ValueError(f"Unknown backend: {self.backend}")
 
     def _load_pytorch_model(
         self, model: Union[str, Path, "torch.nn.Module"]
@@ -543,7 +550,7 @@ class FrameProcessor:
             return lm
 
         if lm.shape[0] == 106:
-            return self.aligner.convert_106_to_68(lm).astype(np.float32)
+            return cast(np.ndarray, self.aligner.convert_106_to_68(lm).astype(np.float32))
 
         if lm.shape[0] == 5:
             raise ValueError(
@@ -612,7 +619,7 @@ class FrameProcessor:
         """
         from visagen.postprocess.color_transfer import color_hist_match, color_transfer
 
-        mode = self.config.color_transfer_mode.lower()
+        mode = (self.config.color_transfer_mode or "none").lower()
 
         if mode == "hist-match":
             face_mask = None
@@ -645,7 +652,9 @@ class FrameProcessor:
             transfer_kwargs["strength"] = self.config.neural_color_strength
             transfer_kwargs["preserve_luminance"] = True
 
-        transferred = color_transfer(mode, swapped_f32, target_f32, **transfer_kwargs)
+        transferred = color_transfer(
+            cast(Any, mode), swapped_f32, target_f32, **transfer_kwargs
+        )
 
         return np.clip(transferred * 255.0, 0, 255).astype(np.uint8)
 
@@ -662,7 +671,7 @@ class FrameProcessor:
         if self.restorer is None:
             return swapped_face
 
-        return self.restorer.restore(swapped_face)
+        return cast(np.ndarray, self.restorer.restore(swapped_face))
 
     def _apply_super_resolution(self, swapped_face: np.ndarray) -> np.ndarray:
         """
@@ -690,14 +699,17 @@ class FrameProcessor:
                 strength=1.0,  # Full strength for super resolution
                 model_version=self.config.restore_model_version,
             )
-            self._restorer = FaceRestorer(restore_config, device=self.device)
+            self._restorer = cast(
+                Any, FaceRestorer(restore_config, device=self.device)
+            )
 
         # Get original size
         h, w = swapped_face.shape[:2]
         output_size = w * 4  # 4x upscale
 
         # Apply GFPGAN restoration (returns 4x upscaled)
-        enhanced = self._restorer.restore(swapped_face, upscale=4)
+        assert self._restorer is not None
+        enhanced = cast(np.ndarray, self._restorer.restore(swapped_face, upscale=4))
 
         # Ensure enhanced is the correct size
         if enhanced.shape[0] != output_size or enhanced.shape[1] != output_size:
@@ -726,7 +738,7 @@ class FrameProcessor:
                 interpolation=cv2.INTER_LANCZOS4,
             )
 
-        return result
+        return cast(np.ndarray, result)
 
     def _blend_to_frame(
         self,
@@ -883,7 +895,7 @@ class FrameProcessor:
         try:
             # Use segmenter if available
             result = self.segmenter.segment(aligned_face)
-            return result.mask.astype(np.float32)
+            return cast(np.ndarray, result.mask.astype(np.float32))
         except Exception as e:
             # Fallback to ellipse mask
             logger.debug(f"Segmenter failed, using ellipse mask: {e}")
@@ -1085,10 +1097,13 @@ class FrameProcessor:
 
         try:
             # Calculate optical flow using Farneback method
+            init_flow = np.zeros(
+                (curr_gray.shape[0], curr_gray.shape[1], 2), dtype=np.float32
+            )
             flow = cv2.calcOpticalFlowFarneback(
                 self._prev_frame_gray,
                 curr_gray,
-                None,
+                init_flow,
                 pyr_scale=0.5,
                 levels=3,
                 winsize=15,

@@ -9,9 +9,16 @@ Reference:
     "vid2vid: Video-to-Video Synthesis" (Wang et al., 2018)
 """
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+def _identity_module(module: nn.Module) -> nn.Module:
+    """Typed identity wrapper for optional spectral norm."""
+    return module
 
 
 class ResidualBlock3D(nn.Module):
@@ -68,7 +75,7 @@ class TemporalDiscriminator(nn.Module):
         super().__init__()
 
         self.sequence_length = sequence_length
-        norm_fn = nn.utils.spectral_norm if use_spectral_norm else (lambda x: x)
+        norm_fn = nn.utils.spectral_norm if use_spectral_norm else _identity_module
 
         # Encoder path with spatial downsampling
         # Input: (B, C, T, H, W) -> progressively reduce spatial dims
@@ -132,7 +139,7 @@ class TemporalDiscriminator(nn.Module):
         x = x.view(x.size(0), -1)
 
         # Output score
-        return self.fc(x)
+        return cast(torch.Tensor, self.fc(x))
 
 
 class TemporalPatchDiscriminator(nn.Module):
@@ -181,7 +188,7 @@ class TemporalPatchDiscriminator(nn.Module):
         )
 
         # Spatial discriminator (2D) - applied per frame
-        norm_fn = nn.utils.spectral_norm if use_spectral_norm else (lambda x: x)
+        norm_fn = nn.utils.spectral_norm if use_spectral_norm else _identity_module
 
         self.spatial_layers = nn.Sequential(
             norm_fn(nn.Conv2d(in_channels, spatial_base_ch, 4, stride=2, padding=1)),
@@ -267,7 +274,7 @@ class LightweightTemporalDiscriminator(nn.Module):
         super().__init__()
 
         self.sequence_length = sequence_length
-        norm_fn = nn.utils.spectral_norm if use_spectral_norm else (lambda x: x)
+        norm_fn = nn.utils.spectral_norm if use_spectral_norm else _identity_module
 
         # Simplified encoder
         self.encoder = nn.Sequential(
@@ -312,4 +319,4 @@ class LightweightTemporalDiscriminator(nn.Module):
         x = self.encoder(x)
         x = F.adaptive_avg_pool3d(x, 1)
         x = x.view(x.size(0), -1)
-        return self.fc(x)
+        return cast(torch.Tensor, self.fc(x))

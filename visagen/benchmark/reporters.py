@@ -246,7 +246,7 @@ def get_reporter(format_name: str) -> BaseReporter:
     Returns:
         Reporter instance
     """
-    reporters = {
+    reporters: dict[str, type[BaseReporter]] = {
         "console": ConsoleReporter,
         "json": JSONReporter,
         "markdown": MarkdownReporter,

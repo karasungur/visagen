@@ -231,7 +231,7 @@ class TorchProfilerContext:
         self.record_shapes = record_shapes
         self.profile_memory = profile_memory
         self.with_stack = with_stack
-        self._profiler = None
+        self._profiler: Any | None = None
         self._available = False
 
         try:

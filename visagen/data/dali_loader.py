@@ -16,6 +16,7 @@ Requires:
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytorch_lightning as pl
 
@@ -158,7 +159,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
             )
         self._fallback_dm.setup(stage)
 
-    def train_dataloader(self) -> Iterator:
+    def train_dataloader(self) -> Any:
         """
         Get training data loader.
 
@@ -168,6 +169,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
         if not self._use_dali:
             if self._fallback_dm is None:
                 self._setup_fallback("fit")
+            assert self._fallback_dm is not None
             return self._fallback_dm.train_dataloader()
 
         # Create DALI iterator
@@ -186,7 +188,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
 
         return DALIIteratorWrapper(self._train_iterator)
 
-    def val_dataloader(self) -> Iterator:
+    def val_dataloader(self) -> Any:
         """
         Get validation data loader.
 
@@ -196,6 +198,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
         if not self._use_dali:
             if self._fallback_dm is None:
                 self._setup_fallback("validate")
+            assert self._fallback_dm is not None
             return self._fallback_dm.val_dataloader()
 
         # Create DALI iterator without augmentation
@@ -220,7 +223,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
         self._val_iterator = None
 
         if self._fallback_dm is not None:
-            self._fallback_dm.teardown(stage)
+            self._fallback_dm.teardown(stage or "fit")
 
 
 class DALIIteratorWrapper:
@@ -385,7 +388,7 @@ def benchmark_dataloaders(
 
     import torch
 
-    results = {}
+    results: dict[str, float | None] = {}
 
     # Benchmark PyTorch DataLoader
     pytorch_dm = FaceDataModule(

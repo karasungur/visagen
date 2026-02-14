@@ -10,7 +10,7 @@ Implements multiple blending algorithms for seamless face compositing:
 All functions expect float32 images in [0, 1] range.
 """
 
-from typing import Literal
+from typing import Literal, cast
 
 import cv2
 import numpy as np
@@ -80,7 +80,7 @@ def reconstruct_from_laplacian(pyramid: list[np.ndarray]) -> np.ndarray:
 
     for i in range(len(pyramid) - 2, -1, -1):
         size = (pyramid[i].shape[1], pyramid[i].shape[0])
-        img = cv2.pyrUp(img, dstsize=size)
+        img = cast(np.ndarray, cv2.pyrUp(img, dstsize=size))
         img = img + pyramid[i]
 
     return img
@@ -201,7 +201,8 @@ def poisson_blend(
         mask_uint8 = mask_uint8[..., 0]
 
     # Threshold to binary
-    _, mask_uint8 = cv2.threshold(mask_uint8, 127, 255, cv2.THRESH_BINARY)
+    _, thresholded_mask = cv2.threshold(mask_uint8, 127, 255, cv2.THRESH_BINARY)
+    mask_uint8 = cast(np.ndarray, thresholded_mask)
 
     # Find center from mask if not provided
     if center is None:
@@ -219,7 +220,7 @@ def poisson_blend(
     # Check if mask has any non-zero pixels
     if cv2.countNonZero(mask_uint8) == 0:
         # No foreground region, return background
-        return background.copy()
+        return cast(np.ndarray, background.copy())
 
     try:
         result = cv2.seamlessClone(fg_uint8, bg_uint8, mask_uint8, center, mode)
@@ -302,7 +303,7 @@ def erode_mask(
         eroded = cv2.erode(mask_uint8, kernel)
         result = eroded.astype(np.float32) / 255.0
     else:
-        result = cv2.erode(mask_2d, kernel)
+        result = cast(np.ndarray, cv2.erode(mask_2d, kernel))
 
     if mask.ndim == 3:
         result = result[..., None]
@@ -338,7 +339,7 @@ def dilate_mask(
         dilated = cv2.dilate(mask_uint8, kernel)
         result = dilated.astype(np.float32) / 255.0
     else:
-        result = cv2.dilate(mask_2d, kernel)
+        result = cast(np.ndarray, cv2.dilate(mask_2d, kernel))
 
     if mask.ndim == 3:
         result = result[..., None]

@@ -49,7 +49,7 @@ class TrainingTab(BaseTab):
 
     def _build_content(self) -> dict[str, Any]:
         """Build training tab UI."""
-        components = {}
+        components: dict[str, Any] = {}
 
         gr.Markdown(f"### {self.t('title')}")
 

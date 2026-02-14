@@ -27,6 +27,7 @@ Examples:
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 from visagen.benchmark.config import (
     BenchmarkConfig,
@@ -227,6 +228,7 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = False) -> BenchmarkR
     )
 
     # Run benchmarks based on mode
+    benchmark: Any
     if config.mode in ("inference", "all"):
         if verbose:
             print("Running inference benchmarks...")

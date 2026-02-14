@@ -11,6 +11,8 @@ The algorithm matches legacy DeepFaceLab behavior:
     4. Normalize to [-1, 1] for grid_sample
 """
 
+from typing import cast
+
 import numpy as np
 
 try:
@@ -155,7 +157,7 @@ class DALIWarpGridGenerator:
             batch_size=1,
             rng=self.rng,
         )
-        return grid[0]  # Return single grid (H, W, 2)
+        return cast(np.ndarray, grid[0])  # Return single grid (H, W, 2)
 
     def reset(self) -> None:
         """Reset the generator (called at epoch boundaries)."""
@@ -264,7 +266,7 @@ class DALIAffineGenerator:
             translation_range=self.translation_range,
             rng=self.rng,
         )
-        return matrix[0]  # Return single matrix (2, 3)
+        return cast(np.ndarray, matrix[0])  # Return single matrix (2, 3)
 
     def reset(self) -> None:
         """Reset the generator."""
@@ -310,9 +312,12 @@ def apply_warp_grid_numpy(
             channels.append(warped_c)
         return np.stack(channels, axis=-1)
     else:
-        return map_coordinates(
-            image,
-            [grid_y, grid_x],
-            order=1,
-            mode="nearest",
+        return cast(
+            np.ndarray,
+            map_coordinates(
+                image,
+                [grid_y, grid_x],
+                order=1,
+                mode="nearest",
+            ),
         )

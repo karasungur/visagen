@@ -124,8 +124,8 @@ class Decoder(nn.Module):
     def __init__(
         self,
         latent_channels: int = 512,
-        dims: list[int] = None,
-        skip_dims: list[int] = None,
+        dims: list[int] | None = None,
+        skip_dims: list[int] | None = None,
         out_channels: int = 3,
         use_attention: bool = True,
     ) -> None:
@@ -169,7 +169,7 @@ class Decoder(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        skip_features: list[torch.Tensor] | None = None,
+        skip_features: list[torch.Tensor | None] | None = None,
     ) -> torch.Tensor:
         """
         Decode latent features to image.

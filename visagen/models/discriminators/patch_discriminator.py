@@ -9,10 +9,17 @@ Reference:
     (Schonfeld et al., 2020) - https://arxiv.org/abs/2002.12655
 """
 
+from typing import cast
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+def _identity_module(module: nn.Module) -> nn.Module:
+    """Typed identity wrapper for optional spectral norm."""
+    return module
 
 
 class ResidualBlock(nn.Module):
@@ -67,7 +74,7 @@ class PatchDiscriminator(nn.Module):
     ) -> None:
         super().__init__()
 
-        norm_fn = nn.utils.spectral_norm if use_spectral_norm else (lambda x: x)
+        norm_fn = nn.utils.spectral_norm if use_spectral_norm else _identity_module
 
         layers = []
 
@@ -121,7 +128,7 @@ class PatchDiscriminator(nn.Module):
         Returns:
             Patch discrimination scores (B, 1, H', W').
         """
-        return self.model(x)
+        return cast(torch.Tensor, self.model(x))
 
 
 class UNetPatchDiscriminator(nn.Module):
@@ -176,7 +183,7 @@ class UNetPatchDiscriminator(nn.Module):
         self.level_chs = level_chs
 
         # Normalization wrapper
-        norm_fn = nn.utils.spectral_norm if use_spectral_norm else (lambda x: x)
+        norm_fn = nn.utils.spectral_norm if use_spectral_norm else _identity_module
 
         # Input conv (1x1 to adjust channels)
         self.in_conv = norm_fn(nn.Conv2d(in_channels, level_chs[-1], 1))
@@ -261,7 +268,7 @@ class UNetPatchDiscriminator(nn.Module):
         Returns:
             List of (kernel_size, stride) tuples.
         """
-        candidates = {}
+        candidates: dict[int, tuple[int, int, list[tuple[int, int]]]] = {}
 
         for layers_count in range(1, max_layers + 1):
             # Try all stride combinations
@@ -318,7 +325,7 @@ class UNetPatchDiscriminator(nn.Module):
         x = F.leaky_relu(self.in_conv(x), 0.2)
 
         # Encoder with skip connections
-        encodings = []
+        encodings: list[torch.Tensor] = []
         for conv in self.down_convs:
             encodings.insert(0, x)  # Save before downsampling
             x = F.leaky_relu(conv(x), 0.2)

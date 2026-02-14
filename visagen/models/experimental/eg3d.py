@@ -25,6 +25,7 @@ Reference:
 from __future__ import annotations
 
 import math
+from typing import cast
 
 import torch
 import torch.nn as nn
@@ -184,7 +185,7 @@ class MappingNetwork(nn.Module):
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """Map z to w."""
-        return self.mapping(z)
+        return cast(torch.Tensor, self.mapping(z))
 
 
 class SynthesisBlock(nn.Module):
@@ -302,7 +303,10 @@ class TriplaneGenerator(nn.Module):
         planes = self.final_upsample(planes)
 
         # Reshape to tri-plane format: (B, 3*C, H, W) -> (B, 3, C, H, W)
-        return planes.reshape(B, 3, self.plane_channels, *planes.shape[2:])
+        return cast(
+            torch.Tensor,
+            planes.reshape(B, 3, self.plane_channels, *planes.shape[2:]),
+        )
 
 
 class NeRFDecoder(nn.Module):
@@ -758,7 +762,7 @@ class EG3DGenerator(nn.Module):
         # Super resolution
         output = self.super_resolution(low_res)
 
-        return output
+        return cast(torch.Tensor, output)
 
 
 class EG3DEncoder(nn.Module):
@@ -815,4 +819,4 @@ class EG3DEncoder(nn.Module):
             Latent code (B, latent_dim).
         """
         _, latent = self.backbone(x)
-        return self.projection(latent)
+        return cast(torch.Tensor, self.projection(latent))

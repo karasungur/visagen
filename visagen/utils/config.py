@@ -195,7 +195,7 @@ def load_config_with_validation(config_path: Path | str) -> tuple[dict, list[str
         ...     print("Config loaded successfully")
     """
     try:
-        import yaml
+        import yaml  # type: ignore[import-untyped]
     except ImportError:
         return {}, ["PyYAML not installed. Run: pip install pyyaml"]
 

@@ -12,6 +12,8 @@ This forces the generator to produce source codes that look like
 destination codes in the latent space, improving identity preservation.
 """
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 
@@ -109,7 +111,7 @@ class CodeDiscriminator(nn.Module):
         Returns:
             Discrimination score (B, 1). Higher = more real.
         """
-        return self.net(code)
+        return cast(torch.Tensor, self.net(code))
 
 
 def code_discriminator_loss(

@@ -8,6 +8,7 @@ of SegFormer face parsing model.
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 import torch
 import torch.nn as nn
@@ -102,7 +103,7 @@ class LoRALayer(nn.Module):
         lora_output = self.dropout(x) @ self.lora_A.T @ self.lora_B.T
         lora_output = lora_output * self.scaling
 
-        return original_output + lora_output
+        return cast(torch.Tensor, original_output + lora_output)
 
     def merge_weights(self) -> None:
         """Merge LoRA weights into original layer for inference."""
@@ -111,7 +112,7 @@ class LoRALayer(nn.Module):
             delta_w = (self.lora_B @ self.lora_A) * self.scaling
             self.original_layer.weight.add_(delta_w)
 
-    def get_lora_params(self) -> dict[str, torch.Tensor]:
+    def get_lora_params(self) -> dict[str, Any]:
         """Get LoRA parameters for saving."""
         return {
             "lora_A": self.lora_A.data.clone(),
@@ -195,7 +196,7 @@ class SegFormerLoRA(nn.Module):
         labels: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         """Forward pass through the model."""
-        return self.model(pixel_values=pixel_values, labels=labels)
+        return cast(dict[str, torch.Tensor], self.model(pixel_values=pixel_values, labels=labels))
 
     def get_trainable_params(self) -> Iterator[nn.Parameter]:
         """Get only LoRA trainable parameters."""
@@ -335,6 +336,7 @@ class FaceSegmenterLoRA(FaceSegmenter):
         if self._lora_model is None:
             self._setup_lora(LoRAConfig())
 
+        assert self._lora_model is not None
         self._lora_model.load_lora_weights(path)
         self._lora_enabled = True
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     import gradio as gr
@@ -118,7 +118,7 @@ def create_app(
             elem_classes=["footer-container"],
         )
 
-    return app
+    return cast(gr.Blocks, app)
 
 
 def main() -> int:

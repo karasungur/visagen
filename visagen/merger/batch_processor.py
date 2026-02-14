@@ -18,11 +18,14 @@ import time
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from visagen.merger.frame_processor import FrameProcessorConfig
 
 
 @dataclass
@@ -92,7 +95,7 @@ def _worker_process(
     device: str,
     input_queue: mp.Queue,
     output_queue: mp.Queue,
-    shutdown_event: mp.Event,
+    shutdown_event: Any,
 ) -> None:
     """
     Worker process function.
@@ -228,11 +231,26 @@ class BatchProcessor:
         self.devices = self._get_devices(gpu_ids)
 
         # Process management
-        self._workers: list[mp.Process] = []
-        self._input_queue: mp.Queue | None = None
-        self._output_queue: mp.Queue | None = None
-        self._shutdown_event: mp.Event | None = None
+        self._workers: list[Any] = []
+        self._input_queue: Any | None = None
+        self._output_queue: Any | None = None
+        self._shutdown_event: Any | None = None
         self._started = False
+
+    def _require_input_queue(self) -> Any:
+        if self._input_queue is None:
+            raise RuntimeError("Input queue is not initialized")
+        return self._input_queue
+
+    def _require_output_queue(self) -> Any:
+        if self._output_queue is None:
+            raise RuntimeError("Output queue is not initialized")
+        return self._output_queue
+
+    def _require_shutdown_event(self) -> Any:
+        if self._shutdown_event is None:
+            raise RuntimeError("Shutdown event is not initialized")
+        return self._shutdown_event
 
     def _get_devices(self, gpu_ids: list[int] | None) -> list[str]:
         """Get list of device strings for workers."""
@@ -268,6 +286,9 @@ class BatchProcessor:
         self._input_queue = ctx.Queue(maxsize=self.queue_size)
         self._output_queue = ctx.Queue()
         self._shutdown_event = ctx.Event()
+        input_queue = self._require_input_queue()
+        output_queue = self._require_output_queue()
+        shutdown_event = self._require_shutdown_event()
 
         # Convert config to dict for pickling
         from dataclasses import asdict
@@ -284,9 +305,9 @@ class BatchProcessor:
                     str(self.checkpoint_path),
                     config_dict,
                     device,
-                    self._input_queue,
-                    self._output_queue,
-                    self._shutdown_event,
+                    input_queue,
+                    output_queue,
+                    shutdown_event,
                 ),
                 daemon=True,
             )
@@ -317,6 +338,8 @@ class BatchProcessor:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         self._start_workers()
+        input_queue = self._require_input_queue()
+        output_queue = self._require_output_queue()
 
         # Submit all work items
         for item in items:
@@ -324,7 +347,7 @@ class BatchProcessor:
                 continue
 
             output_path = output_dir / f"{item.frame_idx:06d}.png"
-            self._input_queue.put(
+            input_queue.put(
                 (item.frame_idx, str(item.frame_path), str(output_path))
             )
 
@@ -334,7 +357,7 @@ class BatchProcessor:
 
         while pending > 0:
             try:
-                result = self._output_queue.get(timeout=60.0)
+                result = output_queue.get(timeout=60.0)
                 results.append(result)
                 pending -= 1
 
@@ -375,6 +398,8 @@ class BatchProcessor:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         self._start_workers()
+        input_queue = self._require_input_queue()
+        output_queue = self._require_output_queue()
 
         # Create temp dir for input frames
         temp_input = Path(tempfile.mkdtemp(prefix="visagen_input_"))
@@ -391,13 +416,13 @@ class BatchProcessor:
 
                 # Submit
                 output_path = output_dir / f"{frame_idx:06d}.png"
-                self._input_queue.put((frame_idx, str(input_path), str(output_path)))
+                input_queue.put((frame_idx, str(input_path), str(output_path)))
                 submitted += 1
 
                 # Try to get results (non-blocking)
                 while True:
                     try:
-                        result = self._output_queue.get_nowait()
+                        result = output_queue.get_nowait()
                         received += 1
                         yield result
                     except queue.Empty:
@@ -406,7 +431,7 @@ class BatchProcessor:
             # Wait for remaining results
             while received < submitted:
                 try:
-                    result = self._output_queue.get(timeout=60.0)
+                    result = output_queue.get(timeout=60.0)
                     received += 1
                     yield result
                 except queue.Empty:
@@ -424,12 +449,14 @@ class BatchProcessor:
             return
 
         # Signal shutdown
-        self._shutdown_event.set()
+        shutdown_event = self._require_shutdown_event()
+        input_queue = self._require_input_queue()
+        shutdown_event.set()
 
         # Send poison pills
         for _ in self._workers:
             try:
-                self._input_queue.put(None, timeout=1.0)
+                input_queue.put(None, timeout=1.0)
             except Exception:
                 pass
 

@@ -6,6 +6,7 @@ compatible with legacy XSegEditor preview functionality.
 """
 
 from enum import Enum
+from typing import cast
 
 import cv2
 import numpy as np
@@ -88,7 +89,7 @@ class MaskPreviewGenerator:
 
     def _preview_original(self, image: np.ndarray) -> np.ndarray:
         """Return original image."""
-        return image.copy()
+        return cast(np.ndarray, image.copy())
 
     def _preview_overlay(
         self,
@@ -116,7 +117,7 @@ class MaskPreviewGenerator:
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cv2.drawContours(result, contours, -1, self.overlay_color, 2)
 
-        return result
+        return cast(np.ndarray, result)
 
     def _preview_masked(
         self,
@@ -137,14 +138,14 @@ class MaskPreviewGenerator:
             + result.astype(np.float32) * (1 - mask_float)
         ).astype(np.uint8)
 
-        return result
+        return cast(np.ndarray, result)
 
     def _preview_mask_only(self, mask: np.ndarray) -> np.ndarray:
         """Generate black and white mask preview."""
         # Convert to 3-channel for display
         if len(mask.shape) == 2:
-            return cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
-        return mask.copy()
+            return cast(np.ndarray, cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR))
+        return cast(np.ndarray, mask.copy())
 
     def _preview_inverted(
         self,
@@ -166,7 +167,7 @@ class MaskPreviewGenerator:
             + result.astype(np.float32) * (1 - mask_float)
         ).astype(np.uint8)
 
-        return result
+        return cast(np.ndarray, result)
 
     def _preview_side_by_side(
         self,
@@ -193,7 +194,7 @@ class MaskPreviewGenerator:
             divider_width,
         )
 
-        return result
+        return cast(np.ndarray, result)
 
     @staticmethod
     def get_mode_names() -> dict[PreviewMode, str]:

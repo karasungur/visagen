@@ -22,7 +22,7 @@ References:
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Literal, cast
 
 import cv2
 import numpy as np
@@ -242,7 +242,7 @@ def match_histograms_channel(
     interp_values = np.interp(src_cdf, ref_cdf, ref_values)
     matched = interp_values[src_unique_indices].reshape(source.shape)
 
-    return matched.astype(np.float32)
+    return cast(np.ndarray, matched.astype(np.float32))
 
 
 def neural_color_transfer(
@@ -316,7 +316,8 @@ def neural_color_transfer(
 
     elif mode == "gram":
         # VGG feature based matching
-        result = _gram_based_transfer(target_rgb, reference_rgb, device)
+        run_device = device or "cpu"
+        result = _gram_based_transfer(target_rgb, reference_rgb, run_device)
         result = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
 
     else:
@@ -485,5 +486,5 @@ def _gram_based_transfer(
             result = result + weight * diff_upsampled.mean(dim=1, keepdim=True)
 
     # Convert back to numpy
-    result = result.squeeze(0).permute(1, 2, 0).cpu().numpy()
-    return np.clip(result, 0, 1).astype(np.float32)
+    result_np = result.squeeze(0).permute(1, 2, 0).cpu().numpy()
+    return cast(np.ndarray, np.clip(result_np, 0, 1).astype(np.float32))

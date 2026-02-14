@@ -9,6 +9,7 @@ import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import cv2
 import numpy as np
@@ -176,7 +177,7 @@ class InteractiveMerger:
 
     def _get_frame_list(self, frames_dir: Path) -> list[Path]:
         """Get sorted list of image files in directory."""
-        frames = []
+        frames: list[Path] = []
 
         for ext in self.IMAGE_EXTENSIONS:
             frames.extend(frames_dir.glob(f"*{ext}"))
@@ -218,7 +219,7 @@ class InteractiveMerger:
                 output_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 self._last_process_status = "ok"
                 self._add_to_cache(cache_key, output_rgb)
-                return output_rgb
+                return cast(np.ndarray, output_rgb)
 
             # Apply configuration to processor
             self._apply_config_to_processor()
@@ -238,7 +239,7 @@ class InteractiveMerger:
             # Cache result
             self._add_to_cache(cache_key, output_rgb)
 
-            return output_rgb
+            return cast(np.ndarray, output_rgb)
 
         except Exception as e:
             self._last_process_status = f"processing_exception:{type(e).__name__}"

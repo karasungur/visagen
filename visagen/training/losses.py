@@ -10,6 +10,7 @@ Implements modern perceptual loss functions:
 """
 
 import logging
+from typing import Any, cast
 
 import torch
 import torch.nn as nn
@@ -236,7 +237,7 @@ class DSSIMLoss(nn.Module):
         # DSSIM = (1 - SSIM) / 2
         dssim = (1.0 - ssim_map.mean(dim=[2, 3])) / 2.0
 
-        return dssim.mean()
+        return cast(torch.Tensor, dssim.mean())
 
 
 class MultiScaleDSSIMLoss(nn.Module):
@@ -278,7 +279,7 @@ class MultiScaleDSSIMLoss(nn.Module):
         target: torch.Tensor,
     ) -> torch.Tensor:
         """Compute multi-scale DSSIM loss."""
-        total = 0.0
+        total = torch.tensor(0.0, device=pred.device, dtype=pred.dtype)
         for weight, loss_fn in zip(self.weights, self.losses, strict=False):
             total = total + weight * loss_fn(pred, target)
         return total
@@ -306,9 +307,9 @@ class LPIPSLoss(nn.Module):
     ) -> None:
         super().__init__()
         self.net = net
-        self._lpips = None
+        self._lpips: Any | None = None
         self._use_gpu = use_gpu
-        self._cached_device = None
+        self._cached_device: torch.device | None = None
 
     def _ensure_lpips(self) -> None:
         """Lazy load LPIPS model."""
@@ -327,6 +328,7 @@ class LPIPSLoss(nn.Module):
                         pnet_rand=True,
                         verbose=False,
                     )
+                assert self._lpips is not None
                 if self._use_gpu and torch.cuda.is_available():
                     self._lpips = self._lpips.cuda()
                 self._lpips.eval()
@@ -353,13 +355,14 @@ class LPIPSLoss(nn.Module):
             LPIPS loss value.
         """
         self._ensure_lpips()
+        assert self._lpips is not None
 
         # Only move model if device changed (cache device for efficiency)
         if self._cached_device != pred.device:
             self._lpips = self._lpips.to(pred.device)
             self._cached_device = pred.device
 
-        return self._lpips(pred, target).mean()
+        return cast(torch.Tensor, self._lpips(pred, target).mean())
 
 
 class IDLoss(nn.Module):
@@ -402,6 +405,8 @@ class IDLoss(nn.Module):
     def _get_embedding(self, img: torch.Tensor) -> torch.Tensor:
         """Extract face embedding from image tensor."""
         import numpy as np
+
+        assert self._model is not None
 
         # Convert to numpy (B, C, H, W) -> (B, H, W, C)
         img_np = img.detach().cpu().permute(0, 2, 3, 1).numpy()
@@ -457,7 +462,7 @@ class IDLoss(nn.Module):
         )
 
         # Loss = 1 - similarity (so 0 = identical, 2 = opposite)
-        return (1.0 - cos_sim).mean()
+        return cast(torch.Tensor, (1.0 - cos_sim).mean())
 
 
 class EyesMouthLoss(nn.Module):
@@ -856,7 +861,7 @@ class MomentStyleLoss(nn.Module):
         nc = content.shape[1]
         loss = (mean_loss + std_loss) * (self.loss_weight / nc)
 
-        return loss.mean()
+        return cast(torch.Tensor, loss.mean())
 
 
 class StyleLoss(nn.Module):
@@ -950,6 +955,7 @@ class CombinedLoss(nn.Module):
         self.gaze_weight = gaze_weight
 
         # Initialize loss functions
+        self.dssim: DSSIMLoss | MultiScaleDSSIMLoss
         if use_multiscale_dssim:
             self.dssim = MultiScaleDSSIMLoss()
         else:
@@ -1048,6 +1054,7 @@ class GANLoss(nn.Module):
         self.mode = mode
         self.register_buffer("real_label", torch.tensor(target_real_label))
         self.register_buffer("fake_label", torch.tensor(target_fake_label))
+        self.loss_fn: nn.Module | None
 
         if mode == "vanilla":
             self.loss_fn = nn.BCEWithLogitsLoss()
@@ -1063,7 +1070,7 @@ class GANLoss(nn.Module):
     ) -> torch.Tensor:
         """Create target tensor with same shape as prediction."""
         target_val = self.real_label if target_is_real else self.fake_label
-        return target_val.expand_as(prediction)
+        return cast(torch.Tensor, target_val.expand_as(prediction))
 
     def forward(
         self,
@@ -1082,12 +1089,13 @@ class GANLoss(nn.Module):
         """
         if self.mode == "hinge":
             if target_is_real:
-                return -prediction.mean()
+                return cast(torch.Tensor, -prediction.mean())
             else:
-                return prediction.mean()
+                return cast(torch.Tensor, prediction.mean())
         else:
             target = self._get_target_tensor(prediction, target_is_real)
-            return self.loss_fn(prediction, target)
+            assert self.loss_fn is not None
+            return cast(torch.Tensor, self.loss_fn(prediction, target))
 
 
 class DiscriminatorLoss(nn.Module):
@@ -1212,7 +1220,7 @@ class TemporalConsistencyLoss(nn.Module):
         self.mode = mode
         self.weight = weight
         # Lazy-loaded DSSIM for SSIM mode
-        self._dssim_loss = None
+        self._dssim_loss: DSSIMLoss | None = None
 
     @property
     def dssim_loss(self) -> "DSSIMLoss":
@@ -1256,7 +1264,7 @@ class TemporalConsistencyLoss(nn.Module):
             else:  # l2
                 loss = diff.pow(2).mean()
 
-        return self.weight * loss
+        return cast(torch.Tensor, self.weight * loss)
 
 
 class TemporalGANLoss(nn.Module):
@@ -1288,6 +1296,7 @@ class TemporalGANLoss(nn.Module):
         self.mode = mode
         self.register_buffer("real_label", torch.tensor(target_real_label))
         self.register_buffer("fake_label", torch.tensor(target_fake_label))
+        self.loss_fn: nn.Module | None
 
         if mode == "vanilla":
             self.loss_fn = nn.BCEWithLogitsLoss()
@@ -1303,7 +1312,7 @@ class TemporalGANLoss(nn.Module):
     ) -> torch.Tensor:
         """Create target tensor with same shape as prediction."""
         target_val = self.real_label if target_is_real else self.fake_label
-        return target_val.expand_as(prediction)
+        return cast(torch.Tensor, target_val.expand_as(prediction))
 
     def forward(
         self,
@@ -1322,12 +1331,13 @@ class TemporalGANLoss(nn.Module):
         """
         if self.mode == "hinge":
             if target_is_real:
-                return -prediction.mean()
+                return cast(torch.Tensor, -prediction.mean())
             else:
-                return prediction.mean()
+                return cast(torch.Tensor, prediction.mean())
         else:
             target = self._get_target_tensor(prediction, target_is_real)
-            return self.loss_fn(prediction, target)
+            assert self.loss_fn is not None
+            return cast(torch.Tensor, self.loss_fn(prediction, target))
 
 
 class TemporalDiscriminatorLoss(nn.Module):
@@ -1503,4 +1513,4 @@ def bg_style_loss(
     l2 = F.mse_loss(pred_bg, target_bg)
 
     # Combined loss with legacy weight multiplier
-    return weight * 10.0 * (dssim + l2)
+    return cast(torch.Tensor, weight * 10.0 * (dssim + l2))

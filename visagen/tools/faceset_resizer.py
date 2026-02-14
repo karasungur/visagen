@@ -235,7 +235,7 @@ def resize_faceset(
 
     # Find all image files
     extensions = ["*.jpg", "*.jpeg", "*.png"]
-    image_files = []
+    image_files: list[Path] = []
     for ext in extensions:
         image_files.extend(input_dir.glob(ext))
         image_files.extend(input_dir.glob(ext.upper()))

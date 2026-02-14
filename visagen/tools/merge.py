@@ -438,18 +438,22 @@ def main() -> int:
 
     # Run merger
     if not args.quiet:
+        if config.frame_processor_config is None:
+            print("Error: frame processor config is missing", file=sys.stderr)
+            return 1
+        fp_cfg = config.frame_processor_config
         print("Visagen Merge")
         print(f"  Input: {args.input}")
         print(f"  Output: {args.output}")
         print(f"  Checkpoint: {args.checkpoint}")
-        print(f"  Color transfer: {config.frame_processor_config.color_transfer_mode}")
-        print(f"  Blend mode: {config.frame_processor_config.blend_mode}")
-        if config.frame_processor_config.restore_face:
+        print(f"  Color transfer: {fp_cfg.color_transfer_mode}")
+        print(f"  Blend mode: {fp_cfg.blend_mode}")
+        if fp_cfg.restore_face:
             print(
-                f"  Face restoration: GFPGAN v{config.frame_processor_config.restore_model_version}"
+                f"  Face restoration: GFPGAN v{fp_cfg.restore_model_version}"
             )
             print(
-                f"  Restore strength: {config.frame_processor_config.restore_strength}"
+                f"  Restore strength: {fp_cfg.restore_strength}"
             )
         print(f"  Encoder: {config.codec}")
         print()

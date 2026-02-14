@@ -247,7 +247,7 @@ class Int8Calibrator:
 
     def get_batch_size(self) -> int:
         """Return calibration batch size."""
-        return self.calibration_data.shape[0]
+        return int(self.calibration_data.shape[0])
 
     def get_batch(self, names):
         """Get next calibration batch."""

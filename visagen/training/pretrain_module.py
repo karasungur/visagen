@@ -14,6 +14,10 @@ import torch
 from visagen.training.dfl_module import DFLModule
 
 logger = logging.getLogger(__name__)
+PretrainBatch = (
+    tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]
+    | tuple[torch.Tensor, torch.Tensor]
+)
 
 
 class PretrainModule(DFLModule):
@@ -103,7 +107,9 @@ class PretrainModule(DFLModule):
         )
 
     def training_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self,
+        batch: PretrainBatch,
+        batch_idx: int,
     ) -> torch.Tensor:
         """
         Self-reconstruction training step.
@@ -118,7 +124,15 @@ class PretrainModule(DFLModule):
         Returns:
             Loss value.
         """
-        src, target = batch  # In pretrain: src == target
+        first, second = batch
+        if isinstance(first, dict) and isinstance(second, dict):
+            src = first["image"]
+            target = second["image"]
+        elif isinstance(first, torch.Tensor) and isinstance(second, torch.Tensor):
+            src = first
+            target = second
+        else:
+            raise TypeError(f"Unsupported pretrain batch format: {type(first)}, {type(second)}")
 
         # Forward pass: encode and decode
         pred = self(src)
@@ -133,7 +147,9 @@ class PretrainModule(DFLModule):
         return total_loss
 
     def validation_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self,
+        batch: PretrainBatch,
+        batch_idx: int,
     ) -> torch.Tensor:
         """
         Validation step.
@@ -145,7 +161,15 @@ class PretrainModule(DFLModule):
         Returns:
             Loss value.
         """
-        src, target = batch
+        first, second = batch
+        if isinstance(first, dict) and isinstance(second, dict):
+            src = first["image"]
+            target = second["image"]
+        elif isinstance(first, torch.Tensor) and isinstance(second, torch.Tensor):
+            src = first
+            target = second
+        else:
+            raise TypeError(f"Unsupported pretrain batch format: {type(first)}, {type(second)}")
         pred = self(src)
 
         total_loss, loss_dict = self.compute_loss(pred, target)
@@ -156,7 +180,7 @@ class PretrainModule(DFLModule):
 
         return total_loss
 
-    def configure_optimizers(self) -> dict[str, Any]:
+    def configure_optimizers(self) -> Any:
         """
         Configure optimizer and scheduler for pretrain.
 
@@ -166,7 +190,13 @@ class PretrainModule(DFLModule):
         Returns:
             Optimizer and scheduler configuration dict.
         """
-        max_epochs = self.trainer.max_epochs if self.trainer else 100
+        max_epochs = (
+            int(self.trainer.max_epochs)
+            if self.trainer is not None
+            and self.trainer.max_epochs is not None
+            and self.trainer.max_epochs > 0
+            else 100
+        )
 
         optimizer = torch.optim.AdamW(
             self.parameters(),

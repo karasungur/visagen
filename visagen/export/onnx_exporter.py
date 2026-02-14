@@ -14,10 +14,14 @@ Features:
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
 
 from visagen.export.model_wrapper import ExportableModel
+
+if TYPE_CHECKING:
+    from visagen.export.validation import ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +137,7 @@ class ONNXExporter:
         with torch.no_grad():
             torch.onnx.export(
                 model,
-                dummy_input,
+                (dummy_input,),
                 str(self.output_path),
                 opset_version=self.config.opset_version,
                 input_names=self.config.input_names,

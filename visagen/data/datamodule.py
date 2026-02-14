@@ -4,19 +4,21 @@ Face Data Module for PyTorch Lightning.
 Provides DataModules for training face swapping models.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sized
 from pathlib import Path
+from typing import Any
 
 import torch
 from torch.utils.data import DataLoader, Dataset, random_split
 
+pl: Any
 try:
     import pytorch_lightning as pl
 except ImportError:
     pl = None
 
-from visagen.data.augmentations import FaceAugmentationPipeline
-from visagen.data.face_dataset import FaceDataset
+from visagen.data.augmentations import FaceAugmentationPipeline  # noqa: E402
+from visagen.data.face_dataset import FaceDataset  # noqa: E402
 
 
 class PairedFaceDataset(Dataset):
@@ -43,8 +45,8 @@ class PairedFaceDataset(Dataset):
 
     def __init__(
         self,
-        src_dataset: Dataset,
-        dst_dataset: Dataset,
+        src_dataset: Any,
+        dst_dataset: Any,
         return_dict: bool = True,
     ) -> None:
         self.src_dataset = src_dataset
@@ -102,7 +104,7 @@ class TransformWrapper(Dataset):
 
     def __init__(
         self,
-        dataset: Dataset,
+        dataset: Any,
         transform: Callable | None = None,
     ) -> None:
         self.dataset = dataset
@@ -290,6 +292,7 @@ if pl is not None:
 
         def train_dataloader(self) -> DataLoader:
             """Get training DataLoader."""
+            assert self.train_dataset is not None
             return DataLoader(
                 self.train_dataset,
                 batch_size=self.batch_size,
@@ -302,6 +305,7 @@ if pl is not None:
 
         def val_dataloader(self) -> DataLoader:
             """Get validation DataLoader."""
+            assert self.val_dataset is not None
             return DataLoader(
                 self.val_dataset,
                 batch_size=self.batch_size,
@@ -313,15 +317,15 @@ if pl is not None:
         @property
         def num_train_samples(self) -> int:
             """Return number of training samples."""
-            if self.train_dataset is not None:
-                return len(self.train_dataset)
+            if self.train_dataset is not None and isinstance(self.train_dataset, Sized):
+                return int(len(self.train_dataset))
             return 0
 
         @property
         def num_val_samples(self) -> int:
             """Return number of validation samples."""
-            if self.val_dataset is not None:
-                return len(self.val_dataset)
+            if self.val_dataset is not None and isinstance(self.val_dataset, Sized):
+                return int(len(self.val_dataset))
             return 0
 
 else:

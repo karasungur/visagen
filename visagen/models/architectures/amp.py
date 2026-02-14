@@ -33,6 +33,8 @@ Example:
     >>> code = morph_code(code_src, code_dst, morph_value=0.8, training=False)
 """
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -74,12 +76,12 @@ def morph_code(
         while binomial.dim() < code_src.dim():
             binomial = binomial.unsqueeze(-1)
         binomial = binomial.to(code_src.device)
-        return code_src * binomial + code_dst * (1 - binomial)
+        return cast(torch.Tensor, code_src * binomial + code_dst * (1 - binomial))
     else:
         # Controlled morphing during inference
         if morph_value is None:
             morph_value = 1.0  # Default to full source
-        return code_src * morph_value + code_dst * (1 - morph_value)
+        return cast(torch.Tensor, code_src * morph_value + code_dst * (1 - morph_value))
 
 
 class AMPArchi(nn.Module):

@@ -234,17 +234,17 @@ def compare_inference_speed(
         try:
             from visagen.export.onnx_runner import ONNXRunner
 
-            runner = ONNXRunner(onnx_path, device=device)
+            onnx_runner = ONNXRunner(onnx_path, device=device)
             dummy_np = dummy_input.numpy()
 
             # Warmup
             for _ in range(num_warmup):
-                _ = runner(dummy_np)
+                _ = onnx_runner(dummy_np)
 
             # Benchmark
             start = time.perf_counter()
             for _ in range(num_iterations):
-                _ = runner(dummy_np)
+                _ = onnx_runner(dummy_np)
             onnx_time = (time.perf_counter() - start) / num_iterations * 1000
 
             results["onnx"] = {
@@ -259,17 +259,17 @@ def compare_inference_speed(
         try:
             from visagen.export.tensorrt_runner import TensorRTRunner
 
-            runner = TensorRTRunner(trt_path)
+            trt_runner = TensorRTRunner(trt_path)
             dummy_np = dummy_input.numpy()
 
             # Warmup
             for _ in range(num_warmup):
-                _ = runner(dummy_np)
+                _ = trt_runner(dummy_np)
 
             # Benchmark
             start = time.perf_counter()
             for _ in range(num_iterations):
-                _ = runner(dummy_np)
+                _ = trt_runner(dummy_np)
             trt_time = (time.perf_counter() - start) / num_iterations * 1000
 
             results["tensorrt"] = {

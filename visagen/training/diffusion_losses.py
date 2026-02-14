@@ -13,6 +13,8 @@ Example:
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -40,7 +42,7 @@ class TextureConsistencyLoss(nn.Module):
         self.layers = layers or [4, 9, 16, 23]  # VGG-19 layers
 
         # Lazy load VGG to avoid import overhead
-        self._vgg = None
+        self._vgg: Any | None = None
 
         # Register ImageNet normalization constants
         self.register_buffer(
@@ -70,7 +72,8 @@ class TextureConsistencyLoss(nn.Module):
                     "torchvision is required for TextureConsistencyLoss. "
                     "Install with: pip install torchvision"
                 )
-        return self._vgg.to(device)
+        assert self._vgg is not None
+        return cast(nn.Module, self._vgg.to(device))
 
     def gram_matrix(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -150,7 +153,7 @@ class PerceptualTextureLoss(nn.Module):
         self.texture_weight = texture_weight
         self.perceptual_weight = perceptual_weight
 
-        self._vgg = None
+        self._vgg: Any | None = None
 
         self.register_buffer(
             "mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
@@ -173,7 +176,8 @@ class PerceptualTextureLoss(nn.Module):
             for p in vgg.parameters():
                 p.requires_grad = False
             self._vgg = vgg
-        return self._vgg.to(device)
+        assert self._vgg is not None
+        return cast(nn.Module, self._vgg.to(device))
 
     def gram_matrix(self, x: torch.Tensor) -> torch.Tensor:
         """Compute Gram matrix."""
@@ -269,6 +273,7 @@ class DiffusionLoss(nn.Module):
         self.texture_weight = texture_weight
         self.perceptual_weight = perceptual_weight
 
+        self.texture_loss: TextureConsistencyLoss | None
         if texture_weight > 0 or perceptual_weight > 0:
             self.texture_loss = TextureConsistencyLoss()
         else:

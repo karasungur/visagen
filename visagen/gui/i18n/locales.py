@@ -122,7 +122,7 @@ class I18n:
             Value if found, None otherwise.
         """
         parts = key.split(".")
-        current = data
+        current: Any = data
 
         for part in parts:
             if not isinstance(current, dict):

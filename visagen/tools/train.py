@@ -18,6 +18,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
+from typing import cast
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import (
@@ -516,7 +517,7 @@ def resolve_precision(precision: str, accelerator: str) -> str:
 def load_config(config_path: Path) -> dict:
     """Load YAML configuration file."""
     try:
-        import yaml
+        import yaml  # type: ignore[import-untyped]
     except ImportError:
         print(
             "Error: PyYAML required for config files. Install with: pip install pyyaml"
@@ -524,7 +525,7 @@ def load_config(config_path: Path) -> dict:
         sys.exit(1)
 
     with open(config_path) as f:
-        return yaml.safe_load(f)
+        return cast(dict, yaml.safe_load(f))
 
 
 def main() -> int:
@@ -683,7 +684,7 @@ def main() -> int:
     )
 
     # Setup data to get sample counts
-    datamodule.setup()
+    datamodule.setup("fit")
     backend_name = "dali" if getattr(datamodule, "using_dali", False) else "pytorch"
     train_samples = getattr(datamodule, "num_train_samples", "N/A")
     val_samples = getattr(datamodule, "num_val_samples", "N/A")

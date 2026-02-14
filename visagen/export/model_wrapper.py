@@ -12,11 +12,15 @@ The wrapper handles:
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import torch
 import torch.nn as nn
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from visagen.training import DFLModule
 
 
 class ExportableModel(nn.Module):
@@ -76,7 +80,7 @@ class ExportableModel(nn.Module):
         # Decode
         output = self.decoder(latent, skip_features)
 
-        return output
+        return cast(torch.Tensor, output)
 
     @classmethod
     def from_checkpoint(
@@ -115,6 +119,8 @@ class ExportableModel(nn.Module):
             map_location=map_location,
             strict=strict,
         )
+        assert module.encoder is not None
+        assert module.decoder is not None
 
         # Extract encoder and decoder
         model = cls(
@@ -137,6 +143,8 @@ class ExportableModel(nn.Module):
         Returns:
             ExportableModel instance.
         """
+        assert module.encoder is not None
+        assert module.decoder is not None
         return cls(
             encoder=module.encoder,
             decoder=module.decoder,

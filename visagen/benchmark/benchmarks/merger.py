@@ -11,6 +11,8 @@ Benchmarks the full face swap merge pipeline:
 Measures end-to-end throughput for video processing.
 """
 
+from typing import Any
+
 import numpy as np
 
 from visagen.benchmark.config import BenchmarkConfig, BenchmarkResult
@@ -49,7 +51,7 @@ class MergerBenchmark:
             config: Benchmark configuration
         """
         self.config = config
-        self._frame_processor = None
+        self._frame_processor: Any | None = None
 
     def run(self) -> list[BenchmarkResult]:
         """Run merge benchmarks for all configurations.
@@ -97,7 +99,7 @@ class MergerBenchmark:
         )
 
         return FrameProcessor(
-            checkpoint_path=self.config.checkpoint_path,
+            self.config.checkpoint_path,
             config=proc_config,
             device=self.config.device,
         )

@@ -34,7 +34,7 @@ import logging
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, cast
 
 import cv2
 import numpy as np
@@ -151,7 +151,7 @@ class GPENRestorer:
         self.model_path = Path(model_path) if model_path else None
 
         # Lazy-loaded model
-        self._model = None
+        self._model: Any | None = None
         self._initialization_attempted = False
 
     def _get_device(self) -> str:
@@ -292,7 +292,8 @@ class GPENRestorer:
                 # Use actual GPEN model
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    restored = self._model.enhance(face_uint8)
+                    model = cast(Any, self._model)
+                    restored = model.enhance(face_uint8)
 
             if restored is None:
                 logger.debug("GPEN returned None, using original")

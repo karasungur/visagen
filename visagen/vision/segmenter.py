@@ -17,7 +17,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import cv2
 import numpy as np
@@ -230,7 +230,7 @@ class FaceSegmenter:
                 threshold_value,
             )
             if cached is not None:
-                return cached
+                return cast(SegmentationResult, cached)
 
         h, w = face_image.shape[:2]
 
@@ -283,27 +283,35 @@ class FaceSegmenter:
             if threshold_mode == ThresholdMode.OTSU:
                 # Otsu's automatic threshold
                 mask_uint8 = (face_mask * 255).astype(np.uint8)
-                _, face_mask = cv2.threshold(
+                _, thresholded = cv2.threshold(
                     mask_uint8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
                 )
+                face_mask = cast(np.ndarray, thresholded).astype(np.float32)
             elif threshold_mode == ThresholdMode.ADAPTIVE:
                 # Gaussian adaptive threshold
                 mask_uint8 = (face_mask * 255).astype(np.uint8)
-                face_mask = cv2.adaptiveThreshold(
+                face_mask = cast(
+                    np.ndarray,
+                    cv2.adaptiveThreshold(
                     mask_uint8,
                     255,
                     cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                     cv2.THRESH_BINARY,
                     11,
                     2,
+                    ),
                 )
+                face_mask = face_mask.astype(np.float32)
             else:  # FIXED
-                face_mask = (face_mask > threshold_value).astype(np.uint8) * 255
+                face_mask = (face_mask > threshold_value).astype(np.float32) * 255.0
 
             # Apply anti-aliasing if requested
             if anti_alias:
-                face_mask = cv2.GaussianBlur(face_mask.astype(np.float32), (0, 0), 1.0)
-                face_mask = (face_mask > 127).astype(np.uint8) * 255
+                face_mask = cast(
+                    np.ndarray,
+                    cv2.GaussianBlur(face_mask.astype(np.float32), (0, 0), 1.0),
+                )
+                face_mask = (face_mask > 127).astype(np.float32) * 255.0
 
         result = SegmentationResult(
             mask=face_mask,
@@ -462,7 +470,7 @@ class FaceSegmenter:
 
             # Convert to binary
             if not return_soft_mask:
-                face_mask = (face_mask > 0.5).astype(np.uint8) * 255
+                face_mask = (face_mask > 0.5).astype(np.float32) * 255.0
 
             results.append(
                 SegmentationResult(
@@ -572,7 +580,7 @@ class FaceSegmenter:
         if "hair" in parsing:
             combined = np.maximum(combined, parsing["hair"])
 
-        return combined
+        return cast(np.ndarray, combined)
 
     def segment_with_face_type(
         self,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 if TYPE_CHECKING:
     import gradio as gr
@@ -131,7 +131,7 @@ class BaseTab(ABC):
             self._components = self._build_content()
             self._setup_events(self._components)
 
-        return tab
+        return cast(gr.Tab, tab)
 
     @property
     def components(self) -> dict[str, Any]:
