@@ -200,3 +200,35 @@ class TestCutVideo:
                 "00:00:00",
                 "00:00:10",
             )
+
+    def test_cut_with_audio_track_and_bitrate_builds_expected_command(self) -> None:
+        """Re-encode cut should forward audio track and bitrate to ffmpeg."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_video = Path(tmpdir) / "input.mp4"
+            output_video = Path(tmpdir) / "output.mp4"
+            input_video.write_bytes(b"dummy")
+
+            with (
+                patch(
+                    "visagen.tools.video_ed.get_ffmpeg_path",
+                    return_value=Path("/ffmpeg"),
+                ),
+                patch("visagen.tools.video_ed.subprocess.run") as run_mock,
+            ):
+                cut_video(
+                    input_video,
+                    output_video,
+                    "00:00:01",
+                    "00:00:03",
+                    audio_track=2,
+                    codec="libx264",
+                    bitrate="14M",
+                )
+
+            cmd = run_mock.call_args.args[0]
+            assert "-c:v" in cmd
+            assert "libx264" in cmd
+            assert "-b:v" in cmd
+            assert "14M" in cmd
+            assert "-map" in cmd
+            assert "0:a:2?" in cmd

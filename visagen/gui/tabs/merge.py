@@ -230,29 +230,36 @@ class MergeTab(BaseTab):
 
         yield f"Starting merge...\nResolved argv: {' '.join(cmd)}\n$ {' '.join(cmd)}\n"
 
+        process: subprocess.Popen | None = None
         try:
-            self.state.processes.merge = subprocess.Popen(
+            process = self.state.processes.launch(
+                "merge",
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
             )
+            if process is None:
+                yield "\n\nMerge is already running. Stop the active job first."
+                return
 
-            if self.state.processes.merge.stdout:
-                for line in iter(self.state.processes.merge.stdout.readline, ""):
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
                     if line:
                         yield line
-                    if self.state.processes.merge.poll() is not None:
+                    if process.poll() is not None:
                         break
 
-            remaining, _ = self.state.processes.merge.communicate()
+            remaining, _ = process.communicate()
             if remaining:
                 yield remaining
 
-            exit_code = self.state.processes.merge.returncode
+            exit_code = process.returncode
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
+            elif exit_code in {-15, -9, 143, 137}:
+                yield f"\n\n{self.i18n.t('status.stopped')}"
             else:
                 yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
 
@@ -260,7 +267,15 @@ class MergeTab(BaseTab):
             yield f"\n\nError: {e}"
 
         finally:
-            self.state.processes.merge = None
+            if process is not None:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                self.state.processes.clear_if("merge", process)
 
     def _stop_merge(self) -> str:
         """Stop merge process."""

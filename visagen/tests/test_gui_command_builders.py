@@ -114,6 +114,9 @@ def test_build_video_cut_command_uses_positional_output() -> None:
         "cut.mp4",
         start_time="00:00:01",
         end_time="00:00:05",
+        codec="libx264",
+        audio_track_id=2,
+        bitrate="20M",
     )
 
     assert cmd[3] == "cut"
@@ -121,6 +124,12 @@ def test_build_video_cut_command_uses_positional_output() -> None:
     assert cmd[5] == "cut.mp4"
     assert "--start" in cmd
     assert "--end" in cmd
+    assert "--codec" in cmd
+    assert "libx264" in cmd
+    assert "--audio-track-id" in cmd
+    assert "2" in cmd
+    assert "--bitrate" in cmd
+    assert "20M" in cmd
 
 
 def test_build_video_denoise_command_optional_output() -> None:

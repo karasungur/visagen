@@ -186,6 +186,34 @@ class VideoToolsTab(BaseTab):
                     info=self.t("cut.end_time.info"),
                 )
 
+                components["cut_codec"] = DropdownInput(
+                    DropdownConfig(
+                        key="video_tools.cut.codec",
+                        choices=[
+                            "copy",
+                            "libx264",
+                            "libx265",
+                            "h264_nvenc",
+                            "hevc_nvenc",
+                        ],
+                        default="copy",
+                    ),
+                    self.i18n,
+                ).build()
+
+                components["cut_audio_track"] = gr.Number(
+                    label=self.t("cut.audio_track.label"),
+                    value=0,
+                    precision=0,
+                    info=self.t("cut.audio_track.info"),
+                )
+
+                components["cut_bitrate"] = gr.Textbox(
+                    label=self.t("cut.bitrate.label"),
+                    value="",
+                    info=self.t("cut.bitrate.info"),
+                )
+
         components["cut_btn"] = gr.Button(self.t("cut.start"), variant="primary")
 
         components["cut_log"] = LogOutput(
@@ -280,7 +308,15 @@ class VideoToolsTab(BaseTab):
         # Cut Video
         c["cut_btn"].click(
             fn=self._run_cut_video,
-            inputs=[c["cut_input"], c["cut_output"], c["cut_start"], c["cut_end"]],
+            inputs=[
+                c["cut_input"],
+                c["cut_output"],
+                c["cut_start"],
+                c["cut_end"],
+                c["cut_codec"],
+                c["cut_audio_track"],
+                c["cut_bitrate"],
+            ],
             outputs=c["cut_log"],
         )
 
@@ -300,6 +336,59 @@ class VideoToolsTab(BaseTab):
     # =========================================================================
     # Operation Handlers
     # =========================================================================
+
+    def _run_command_in_slot(
+        self,
+        slot: str,
+        cmd: list[str],
+        *,
+        already_running_message: str,
+    ) -> Generator[str, None, None]:
+        """Run command in a managed process slot and stream stdout."""
+        process: subprocess.Popen | None = None
+        try:
+            process = self.state.processes.launch(
+                slot,
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            if process is None:
+                yield f"\n\n{already_running_message}"
+                return
+
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    if line:
+                        yield line
+                    if process.poll() is not None:
+                        break
+
+            remaining, _ = process.communicate()
+            if remaining:
+                yield remaining
+
+            exit_code = process.returncode
+            if exit_code == 0:
+                yield f"\n\n{self.i18n.t('status.completed')}"
+            elif exit_code in {-15, -9, 143, 137}:
+                yield f"\n\n{self.i18n.t('status.stopped')}"
+            else:
+                yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
+        except Exception as e:
+            yield f"\n\nError: {e}"
+        finally:
+            if process is not None:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                self.state.processes.clear_if(slot, process)
 
     def _run_extract_frames(
         self,
@@ -325,30 +414,11 @@ class VideoToolsTab(BaseTab):
             f"Resolved argv: {' '.join(cmd)}\n"
             f"$ {' '.join(cmd)}\n"
         )
-
-        try:
-            self.state.processes.video_tools = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-
-            for line in iter(self.state.processes.video_tools.stdout.readline, ""):
-                if line:
-                    yield line
-
-            exit_code = self.state.processes.video_tools.wait()
-            if exit_code == 0:
-                yield f"\n\n{self.i18n.t('status.completed')}"
-            else:
-                yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
-
-        except Exception as e:
-            yield f"\n\nError: {e}"
-
-        finally:
-            self.state.processes.video_tools = None
+        yield from self._run_command_in_slot(
+            "video_tools",
+            cmd,
+            already_running_message="Video tool is already running. Stop it first.",
+        )
 
     def _run_create_video(
         self,
@@ -376,30 +446,11 @@ class VideoToolsTab(BaseTab):
             f"Resolved argv: {' '.join(cmd)}\n"
             f"$ {' '.join(cmd)}\n"
         )
-
-        try:
-            self.state.processes.video_tools = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-
-            for line in iter(self.state.processes.video_tools.stdout.readline, ""):
-                if line:
-                    yield line
-
-            exit_code = self.state.processes.video_tools.wait()
-            if exit_code == 0:
-                yield f"\n\n{self.i18n.t('status.completed')}"
-            else:
-                yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
-
-        except Exception as e:
-            yield f"\n\nError: {e}"
-
-        finally:
-            self.state.processes.video_tools = None
+        yield from self._run_command_in_slot(
+            "video_tools",
+            cmd,
+            already_running_message="Video tool is already running. Stop it first.",
+        )
 
     def _run_cut_video(
         self,
@@ -407,17 +458,24 @@ class VideoToolsTab(BaseTab):
         output_video: str,
         start_time: str,
         end_time: str,
+        codec: str,
+        audio_track: float | None,
+        bitrate: str,
     ) -> Generator[str, None, None]:
         """Run video cutting."""
         if not input_video or not Path(input_video).exists():
             yield self.i18n.t("errors.path_not_found")
             return
 
+        audio_track_id = 0 if audio_track is None else max(0, int(audio_track))
         cmd = build_video_cut_command(
             input_video,
             output_video or "./cut_output.mp4",
             start_time=start_time,
             end_time=end_time,
+            codec=codec,
+            audio_track_id=audio_track_id,
+            bitrate=bitrate.strip() or None,
         )
 
         yield (
@@ -425,30 +483,11 @@ class VideoToolsTab(BaseTab):
             f"Resolved argv: {' '.join(cmd)}\n"
             f"$ {' '.join(cmd)}\n"
         )
-
-        try:
-            self.state.processes.video_tools = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-
-            for line in iter(self.state.processes.video_tools.stdout.readline, ""):
-                if line:
-                    yield line
-
-            exit_code = self.state.processes.video_tools.wait()
-            if exit_code == 0:
-                yield f"\n\n{self.i18n.t('status.completed')}"
-            else:
-                yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
-
-        except Exception as e:
-            yield f"\n\nError: {e}"
-
-        finally:
-            self.state.processes.video_tools = None
+        yield from self._run_command_in_slot(
+            "video_tools",
+            cmd,
+            already_running_message="Video tool is already running. Stop it first.",
+        )
 
     def _run_denoise_sequence(
         self,
@@ -472,30 +511,11 @@ class VideoToolsTab(BaseTab):
             f"Resolved argv: {' '.join(cmd)}\n"
             f"$ {' '.join(cmd)}\n"
         )
-
-        try:
-            self.state.processes.video_tools = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-
-            for line in iter(self.state.processes.video_tools.stdout.readline, ""):
-                if line:
-                    yield line
-
-            exit_code = self.state.processes.video_tools.wait()
-            if exit_code == 0:
-                yield f"\n\n{self.i18n.t('status.completed')}"
-            else:
-                yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
-
-        except Exception as e:
-            yield f"\n\nError: {e}"
-
-        finally:
-            self.state.processes.video_tools = None
+        yield from self._run_command_in_slot(
+            "video_tools",
+            cmd,
+            already_running_message="Video tool is already running. Stop it first.",
+        )
 
     def _stop_current_process(self) -> None:
         """Stop currently running video tools process."""

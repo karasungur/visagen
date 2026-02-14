@@ -217,29 +217,36 @@ class SortTab(BaseTab):
 
         yield f"Starting sorting...\n$ {' '.join(cmd)}\n"
 
+        process: subprocess.Popen | None = None
         try:
-            self.state.processes.sort = subprocess.Popen(
+            process = self.state.processes.launch(
+                "sort",
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
             )
+            if process is None:
+                yield "\n\nSorting is already running. Stop the active job first."
+                return
 
-            if self.state.processes.sort.stdout:
-                for line in iter(self.state.processes.sort.stdout.readline, ""):
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
                     if line:
                         yield line
-                    if self.state.processes.sort.poll() is not None:
+                    if process.poll() is not None:
                         break
 
-            remaining, _ = self.state.processes.sort.communicate()
+            remaining, _ = process.communicate()
             if remaining:
                 yield remaining
 
-            exit_code = self.state.processes.sort.returncode
+            exit_code = process.returncode
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
+            elif exit_code in {-15, -9, 143, 137}:
+                yield f"\n\n{self.i18n.t('status.stopped')}"
             else:
                 yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
 
@@ -247,7 +254,15 @@ class SortTab(BaseTab):
             yield f"\n\nError: {e}"
 
         finally:
-            self.state.processes.sort = None
+            if process is not None:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                self.state.processes.clear_if("sort", process)
 
     def _stop_sort(self) -> str:
         """Stop sort process."""

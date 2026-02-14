@@ -307,7 +307,7 @@ class InteractiveMerger:
         # Mask mode
         proc_config.mask_mode = config.mask_mode
 
-        # Mask processing - Pozitif değer = erode, negatif değer = dilate
+        # Mask processing: positive values erode, negative values dilate.
         if config.erode_mask > 0:
             proc_config.mask_erode = config.erode_mask
             proc_config.mask_dilate = 0

@@ -61,6 +61,7 @@ class MaskEditorTab(BaseTab):
         self._trainer: Any | None = None
         self._training_active: bool = False
         self._training_stop_timeout_sec: float = 5.0
+        self._pending_batch_request: dict[str, Any] | None = None
 
     @property
     def segmenter(self) -> FaceSegmenter:
@@ -456,7 +457,35 @@ class MaskEditorTab(BaseTab):
                 c["batch_blur"],
                 c["preview_batch"],
             ],
-            outputs=[c["batch_preview_gallery"], c["batch_progress"]],
+            outputs=[
+                c["batch_preview_gallery"],
+                c["batch_progress"],
+                c["apply_batch_btn"],
+                c["confirm_batch_btn"],
+                c["cancel_batch_btn"],
+            ],
+        )
+
+        c["confirm_batch_btn"].click(
+            fn=self._confirm_batch,
+            outputs=[
+                c["batch_preview_gallery"],
+                c["batch_progress"],
+                c["apply_batch_btn"],
+                c["confirm_batch_btn"],
+                c["cancel_batch_btn"],
+            ],
+        )
+
+        c["cancel_batch_btn"].click(
+            fn=self._cancel_batch,
+            outputs=[
+                c["batch_preview_gallery"],
+                c["batch_progress"],
+                c["apply_batch_btn"],
+                c["confirm_batch_btn"],
+                c["cancel_batch_btn"],
+            ],
         )
 
     # ============ Editor Handlers ============
@@ -766,80 +795,362 @@ class MaskEditorTab(BaseTab):
         dilate: int,
         blur: int,
         preview: bool,
-    ) -> tuple[list[tuple[np.ndarray, str]], str]:
+    ) -> tuple[
+        list[tuple[np.ndarray, str]],
+        str,
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any],
+    ]:
         """Apply segmentation to batch of faces."""
         input_path = Path(input_dir)
         if not input_path.exists():
-            return [], "Input directory not found"
+            return (
+                [],
+                "Input directory not found",
+                gr.update(interactive=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
+            )
 
-        # Collect files
-        files = sorted(list(input_path.glob("*.jpg")) + list(input_path.glob("*.png")))
+        files = self._collect_batch_files(input_path)
         if not files:
-            return [], "No images found"
+            return (
+                [],
+                "No images found",
+                gr.update(interactive=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
+            )
 
-        # Build component set
-        components = set()
+        selected_components = self._build_batch_components(
+            skin, nose, eyes, mouth, hair
+        )
+        if not selected_components:
+            return (
+                [],
+                "No mask components selected",
+                gr.update(interactive=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
+            )
+
+        resolved_output = (
+            Path(output_dir)
+            if output_dir
+            else input_path.parent / f"{input_path.name}_masked"
+        )
+        request = {
+            "input_path": input_path,
+            "output_path": resolved_output,
+            "files": files,
+            "use_lora": use_lora,
+            "lora_weights": lora_weights,
+            "components": selected_components,
+            "erode": erode,
+            "dilate": dilate,
+            "blur": blur,
+        }
+
+        preview_items, preview_errors = self._generate_batch_preview(
+            files,
+            use_lora=use_lora,
+            lora_weights=lora_weights,
+            selected_components=selected_components,
+            erode=erode,
+            dilate=dilate,
+            blur=blur,
+        )
+
+        if preview:
+            self._pending_batch_request = request
+            msg = (
+                f"Preview ready ({len(preview_items)}/{len(files)}). "
+                f"Confirm to save results to: {resolved_output}"
+            )
+            if preview_errors > 0:
+                msg += f" | Skipped {preview_errors} files during preview"
+            return (
+                preview_items,
+                msg,
+                gr.update(interactive=False),
+                gr.update(visible=True),
+                gr.update(visible=True),
+            )
+
+        self._pending_batch_request = None
+        saved, failed = self._save_batch_request(request)
+        msg = (
+            f"Saved {saved}/{len(files)} images to {resolved_output}"
+            if failed == 0
+            else f"Saved {saved}/{len(files)} images to {resolved_output} | Failed: {failed}"
+        )
+        return (
+            preview_items,
+            msg,
+            gr.update(interactive=True),
+            gr.update(visible=False),
+            gr.update(visible=False),
+        )
+
+    def _confirm_batch(
+        self,
+    ) -> tuple[
+        list[tuple[np.ndarray, str]],
+        str,
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any],
+    ]:
+        """Confirm and save pending batch request."""
+        request = self._pending_batch_request
+        if request is None:
+            return (
+                [],
+                "No pending batch preview to confirm",
+                gr.update(interactive=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
+            )
+
+        self._pending_batch_request = None
+        saved, failed = self._save_batch_request(request)
+        preview_items, _ = self._generate_batch_preview(
+            request["files"],
+            use_lora=request["use_lora"],
+            lora_weights=request["lora_weights"],
+            selected_components=request["components"],
+            erode=request["erode"],
+            dilate=request["dilate"],
+            blur=request["blur"],
+        )
+        total = len(request["files"])
+        output_path = request["output_path"]
+        msg = (
+            f"Saved {saved}/{total} images to {output_path}"
+            if failed == 0
+            else f"Saved {saved}/{total} images to {output_path} | Failed: {failed}"
+        )
+        return (
+            preview_items,
+            msg,
+            gr.update(interactive=True),
+            gr.update(visible=False),
+            gr.update(visible=False),
+        )
+
+    def _cancel_batch(
+        self,
+    ) -> tuple[
+        list[tuple[np.ndarray, str]],
+        str,
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any],
+    ]:
+        """Cancel pending batch confirmation."""
+        self._pending_batch_request = None
+        return (
+            [],
+            "Batch preview cancelled",
+            gr.update(interactive=True),
+            gr.update(visible=False),
+            gr.update(visible=False),
+        )
+
+    @staticmethod
+    def _collect_batch_files(input_path: Path) -> list[Path]:
+        """Collect supported image files for batch operations."""
+        return sorted(
+            list(input_path.glob("*.jpg"))
+            + list(input_path.glob("*.jpeg"))
+            + list(input_path.glob("*.png"))
+        )
+
+    @staticmethod
+    def _build_batch_components(
+        skin: bool,
+        nose: bool,
+        eyes: bool,
+        mouth: bool,
+        hair: bool,
+    ) -> set[str]:
+        """Build selected segmentation component set."""
+        components: set[str] = set()
         if skin:
             components.add("skin")
         if nose:
             components.add("nose")
         if eyes:
-            components.update(["left_eye", "right_eye", "left_brow", "right_brow"])
+            components.update({"left_eye", "right_eye", "left_brow", "right_brow"})
         if mouth:
-            components.update(["mouth", "upper_lip", "lower_lip"])
+            components.update({"mouth", "upper_lip", "lower_lip"})
         if hair:
             components.add("hair")
+        return components
 
-        # Load segmenter (with optional LoRA)
-        if use_lora and lora_weights and Path(lora_weights).exists():
-            from visagen.vision.segmenter_lora import FaceSegmenterLoRA
+    def _build_batch_mask(
+        self,
+        image: np.ndarray,
+        *,
+        segmenter: Any,
+        selected_components: set[str],
+        erode: int,
+        dilate: int,
+        blur: int,
+    ) -> np.ndarray:
+        """Build refined mask from parsed segmentation output."""
+        parsing_dict = segmenter.get_parsing(image)
+        h, w = image.shape[:2]
+        parsing = np.zeros((h, w), dtype=np.uint8)
 
-            segmenter = FaceSegmenterLoRA(lora_weights=lora_weights)
-        else:
-            segmenter = self.segmenter
+        from visagen.vision.segmenter import LABEL_TO_ID
 
-        # Refinement config
+        for name, parsed_mask in parsing_dict.items():
+            if name in LABEL_TO_ID:
+                parsing[parsed_mask > 127] = LABEL_TO_ID[name]
+
         refine_config = MaskRefinementConfig(
             erode_size=erode,
             dilate_size=dilate,
             blur_size=blur,
         )
+        mask = MaskOperations.combine_component_masks(parsing, selected_components)
+        return MaskOperations.refine(mask, refine_config)
 
-        # Process files
-        preview_items = []
-        for file_path in files[:8]:  # Preview first 8
+    @staticmethod
+    def _build_overlay_preview(
+        image_bgr: np.ndarray,
+        mask: np.ndarray,
+    ) -> np.ndarray:
+        """Create RGB overlay preview for mask visualization."""
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        overlay = image_rgb.copy()
+        overlay[mask > 127, 1] = np.clip(
+            overlay[mask > 127, 1].astype(np.int32) + 80,
+            0,
+            255,
+        ).astype(np.uint8)
+        return overlay
+
+    def _resolve_batch_segmenter(
+        self,
+        *,
+        use_lora: bool,
+        lora_weights: str,
+    ) -> Any:
+        """Resolve default or LoRA-enabled segmenter."""
+        if use_lora and lora_weights and Path(lora_weights).exists():
+            from visagen.vision.segmenter_lora import FaceSegmenterLoRA
+
+            return FaceSegmenterLoRA(lora_weights=lora_weights)
+        return self.segmenter
+
+    def _generate_batch_preview(
+        self,
+        files: list[Path],
+        *,
+        use_lora: bool,
+        lora_weights: str,
+        selected_components: set[str],
+        erode: int,
+        dilate: int,
+        blur: int,
+    ) -> tuple[list[tuple[np.ndarray, str]], int]:
+        """Generate preview overlays for the first batch samples."""
+        segmenter = self._resolve_batch_segmenter(
+            use_lora=use_lora,
+            lora_weights=lora_weights,
+        )
+        preview_items: list[tuple[np.ndarray, str]] = []
+        errors = 0
+        for file_path in files[:8]:
             try:
                 image = cv2.imread(str(file_path))
                 if image is None:
+                    errors += 1
                     continue
-
-                # Get parsing (segment call not needed, just get_parsing)
-                parsing_dict = segmenter.get_parsing(image)
-
-                # Build parsing map
-                h, w = image.shape[:2]
-                parsing = np.zeros((h, w), dtype=np.uint8)
-                from visagen.vision.segmenter import LABEL_TO_ID
-
-                for name, mask in parsing_dict.items():
-                    if name in LABEL_TO_ID:
-                        parsing[mask > 127] = LABEL_TO_ID[name]
-
-                # Build mask
-                mask = MaskOperations.combine_component_masks(parsing, components)
-                mask = MaskOperations.refine(mask, refine_config)
-
-                # Create preview overlay
-                image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                overlay = image_rgb.copy()
-                overlay[mask > 127, 1] = np.clip(
-                    overlay[mask > 127, 1].astype(np.int32) + 80, 0, 255
-                ).astype(np.uint8)
-
-                preview_items.append((overlay, file_path.stem))
-
+                mask = self._build_batch_mask(
+                    image,
+                    segmenter=segmenter,
+                    selected_components=selected_components,
+                    erode=erode,
+                    dilate=dilate,
+                    blur=blur,
+                )
+                preview_items.append(
+                    (self._build_overlay_preview(image, mask), file_path.stem)
+                )
             except Exception as e:
-                logger.warning(f"Error processing {file_path}: {e}")
-                continue
+                logger.warning("Batch preview failed for %s: %s", file_path, e)
+                errors += 1
+        return preview_items, errors
 
-        return preview_items, f"Previewing {len(preview_items)}/{len(files)} images"
+    def _save_batch_result(
+        self,
+        *,
+        source_path: Path,
+        output_dir: Path,
+        image_bgr: np.ndarray,
+        mask: np.ndarray,
+    ) -> None:
+        """Save batch output with DFL mask when possible, fallback to sidecar mask."""
+        output_image = output_dir / source_path.name
+        try:
+            from visagen.vision.dflimg import DFLImage
+
+            if source_path.suffix.lower() in {".jpg", ".jpeg"}:
+                src_image, metadata = DFLImage.load(source_path)
+                if metadata is not None:
+                    mask_float = mask.astype(np.float32) / 255.0
+                    if mask_float.ndim == 2:
+                        mask_float = mask_float[..., np.newaxis]
+                    DFLImage.set_xseg_mask(metadata, mask_float)
+                    DFLImage.save(output_image, src_image, metadata)
+                    return
+        except Exception as e:
+            logger.debug("Falling back to sidecar mask for %s: %s", source_path, e)
+
+        cv2.imwrite(str(output_image), image_bgr)
+        mask_output = output_dir / f"{source_path.stem}_mask.png"
+        cv2.imwrite(str(mask_output), mask)
+
+    def _save_batch_request(self, request: dict[str, Any]) -> tuple[int, int]:
+        """Run full batch processing and persist outputs."""
+        files: list[Path] = request["files"]
+        output_path: Path = request["output_path"]
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        segmenter = self._resolve_batch_segmenter(
+            use_lora=request["use_lora"],
+            lora_weights=request["lora_weights"],
+        )
+
+        saved = 0
+        failed = 0
+        for file_path in files:
+            try:
+                image = cv2.imread(str(file_path))
+                if image is None:
+                    failed += 1
+                    continue
+                mask = self._build_batch_mask(
+                    image,
+                    segmenter=segmenter,
+                    selected_components=request["components"],
+                    erode=request["erode"],
+                    dilate=request["dilate"],
+                    blur=request["blur"],
+                )
+                self._save_batch_result(
+                    source_path=file_path,
+                    output_dir=output_path,
+                    image_bgr=image,
+                    mask=mask,
+                )
+                saved += 1
+            except Exception as e:
+                logger.warning("Batch apply failed for %s: %s", file_path, e)
+                failed += 1
+
+        return saved, failed

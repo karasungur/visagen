@@ -770,6 +770,18 @@ TRANSLATIONS = {
                 "label": "Bitiş Zamanı",
                 "info": "Format: SS:DD:SS veya saniye",
             },
+            "codec": {
+                "label": "Kodek",
+                "info": "Akış kopyalama için 'copy' kullanın veya yeniden kodlama kodeği seçin",
+            },
+            "audio_track": {
+                "label": "Ses Kanalı ID",
+                "info": "Korunacak ses akışı indeksi (varsayılan: 0)",
+            },
+            "bitrate": {
+                "label": "Bit Hızı (isteğe bağlı)",
+                "info": "Yalnızca kodek copy değilse kullanılır (örn. 16M)",
+            },
             "start": "Videoyu Kes",
             "log": {
                 "label": "Log",

@@ -770,6 +770,18 @@ TRANSLATIONS = {
                 "label": "End Time",
                 "info": "Format: HH:MM:SS or seconds",
             },
+            "codec": {
+                "label": "Codec",
+                "info": "Use 'copy' for stream copy or select a codec to re-encode",
+            },
+            "audio_track": {
+                "label": "Audio Track ID",
+                "info": "Audio stream index to keep (default: 0)",
+            },
+            "bitrate": {
+                "label": "Bitrate (optional)",
+                "info": "Used only when codec is not copy (e.g., 16M)",
+            },
             "start": "Cut Video",
             "log": {
                 "label": "Log",

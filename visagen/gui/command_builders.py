@@ -165,9 +165,12 @@ def build_video_cut_command(
     *,
     start_time: str,
     end_time: str,
+    codec: str = "copy",
+    audio_track_id: int = 0,
+    bitrate: str | None = None,
 ) -> list[str]:
     """Build command for `visagen.tools.video_ed cut`."""
-    return [
+    cmd = [
         sys.executable,
         "-m",
         "visagen.tools.video_ed",
@@ -179,6 +182,12 @@ def build_video_cut_command(
         "--end",
         end_time,
     ]
+    if codec:
+        cmd.extend(["--codec", codec])
+    cmd.extend(["--audio-track-id", str(max(0, int(audio_track_id)))])
+    if bitrate:
+        cmd.extend(["--bitrate", bitrate])
+    return cmd
 
 
 def build_video_denoise_command(

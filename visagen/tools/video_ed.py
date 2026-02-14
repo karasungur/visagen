@@ -544,6 +544,18 @@ def main() -> None:
     cut_parser.add_argument(
         "--codec", type=str, default="copy", help="Video codec (copy for stream copy)"
     )
+    cut_parser.add_argument(
+        "--audio-track-id",
+        type=int,
+        default=0,
+        help="Audio track index to map (default: 0)",
+    )
+    cut_parser.add_argument(
+        "--bitrate",
+        type=str,
+        default=None,
+        help="Target bitrate when re-encoding (e.g., 16M)",
+    )
 
     # Denoise command
     denoise_parser = subparsers.add_parser(
@@ -599,7 +611,9 @@ def main() -> None:
             args.output,
             args.start,
             args.end,
+            audio_track=args.audio_track_id,
             codec=args.codec,
+            bitrate=args.bitrate,
         )
         print(f"Cut video saved to: {args.output}")
 
