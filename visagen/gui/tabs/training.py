@@ -342,6 +342,11 @@ class TrainingTab(BaseTab):
                 value=self.i18n.t("status.no_training"),
                 interactive=False,
             )
+            components["tensorboard_path"] = gr.Textbox(
+                label="TensorBoard log directory",
+                value="",
+                interactive=False,
+            )
 
         components["preview_image"] = ImagePreview(
             ImagePreviewConfig(key="training.preview.image", height=400),
@@ -372,7 +377,7 @@ class TrainingTab(BaseTab):
         # Live control helper
         def send_live_param(key: str, value: Any, output_dir: str) -> None:
             """Send parameter update to running training process."""
-            if not output_dir or not self.state.processes.training:
+            if not output_dir or not self.state.processes.is_running("training"):
                 return
 
             # Debounce rapid updates
@@ -522,6 +527,13 @@ class TrainingTab(BaseTab):
             fn=self._refresh_preview,
             inputs=[c["output_dir"]],
             outputs=[c["preview_status"], c["preview_image"]],
+        )
+
+        c["output_dir"].change(
+            fn=lambda out: str(Path(out) / "logs") if out else "",
+            inputs=[c["output_dir"]],
+            outputs=[c["tensorboard_path"]],
+            show_progress=False,
         )
 
         # Preset events
@@ -801,30 +813,37 @@ class TrainingTab(BaseTab):
 
         yield f"Starting training...\n$ {' '.join(cmd)}\n"
 
+        process: subprocess.Popen | None = None
         try:
-            self.state.processes.training = subprocess.Popen(
+            process = self.state.processes.launch(
+                "training",
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
             )
+            if process is None:
+                yield "\n\nTraining is already running. Stop the active job first."
+                return
 
             # Stream output
-            if self.state.processes.training.stdout:
-                for line in iter(self.state.processes.training.stdout.readline, ""):
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
                     if line:
                         yield line
-                    if self.state.processes.training.poll() is not None:
+                    if process.poll() is not None:
                         break
 
-            remaining, _ = self.state.processes.training.communicate()
+            remaining, _ = process.communicate()
             if remaining:
                 yield remaining
 
-            exit_code = self.state.processes.training.returncode
+            exit_code = process.returncode
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
+            elif exit_code in {-15, -9, 143, 137}:
+                yield f"\n\n{self.i18n.t('status.stopped')}"
             else:
                 yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
 
@@ -833,7 +852,6 @@ class TrainingTab(BaseTab):
 
         finally:
             # Proper process cleanup with timeout
-            process = self.state.processes.training
             if process is not None:
                 if process.poll() is None:
                     process.terminate()
@@ -842,7 +860,7 @@ class TrainingTab(BaseTab):
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
-            self.state.processes.training = None
+                self.state.processes.clear_if("training", process)
 
     def _stop_training(self) -> str:
         """Stop training process."""

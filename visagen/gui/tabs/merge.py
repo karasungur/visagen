@@ -91,6 +91,7 @@ class MergeTab(BaseTab):
                             "idt",
                             "mix",
                             "hist-match",
+                            "neural",
                         ],
                         default="rct",
                     ),

@@ -288,7 +288,17 @@ class WizardTab(BaseTab):
                 with gr.Column():
                     components["merge_color_transfer"] = gr.Dropdown(
                         label=self.t("step4.color_transfer"),
-                        choices=["rct", "lct", "sot", "none"],
+                        choices=[
+                            "rct",
+                            "lct",
+                            "sot",
+                            "mkl",
+                            "idt",
+                            "mix",
+                            "hist-match",
+                            "neural",
+                            "none",
+                        ],
                         value="rct",
                     )
                 with gr.Column():
@@ -564,37 +574,66 @@ class WizardTab(BaseTab):
             )
             log_lines.append(f"Resolved argv: {' '.join(cmd)}")
 
+            process: subprocess.Popen | None = None
+            training_completed = False
             try:
-                self.state.processes.training = subprocess.Popen(
+                process = self.state.processes.launch(
+                    "training",
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
                 )
-
-                for line in iter(self.state.processes.training.stdout.readline, ""):
-                    log_lines.append(line.strip())
+                if process is None:
+                    log_lines.append("Training is already running. Stop it first.")
                     yield (
                         "\n".join(log_lines[-50:]),
                         gr.update(interactive=False),
                         gr.update(visible=False),
                     )
-                    if self.state.processes.training.poll() is not None:
-                        break
+                    return
 
-                self.state.processes.training.wait()
+                if process.stdout:
+                    for line in iter(process.stdout.readline, ""):
+                        log_lines.append(line.strip())
+                        yield (
+                            "\n".join(log_lines[-50:]),
+                            gr.update(interactive=False),
+                            gr.update(visible=False),
+                        )
+                        if process.poll() is not None:
+                            break
+
+                process.wait()
+                exit_code = process.returncode
+                if exit_code == 0:
+                    training_completed = True
+                elif exit_code in {-15, -9, 143, 137}:
+                    log_lines.append(self.t("step3.stopped"))
+                else:
+                    log_lines.append(f"Training failed with exit code: {exit_code}")
             except Exception as e:
                 log_lines.append(f"Error: {e}")
+            finally:
+                if process is not None:
+                    if process.poll() is None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait()
+                    self.state.processes.clear_if("training", process)
 
-            log_lines.append("")
-            log_lines.append("✅ Training completed!")
-            self._completed_steps.add(2)
-            self.state.processes.training = None
+            if training_completed:
+                log_lines.append("")
+                log_lines.append("✅ Training completed!")
+                self._completed_steps.add(2)
 
             yield (
                 "\n".join(log_lines[-50:]),
-                gr.update(interactive=True),
+                gr.update(interactive=training_completed),
                 gr.update(visible=False),
             )
 
@@ -606,10 +645,9 @@ class WizardTab(BaseTab):
 
         def stop_training():
             """Stop training process."""
-            if self.state.processes.training:
-                self.state.processes.training.terminate()
-                self.state.processes.training = None
-            return self.t("step3.stopped")
+            if self.state.processes.terminate("training"):
+                return self.t("step3.stopped")
+            return self.i18n.t("status.no_training")
 
         c["step3_stop"].click(
             fn=stop_training,

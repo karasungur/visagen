@@ -15,6 +15,7 @@ from pathlib import Path
 
 from visagen.merger.frame_processor import FrameProcessorConfig
 from visagen.merger.merger import FaceMerger, MergerConfig
+from visagen.merger.video_io import check_nvenc_available
 
 
 def parse_args() -> argparse.Namespace:
@@ -186,6 +187,11 @@ Examples:
         help="Disable hardware encoder (NVENC) even if available",
     )
     video.add_argument(
+        "--require-nvenc",
+        action="store_true",
+        help="Fail fast unless NVENC hardware encoding is available and selected",
+    )
+    video.add_argument(
         "--crf",
         type=int,
         default=18,
@@ -331,6 +337,20 @@ def build_config(args: argparse.Namespace) -> MergerConfig:
             "Warning: --no-hardware-encoder used with hardware codec, forcing libx264"
         )
         codec = "libx264"
+
+    if args.require_nvenc:
+        if args.no_hardware_encoder:
+            raise ValueError(
+                "--require-nvenc cannot be used with --no-hardware-encoder"
+            )
+        if not check_nvenc_available():
+            raise ValueError("NVENC is required but not available on this system.")
+        if codec == "auto":
+            codec = "h264_nvenc"
+        elif codec not in ("h264_nvenc", "hevc_nvenc"):
+            raise ValueError(
+                "--require-nvenc requires codec to be h264_nvenc, hevc_nvenc, or auto"
+            )
 
     # Build merger config
     config = MergerConfig(

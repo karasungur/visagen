@@ -122,6 +122,7 @@ class BatchTab(BaseTab):
                 value="0 / 0 (0%)",
                 interactive=False,
             )
+            components["refresh_timer"] = gr.Timer(value=1.0)
 
         # Control buttons
         with gr.Row():
@@ -298,6 +299,12 @@ class BatchTab(BaseTab):
         c["refresh_btn"].click(
             fn=refresh_table,
             outputs=[c["queue_table"], c["progress_text"]],
+        )
+
+        c["refresh_timer"].tick(
+            fn=refresh_table,
+            outputs=[c["queue_table"], c["progress_text"]],
+            show_progress=False,
         )
 
     @staticmethod

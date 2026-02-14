@@ -675,5 +675,18 @@ class CommandFileReaderCallback(Callback):
             if old_value != value:
                 setattr(pl_module, key, value)
                 logger.info(f"[Step {trainer.global_step}] {key} updated to {value}")
+                if key == "temporal_consistency_weight":
+                    temporal_loss = getattr(
+                        pl_module, "temporal_consistency_loss", None
+                    )
+                    if temporal_loss is not None and hasattr(temporal_loss, "weight"):
+                        old_weight = temporal_loss.weight
+                        if old_weight != value:
+                            temporal_loss.weight = value
+                            logger.info(
+                                "[Step %s] temporal_consistency_loss.weight synced to %s",
+                                trainer.global_step,
+                                value,
+                            )
         else:
             logger.warning(f"Module does not have attribute '{key}', cannot update")

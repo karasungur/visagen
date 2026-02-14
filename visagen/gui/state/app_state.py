@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -181,40 +182,97 @@ class ProcessState:
     benchmark: subprocess.Popen | None = None
 
     training_queue: queue.Queue = field(default_factory=queue.Queue)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def get(self, name: str) -> subprocess.Popen | None:
+        """Get process handle by name."""
+        with self._lock:
+            return getattr(self, name, None)
+
+    def is_running(self, name: str) -> bool:
+        """Return True when the named process exists and is still alive."""
+        proc = self.get(name)
+        return proc is not None and proc.poll() is None
+
+    def launch(
+        self,
+        name: str,
+        cmd: list[str],
+        **popen_kwargs: Any,
+    ) -> subprocess.Popen | None:
+        """
+        Launch subprocess for named slot if there is no active process.
+
+        Returns:
+            New process handle, or None when a live process already exists.
+        """
+        with self._lock:
+            current = getattr(self, name, None)
+            if current is not None:
+                if current.poll() is None:
+                    return None
+                # Clear stale exited handle before launching replacement.
+                setattr(self, name, None)
+
+            process = subprocess.Popen(cmd, **popen_kwargs)
+            setattr(self, name, process)
+            return process
+
+    def clear_if(self, name: str, expected: subprocess.Popen | None) -> bool:
+        """
+        Clear process slot only when current handle matches `expected`.
+
+        This prevents one caller from clearing a newer process that started later.
+        """
+        with self._lock:
+            current = getattr(self, name, None)
+            if current is expected:
+                setattr(self, name, None)
+                return True
+            return False
 
     def terminate_all(self) -> None:
         """Terminate all running processes."""
-        for proc_name in [
-            "training",
-            "merge",
-            "sort",
-            "export",
-            "extract",
-            "video_tools",
-            "faceset_tools",
-            "benchmark",
-        ]:
-            proc = getattr(self, proc_name)
-            if proc is not None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
+        with self._lock:
+            procs = {
+                proc_name: getattr(self, proc_name)
+                for proc_name in [
+                    "training",
+                    "merge",
+                    "sort",
+                    "export",
+                    "extract",
+                    "video_tools",
+                    "faceset_tools",
+                    "benchmark",
+                ]
+            }
+            for proc_name in procs:
                 setattr(self, proc_name, None)
 
-    def terminate(self, name: str) -> bool:
-        """Terminate a specific process by name."""
-        proc = getattr(self, name, None)
-        if proc is not None:
+        for proc in procs.values():
+            if proc is None:
+                continue
             proc.terminate()
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
+
+    def terminate(self, name: str) -> bool:
+        """Terminate a specific process by name."""
+        with self._lock:
+            proc = getattr(self, name, None)
+            if proc is None:
+                return False
             setattr(self, name, None)
-            return True
-        return False
+
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        return True
 
 
 @dataclass

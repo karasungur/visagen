@@ -79,6 +79,7 @@ class ExportTab(BaseTab):
                         key="export.precision",
                         choices=["fp32", "fp16", "int8"],
                         default="fp16",
+                        interactive=False,
                     ),
                     self.i18n,
                 ).build()
@@ -104,6 +105,12 @@ class ExportTab(BaseTab):
 
     def _setup_events(self, c: dict[str, Any]) -> None:
         """Wire up export event handlers."""
+        c["format"].change(
+            fn=lambda export_format: gr.update(interactive=export_format == "tensorrt"),
+            inputs=[c["format"]],
+            outputs=[c["precision"]],
+        )
+
         c["start_btn"].click(
             fn=self._start_export,
             inputs=[
@@ -144,14 +151,21 @@ class ExportTab(BaseTab):
             str(output_path) if output_path else "./model.onnx",
             "--format",
             export_format,
-            "--precision",
-            precision,
         ]
+        if export_format == "tensorrt":
+            cmd.extend(["--precision", precision])
 
         if validate:
             cmd.append("--validate")
 
-        yield f"Starting export...\n$ {' '.join(cmd)}\n"
+        info_note = ""
+        if export_format == "onnx":
+            info_note = (
+                "Note: Precision selection only applies to TensorRT builds; "
+                "ONNX export uses model defaults.\n"
+            )
+
+        yield f"Starting export...\n{info_note}$ {' '.join(cmd)}\n"
 
         try:
             self.state.processes.export = subprocess.Popen(
