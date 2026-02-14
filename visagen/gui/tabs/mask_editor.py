@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import cv2
 import gradio as gr
@@ -62,6 +62,7 @@ class MaskEditorTab(BaseTab):
         self._training_active: bool = False
         self._training_stop_timeout_sec: float = 5.0
         self._pending_batch_request: dict[str, Any] | None = None
+        self._batch_lock = threading.Lock()
 
     @property
     def segmenter(self) -> FaceSegmenter:
@@ -321,6 +322,65 @@ class MaskEditorTab(BaseTab):
             interactive=False,
         )
 
+        with gr.Accordion(self.t("annotation.title"), open=False):
+            with gr.Row():
+                components["annotation_input_dir"] = gr.Textbox(
+                    label=self.t("annotation.input_dir"),
+                    placeholder="./workspace/data_src/aligned",
+                )
+                components["annotation_output_path"] = gr.Textbox(
+                    label=self.t("annotation.output_path"),
+                    placeholder="./workspace/mask_annotations",
+                )
+
+            with gr.Row():
+                components["annotation_format"] = gr.Dropdown(
+                    label=self.t("annotation.format"),
+                    choices=["labelme", "coco"],
+                    value="labelme",
+                )
+                components["annotation_include_image_data"] = gr.Checkbox(
+                    label=self.t("annotation.include_image_data"),
+                    value=False,
+                )
+                components["annotation_min_area"] = gr.Slider(
+                    label=self.t("annotation.min_area"),
+                    minimum=0,
+                    maximum=5000,
+                    value=100,
+                    step=10,
+                )
+
+            components["annotation_export_btn"] = gr.Button(
+                self.t("annotation.export"),
+                variant="secondary",
+            )
+
+            with gr.Row():
+                components["annotation_import_path"] = gr.Textbox(
+                    label=self.t("annotation.import_path"),
+                    placeholder="./workspace/mask_annotations",
+                )
+                components["annotation_import_output_dir"] = gr.Textbox(
+                    label=self.t("annotation.import_output_dir"),
+                    placeholder="./workspace/data_src/aligned",
+                )
+                components["annotation_import_format"] = gr.Dropdown(
+                    label=self.t("annotation.import_format"),
+                    choices=["labelme", "coco"],
+                    value="labelme",
+                )
+
+            components["annotation_import_btn"] = gr.Button(
+                self.t("annotation.import"),
+                variant="secondary",
+            )
+            components["annotation_status"] = gr.Textbox(
+                label=self.t("annotation.status"),
+                interactive=False,
+                lines=2,
+            )
+
         return components
 
     def _setup_events(self, components: dict[str, Any]) -> None:
@@ -486,6 +546,28 @@ class MaskEditorTab(BaseTab):
                 c["confirm_batch_btn"],
                 c["cancel_batch_btn"],
             ],
+        )
+
+        c["annotation_export_btn"].click(
+            fn=self._export_annotations,
+            inputs=[
+                c["annotation_input_dir"],
+                c["annotation_output_path"],
+                c["annotation_format"],
+                c["annotation_include_image_data"],
+                c["annotation_min_area"],
+            ],
+            outputs=[c["annotation_status"]],
+        )
+
+        c["annotation_import_btn"].click(
+            fn=self._import_annotations,
+            inputs=[
+                c["annotation_import_path"],
+                c["annotation_import_output_dir"],
+                c["annotation_import_format"],
+            ],
+            outputs=[c["annotation_status"]],
         )
 
     # ============ Editor Handlers ============
@@ -803,95 +885,116 @@ class MaskEditorTab(BaseTab):
         dict[str, Any],
     ]:
         """Apply segmentation to batch of faces."""
-        input_path = Path(input_dir)
-        if not input_path.exists():
+        if not self._batch_lock.acquire(blocking=False):
             return (
                 [],
-                "Input directory not found",
+                "Batch operation already in progress",
                 gr.update(interactive=True),
                 gr.update(visible=False),
                 gr.update(visible=False),
             )
 
-        files = self._collect_batch_files(input_path)
-        if not files:
-            return (
-                [],
-                "No images found",
-                gr.update(interactive=True),
-                gr.update(visible=False),
-                gr.update(visible=False),
+        try:
+            if self._pending_batch_request is not None:
+                return (
+                    [],
+                    "Pending preview exists. Confirm or cancel before applying again.",
+                    gr.update(interactive=False),
+                    gr.update(visible=True),
+                    gr.update(visible=True),
+                )
+
+            input_path = Path(input_dir)
+            if not input_path.exists():
+                return (
+                    [],
+                    "Input directory not found",
+                    gr.update(interactive=True),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                )
+
+            files = self._collect_batch_files(input_path)
+            if not files:
+                return (
+                    [],
+                    "No images found",
+                    gr.update(interactive=True),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                )
+
+            selected_components = self._build_batch_components(
+                skin, nose, eyes, mouth, hair
+            )
+            if not selected_components:
+                return (
+                    [],
+                    "No mask components selected",
+                    gr.update(interactive=True),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                )
+
+            resolved_output = (
+                Path(output_dir)
+                if output_dir
+                else input_path.parent / f"{input_path.name}_masked"
+            )
+            request = {
+                "input_path": input_path,
+                "output_path": resolved_output,
+                "files": files,
+                "use_lora": use_lora,
+                "lora_weights": lora_weights,
+                "components": selected_components,
+                "erode": erode,
+                "dilate": dilate,
+                "blur": blur,
+            }
+
+            preview_items, preview_errors = self._generate_batch_preview(
+                files,
+                use_lora=use_lora,
+                lora_weights=lora_weights,
+                selected_components=selected_components,
+                erode=erode,
+                dilate=dilate,
+                blur=blur,
             )
 
-        selected_components = self._build_batch_components(
-            skin, nose, eyes, mouth, hair
-        )
-        if not selected_components:
-            return (
-                [],
-                "No mask components selected",
-                gr.update(interactive=True),
-                gr.update(visible=False),
-                gr.update(visible=False),
-            )
+            if preview:
+                self._pending_batch_request = request
+                msg = (
+                    f"Preview ready ({len(preview_items)}/{len(files)}). "
+                    f"Confirm to save results to: {resolved_output}"
+                )
+                if preview_errors > 0:
+                    msg += f" | Skipped {preview_errors} files during preview"
+                return (
+                    preview_items,
+                    msg,
+                    gr.update(interactive=False),
+                    gr.update(visible=True),
+                    gr.update(visible=True),
+                )
 
-        resolved_output = (
-            Path(output_dir)
-            if output_dir
-            else input_path.parent / f"{input_path.name}_masked"
-        )
-        request = {
-            "input_path": input_path,
-            "output_path": resolved_output,
-            "files": files,
-            "use_lora": use_lora,
-            "lora_weights": lora_weights,
-            "components": selected_components,
-            "erode": erode,
-            "dilate": dilate,
-            "blur": blur,
-        }
-
-        preview_items, preview_errors = self._generate_batch_preview(
-            files,
-            use_lora=use_lora,
-            lora_weights=lora_weights,
-            selected_components=selected_components,
-            erode=erode,
-            dilate=dilate,
-            blur=blur,
-        )
-
-        if preview:
-            self._pending_batch_request = request
+            self._pending_batch_request = None
+            saved, failed = self._save_batch_request(request)
             msg = (
-                f"Preview ready ({len(preview_items)}/{len(files)}). "
-                f"Confirm to save results to: {resolved_output}"
+                f"Saved {saved}/{len(files)} images to {resolved_output}"
+                if failed == 0
+                else f"Saved {saved}/{len(files)} images to {resolved_output} | Failed: {failed}"
             )
-            if preview_errors > 0:
-                msg += f" | Skipped {preview_errors} files during preview"
             return (
                 preview_items,
                 msg,
-                gr.update(interactive=False),
-                gr.update(visible=True),
-                gr.update(visible=True),
+                gr.update(interactive=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
             )
-
-        self._pending_batch_request = None
-        saved, failed = self._save_batch_request(request)
-        msg = (
-            f"Saved {saved}/{len(files)} images to {resolved_output}"
-            if failed == 0
-            else f"Saved {saved}/{len(files)} images to {resolved_output} | Failed: {failed}"
-        )
-        return (
-            preview_items,
-            msg,
-            gr.update(interactive=True),
-            gr.update(visible=False),
-            gr.update(visible=False),
-        )
+        finally:
+            self._batch_lock.release()
 
     def _confirm_batch(
         self,
@@ -903,41 +1006,53 @@ class MaskEditorTab(BaseTab):
         dict[str, Any],
     ]:
         """Confirm and save pending batch request."""
-        request = self._pending_batch_request
-        if request is None:
+        if not self._batch_lock.acquire(blocking=False):
             return (
                 [],
-                "No pending batch preview to confirm",
+                "Batch operation already in progress",
                 gr.update(interactive=True),
                 gr.update(visible=False),
                 gr.update(visible=False),
             )
 
-        self._pending_batch_request = None
-        saved, failed = self._save_batch_request(request)
-        preview_items, _ = self._generate_batch_preview(
-            request["files"],
-            use_lora=request["use_lora"],
-            lora_weights=request["lora_weights"],
-            selected_components=request["components"],
-            erode=request["erode"],
-            dilate=request["dilate"],
-            blur=request["blur"],
-        )
-        total = len(request["files"])
-        output_path = request["output_path"]
-        msg = (
-            f"Saved {saved}/{total} images to {output_path}"
-            if failed == 0
-            else f"Saved {saved}/{total} images to {output_path} | Failed: {failed}"
-        )
-        return (
-            preview_items,
-            msg,
-            gr.update(interactive=True),
-            gr.update(visible=False),
-            gr.update(visible=False),
-        )
+        try:
+            request = self._pending_batch_request
+            if request is None:
+                return (
+                    [],
+                    "No pending batch preview to confirm",
+                    gr.update(interactive=True),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                )
+
+            self._pending_batch_request = None
+            saved, failed = self._save_batch_request(request)
+            preview_items, _ = self._generate_batch_preview(
+                request["files"],
+                use_lora=request["use_lora"],
+                lora_weights=request["lora_weights"],
+                selected_components=request["components"],
+                erode=request["erode"],
+                dilate=request["dilate"],
+                blur=request["blur"],
+            )
+            total = len(request["files"])
+            output_path = request["output_path"]
+            msg = (
+                f"Saved {saved}/{total} images to {output_path}"
+                if failed == 0
+                else f"Saved {saved}/{total} images to {output_path} | Failed: {failed}"
+            )
+            return (
+                preview_items,
+                msg,
+                gr.update(interactive=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
+            )
+        finally:
+            self._batch_lock.release()
 
     def _cancel_batch(
         self,
@@ -949,14 +1064,248 @@ class MaskEditorTab(BaseTab):
         dict[str, Any],
     ]:
         """Cancel pending batch confirmation."""
-        self._pending_batch_request = None
-        return (
-            [],
-            "Batch preview cancelled",
-            gr.update(interactive=True),
-            gr.update(visible=False),
-            gr.update(visible=False),
-        )
+        if not self._batch_lock.acquire(blocking=False):
+            return (
+                [],
+                "Batch operation already in progress",
+                gr.update(interactive=False),
+                gr.update(visible=True),
+                gr.update(visible=True),
+            )
+
+        try:
+            self._pending_batch_request = None
+            return (
+                [],
+                "Batch preview cancelled",
+                gr.update(interactive=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
+            )
+        finally:
+            self._batch_lock.release()
+
+    @staticmethod
+    def _normalize_binary_mask(mask: np.ndarray) -> np.ndarray:
+        """Normalize input mask to uint8 binary format {0, 255}."""
+        if mask.ndim == 3:
+            mask = mask[..., 0]
+
+        if mask.dtype != np.uint8:
+            mask = mask.astype(np.float32)
+            max_val = float(mask.max()) if mask.size > 0 else 0.0
+            if max_val <= 1.0:
+                mask = mask * 255.0
+            mask = np.clip(mask, 0.0, 255.0).astype(np.uint8)
+
+        return cast(np.ndarray, np.where(mask > 127, 255, 0).astype(np.uint8))
+
+    def _load_mask_for_export(self, image_path: Path) -> np.ndarray | None:
+        """Load mask from sidecar file or embedded DFL metadata."""
+        sidecar = image_path.parent / f"{image_path.stem}_mask.png"
+        if sidecar.exists():
+            sidecar_mask = cv2.imread(str(sidecar), cv2.IMREAD_GRAYSCALE)
+            if sidecar_mask is not None:
+                return self._normalize_binary_mask(sidecar_mask)
+
+        if image_path.suffix.lower() not in {".jpg", ".jpeg"}:
+            return None
+
+        try:
+            from visagen.vision.dflimg import DFLImage
+
+            _image, metadata = DFLImage.load(image_path)
+            if metadata is None:
+                return None
+            mask = DFLImage.get_xseg_mask(metadata)
+            if mask is None:
+                return None
+            return self._normalize_binary_mask(mask)
+        except Exception as e:
+            logger.debug("Failed to load DFL mask from %s: %s", image_path, e)
+            return None
+
+    def _save_imported_mask(
+        self,
+        *,
+        image_name: str,
+        output_dir: Path,
+        mask: np.ndarray,
+    ) -> None:
+        """Persist imported mask as sidecar PNG and embed in DFL metadata when possible."""
+        output_dir.mkdir(parents=True, exist_ok=True)
+        normalized_mask = self._normalize_binary_mask(mask)
+        stem = Path(image_name).stem
+
+        sidecar = output_dir / f"{stem}_mask.png"
+        cv2.imwrite(str(sidecar), normalized_mask)
+
+        candidate_image = output_dir / Path(image_name).name
+        if candidate_image.suffix.lower() not in {".jpg", ".jpeg"}:
+            return
+        if not candidate_image.exists():
+            return
+
+        try:
+            from visagen.vision.dflimg import DFLImage
+
+            image, metadata = DFLImage.load(candidate_image)
+            if metadata is None:
+                return
+            DFLImage.set_xseg_mask(metadata, normalized_mask.astype(np.float32) / 255.0)
+            DFLImage.save(candidate_image, image, metadata)
+        except Exception as e:
+            logger.debug(
+                "Failed to embed imported mask into %s metadata: %s",
+                candidate_image,
+                e,
+            )
+
+    def _export_annotations(
+        self,
+        input_dir: str,
+        output_path: str,
+        format_name: str,
+        include_image_data: bool,
+        min_area: int,
+    ) -> str:
+        """Export masks to LabelMe or COCO annotations."""
+        input_path = Path(input_dir)
+        if not input_path.exists():
+            return f"Input directory not found: {input_dir}"
+
+        files = self._collect_batch_files(input_path)
+        if not files:
+            return "No images found for annotation export"
+
+        masks: dict[str, np.ndarray] = {}
+        for file_path in files:
+            mask = self._load_mask_for_export(file_path)
+            if mask is not None:
+                masks[file_path.name] = mask
+
+        if not masks:
+            return "No masks found in input directory (metadata or *_mask.png)"
+
+        min_area = int(min_area)
+        try:
+            if format_name == "labelme":
+                from visagen.vision.mask_export import export_labelme
+
+                out_dir = (
+                    Path(output_path)
+                    if output_path
+                    else input_path / "mask_annotations_labelme"
+                )
+                if out_dir.suffix.lower() == ".json":
+                    out_dir = out_dir.parent
+                out_dir.mkdir(parents=True, exist_ok=True)
+
+                exported = 0
+                for image_path in files:
+                    mask = masks.get(image_path.name)
+                    if mask is None:
+                        continue
+                    export_labelme(
+                        image_path=image_path,
+                        mask=mask,
+                        output_path=out_dir / f"{image_path.stem}.json",
+                        include_image_data=include_image_data,
+                        min_area=min_area,
+                    )
+                    exported += 1
+                return f"Exported {exported} LabelMe annotation files to {out_dir}"
+
+            if format_name == "coco":
+                from visagen.vision.mask_export import export_coco
+
+                out_file = (
+                    Path(output_path)
+                    if output_path
+                    else input_path / "annotations.json"
+                )
+                if out_file.suffix.lower() != ".json":
+                    out_file = out_file / "annotations.json"
+                ordered_paths = [p for p in files if p.name in masks]
+                ordered_masks = [masks[p.name] for p in ordered_paths]
+                export_coco(
+                    image_paths=ordered_paths,
+                    masks=ordered_masks,
+                    output_path=out_file,
+                    categories=["face"],
+                    min_area=min_area,
+                )
+                return f"Exported COCO annotations for {len(ordered_paths)} images to {out_file}"
+
+            return f"Unsupported annotation format: {format_name}"
+        except Exception as e:
+            return f"Annotation export failed: {e}"
+
+    def _import_annotations(
+        self,
+        annotation_path: str,
+        output_dir: str,
+        format_name: str,
+    ) -> str:
+        """Import LabelMe/COCO annotations and write masks."""
+        path = Path(annotation_path)
+        if not path.exists():
+            return f"Annotation path not found: {annotation_path}"
+
+        out_dir = Path(output_dir) if output_dir else path.parent
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            if format_name == "labelme":
+                from visagen.vision.mask_export import import_labelme
+
+                json_files = [path] if path.is_file() else sorted(path.glob("*.json"))
+                if not json_files:
+                    return f"No LabelMe JSON files found in {path}"
+
+                imported = 0
+                failed = 0
+                for json_file in json_files:
+                    try:
+                        mask, metadata = import_labelme(json_file)
+                        image_name = (
+                            metadata.get("image_path") or f"{json_file.stem}.jpg"
+                        )
+                        self._save_imported_mask(
+                            image_name=image_name,
+                            output_dir=out_dir,
+                            mask=mask,
+                        )
+                        imported += 1
+                    except Exception as e:
+                        logger.warning("LabelMe import failed for %s: %s", json_file, e)
+                        failed += 1
+
+                if failed:
+                    return f"Imported {imported} LabelMe masks to {out_dir} | Failed: {failed}"
+                return f"Imported {imported} LabelMe masks to {out_dir}"
+
+            if format_name == "coco":
+                from visagen.vision.mask_export import import_coco
+
+                if path.is_dir():
+                    path = path / "annotations.json"
+                if not path.exists():
+                    return f"COCO annotation file not found: {path}"
+
+                imported = 0
+                for image_name, (mask, _labels) in import_coco(path).items():
+                    self._save_imported_mask(
+                        image_name=image_name,
+                        output_dir=out_dir,
+                        mask=mask,
+                    )
+                    imported += 1
+                return f"Imported {imported} COCO masks to {out_dir}"
+
+            return f"Unsupported annotation format: {format_name}"
+        except Exception as e:
+            return f"Annotation import failed: {e}"
 
     @staticmethod
     def _collect_batch_files(input_path: Path) -> list[Path]:
@@ -1016,7 +1365,7 @@ class MaskEditorTab(BaseTab):
             blur_size=blur,
         )
         mask = MaskOperations.combine_component_masks(parsing, selected_components)
-        return MaskOperations.refine(mask, refine_config)
+        return cast(np.ndarray, MaskOperations.refine(mask, refine_config))
 
     @staticmethod
     def _build_overlay_preview(
@@ -1031,7 +1380,7 @@ class MaskEditorTab(BaseTab):
             0,
             255,
         ).astype(np.uint8)
-        return overlay
+        return cast(np.ndarray, overlay)
 
     def _resolve_batch_segmenter(
         self,

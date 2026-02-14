@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import gradio as gr
 
@@ -188,8 +188,10 @@ class BatchTab(BaseTab):
 
         def start_processing(checkpoint: str) -> str:
             """Start batch processing."""
-            if self.batch_queue.is_running():
-                return self.t("status.already_running")
+            if self.batch_queue.is_running() or self.state.processes.is_running(
+                "batch"
+            ):
+                return cast(str, self.t("status.already_running"))
 
             pending_items = [
                 item
@@ -198,11 +200,11 @@ class BatchTab(BaseTab):
             ]
             pending_count = len(pending_items)
             if pending_count == 0:
-                return self.t("status.no_pending")
+                return cast(str, self.t("status.no_pending"))
 
             if self._pending_merge_requires_checkpoint(pending_items):
                 if not checkpoint or not Path(checkpoint).exists():
-                    return self.i18n.t("errors.path_not_found")
+                    return cast(str, self.i18n.t("errors.path_not_found"))
 
             def process_item(item: BatchItem) -> None:
                 """Process a single batch item."""
@@ -223,33 +225,64 @@ class BatchTab(BaseTab):
                     raise ValueError(f"Unknown operation: {item.operation}")
                 logger.debug("Resolved argv: %s", " ".join(cmd))
 
-                item.process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                )
+                process: subprocess.Popen | None = None
+                try:
+                    process = self.state.processes.launch(
+                        "batch",
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                    )
+                    if process is None:
+                        raise RuntimeError(
+                            "Batch process is already running. Stop it before restarting."
+                        )
 
-                # Wait for completion
-                if item.process.stdout:
-                    for line in iter(item.process.stdout.readline, ""):
-                        if not line:
-                            break
-                        # Could parse progress from output here
-                        if item.process.poll() is not None:
-                            break
+                    item.process = process
 
-                item.process.wait()
+                    # Wait for completion while draining output to avoid pipe backpressure.
+                    if process.stdout:
+                        for line in iter(process.stdout.readline, ""):
+                            if not line:
+                                break
+                            if process.poll() is not None:
+                                break
 
-                if item.process.returncode != 0:
-                    item.status = BatchStatus.FAILED
-                    item.error = f"Exit code: {item.process.returncode}"
+                    remaining, _ = process.communicate()
+                    if remaining:
+                        logger.debug("Batch tail output (%s): %s", item.id, remaining)
+
+                    exit_code = process.returncode
+                    if item.status == BatchStatus.RUNNING and exit_code in {
+                        -15,
+                        -9,
+                        143,
+                        137,
+                    }:
+                        item.status = BatchStatus.CANCELLED
+                    elif item.status == BatchStatus.RUNNING and exit_code != 0:
+                        item.status = BatchStatus.FAILED
+                        item.error = f"Exit code: {exit_code}"
+                finally:
+                    if process is not None:
+                        if process.poll() is None:
+                            process.terminate()
+                            try:
+                                process.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                process.kill()
+                                process.wait()
+                        self.state.processes.clear_if("batch", process)
+                    item.process = None
 
             self.batch_queue.start(process_item)
-            return self.t("status.started", count=pending_count)
+            return cast(str, self.t("status.started", count=pending_count))
 
         def stop_processing() -> tuple[list[list[str]], str, str]:
             """Stop batch processing."""
+            self.state.processes.terminate("batch")
             self.batch_queue.stop()
             return (
                 self.batch_queue.get_table_data(),

@@ -1065,6 +1065,20 @@ TRANSLATIONS = {
             "preview_gallery": "Önizleme",
             "progress": "İlerleme",
         },
+        "annotation": {
+            "title": "Açıklama İçe/Dışa Aktar",
+            "input_dir": "Görüntü Dizini",
+            "output_path": "Dışa Aktarım Çıktısı (dizin veya .json)",
+            "format": "Dışa Aktarım Biçimi",
+            "include_image_data": "LabelMe JSON içinde görüntü verisini dahil et",
+            "min_area": "Minimum Poligon Alanı",
+            "export": "Açıklamaları Dışa Aktar",
+            "import_path": "Açıklama Girdisi (dizin veya dosya)",
+            "import_output_dir": "İçe Aktarım Çıktı Dizini",
+            "import_format": "İçe Aktarım Biçimi",
+            "import": "Maskeleri İçe Aktar",
+            "status": "Açıklama Durumu",
+        },
     },
     # Wizard sekmesi
     "wizard": {

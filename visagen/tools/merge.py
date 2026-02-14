@@ -156,7 +156,10 @@ Examples:
     restore.add_argument(
         "--restore-face",
         action="store_true",
-        help="Enable GFPGAN face restoration",
+        help=(
+            "Enable face restoration (GFPGAN by default; "
+            "falls back to GPEN when GFPGAN is unavailable)"
+        ),
     )
     restore.add_argument(
         "--restore-strength",

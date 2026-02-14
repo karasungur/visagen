@@ -180,6 +180,8 @@ class ProcessState:
     video_tools: subprocess.Popen | None = None
     faceset_tools: subprocess.Popen | None = None
     benchmark: subprocess.Popen | None = None
+    batch: subprocess.Popen | None = None
+    mask_editor_batch: subprocess.Popen | None = None
 
     training_queue: queue.Queue = field(default_factory=queue.Queue)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -245,6 +247,8 @@ class ProcessState:
                     "video_tools",
                     "faceset_tools",
                     "benchmark",
+                    "batch",
+                    "mask_editor_batch",
                 ]
             }
             for proc_name in procs:

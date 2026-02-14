@@ -1065,6 +1065,20 @@ TRANSLATIONS = {
             "preview_gallery": "Preview",
             "progress": "Progress",
         },
+        "annotation": {
+            "title": "Annotation Import/Export",
+            "input_dir": "Image Directory",
+            "output_path": "Export Output (dir or .json)",
+            "format": "Export Format",
+            "include_image_data": "Include image data in LabelMe JSON",
+            "min_area": "Minimum Polygon Area",
+            "export": "Export Annotations",
+            "import_path": "Annotation Input (dir or file)",
+            "import_output_dir": "Import Output Directory",
+            "import_format": "Import Format",
+            "import": "Import Masks",
+            "status": "Annotation Status",
+        },
     },
     # Wizard tab
     "wizard": {
