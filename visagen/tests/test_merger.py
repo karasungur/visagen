@@ -1077,3 +1077,86 @@ class TestMergeCLINVENC:
         assert config.codec == "libx264"
         captured = capsys.readouterr()
         assert "Warning" in captured.out or config.codec == "libx264"
+
+    def test_require_nvenc_auto_selects_hardware_codec(self, temp_dir, monkeypatch):
+        """Test --require-nvenc with auto codec picks h264_nvenc when available."""
+        from visagen.tools.merge import build_config, parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr("visagen.tools.merge.check_nvenc_available", lambda: True)
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--require-nvenc",
+            ],
+        )
+
+        args = parse_args()
+        config = build_config(args)
+        assert config.codec == "h264_nvenc"
+
+    def test_require_nvenc_fails_when_unavailable(self, temp_dir, monkeypatch):
+        """Test --require-nvenc fails fast when NVENC is unavailable."""
+        import pytest
+
+        from visagen.tools.merge import build_config, parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr("visagen.tools.merge.check_nvenc_available", lambda: False)
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--require-nvenc",
+            ],
+        )
+
+        args = parse_args()
+        with pytest.raises(ValueError, match="NVENC is required"):
+            build_config(args)
+
+    def test_require_nvenc_conflicts_with_no_hardware(self, temp_dir, monkeypatch):
+        """Test --require-nvenc cannot be combined with --no-hardware-encoder."""
+        import pytest
+
+        from visagen.tools.merge import build_config, parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr("visagen.tools.merge.check_nvenc_available", lambda: True)
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--require-nvenc",
+                "--no-hardware-encoder",
+            ],
+        )
+
+        args = parse_args()
+        with pytest.raises(ValueError, match="cannot be used"):
+            build_config(args)
