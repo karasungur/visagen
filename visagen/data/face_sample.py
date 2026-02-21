@@ -60,6 +60,36 @@ class FaceSample:
     packed_size: int | None = None
     _pitch_yaw_roll: tuple[float, float, float] | None = field(default=None, repr=False)
 
+    def read_raw_bytes(self) -> bytes:
+        """
+        Read raw encoded image bytes from disk or packed faceset.
+
+        Returns:
+            Encoded image bytes.
+
+        Raises:
+            FileNotFoundError: If source file does not exist.
+            ValueError: If packed faceset entry is invalid.
+        """
+        if (
+            self.packed_faceset_path is not None
+            and self.packed_offset is not None
+            and self.packed_size is not None
+        ):
+            with open(self.packed_faceset_path, "rb") as f:
+                f.seek(self.packed_offset, 0)
+                image_bytes = f.read(self.packed_size)
+            if len(image_bytes) != self.packed_size:
+                raise ValueError(
+                    "Invalid packed sample size at "
+                    f"{self.packed_faceset_path}:{self.packed_offset}"
+                )
+            return image_bytes
+
+        if not self.filepath.exists():
+            raise FileNotFoundError(f"Image not found: {self.filepath}")
+        return self.filepath.read_bytes()
+
     def load_image(self) -> np.ndarray:
         """
         Load BGR image from disk.
@@ -71,30 +101,11 @@ class FaceSample:
             FileNotFoundError: If image file doesn't exist.
             ValueError: If image cannot be loaded.
         """
-        if (
-            self.packed_faceset_path is not None
-            and self.packed_offset is not None
-            and self.packed_size is not None
-        ):
-            with open(self.packed_faceset_path, "rb") as f:
-                f.seek(self.packed_offset, 0)
-                image_bytes = f.read(self.packed_size)
-
-            image = cv2.imdecode(
-                np.frombuffer(image_bytes, dtype=np.uint8),
-                cv2.IMREAD_COLOR,
-            )
-            if image is None:
-                raise ValueError(
-                    "Failed to decode packed image data at "
-                    f"{self.packed_faceset_path}:{self.packed_offset}"
-                )
-            return image.astype(np.float32) / 255.0
-
-        if not self.filepath.exists():
-            raise FileNotFoundError(f"Image not found: {self.filepath}")
-
-        image = cv2.imread(str(self.filepath), cv2.IMREAD_COLOR)
+        image_bytes = self.read_raw_bytes()
+        image = cv2.imdecode(
+            np.frombuffer(image_bytes, dtype=np.uint8),
+            cv2.IMREAD_COLOR,
+        )
         if image is None:
             raise ValueError(f"Failed to load image: {self.filepath}")
 

@@ -22,7 +22,13 @@ from visagen.data.datamodule import (
 )
 from visagen.data.face_dataset import FaceDataset, PackedFacesetReader
 from visagen.data.face_sample import FaceSample
-from visagen.data.warp import gen_affine_params, gen_warp_params, warp_by_params
+from visagen.data.warp import (
+    gen_affine_params,
+    gen_legacy_warp_params,
+    gen_warp_params,
+    warp_by_params,
+    warp_legacy_by_params,
+)
 
 
 class TestFaceSample:
@@ -83,6 +89,51 @@ class TestFaceSample:
         assert loaded.shape == (16, 16, 3)
         assert loaded.dtype == np.float32
         assert 0 <= loaded.min() <= loaded.max() <= 1.0
+
+    def test_sample_reads_raw_bytes_from_packed_faceset_offset(self, tmp_path):
+        """FaceSample should expose encoded bytes from packed offsets."""
+        image = np.full((16, 16, 3), 90, dtype=np.uint8)
+        ok, encoded = cv2.imencode(".jpg", image)
+        assert ok
+        image_bytes = encoded.tobytes()
+
+        packed_path = tmp_path / "faceset.pak"
+        with open(packed_path, "wb") as f:
+            f.write(b"HEAD")
+            offset = f.tell()
+            f.write(image_bytes)
+            size = len(image_bytes)
+            f.write(b"TAIL")
+
+        sample = FaceSample(
+            filepath=tmp_path / "face.jpg",
+            face_type="whole_face",
+            shape=(16, 16, 3),
+            landmarks=np.zeros((68, 2), dtype=np.float32),
+            packed_faceset_path=packed_path,
+            packed_offset=offset,
+            packed_size=size,
+        )
+
+        raw = sample.read_raw_bytes()
+        assert raw == image_bytes
+
+    def test_sample_reads_raw_bytes_from_regular_path(self, tmp_path):
+        """FaceSample should expose encoded bytes from filesystem path."""
+        image = np.full((12, 12, 3), 150, dtype=np.uint8)
+        image_path = tmp_path / "face.jpg"
+        ok = cv2.imwrite(str(image_path), image)
+        assert ok
+
+        sample = FaceSample(
+            filepath=image_path,
+            face_type="whole_face",
+            shape=(12, 12, 3),
+            landmarks=np.zeros((68, 2), dtype=np.float32),
+        )
+
+        raw = sample.read_raw_bytes()
+        assert raw == image_path.read_bytes()
 
     def test_sample_landmarks_shape(self):
         """Test landmarks have correct shape."""
@@ -355,6 +406,18 @@ class TestWarpFunctions:
         assert "matrix" in params
         assert params["matrix"].shape == (2, 3)
 
+    def test_gen_legacy_warp_params_returns_legacy_keys(self):
+        params = gen_legacy_warp_params(256, rng=np.random.default_rng(42))
+        assert {"mapx", "mapy", "rmat", "flip", "w"} <= set(params.keys())
+        assert params["mapx"].shape == (256, 256)
+        assert params["mapy"].shape == (256, 256)
+
+    def test_warp_legacy_by_params_preserves_shape(self):
+        image = torch.rand(1, 3, 256, 256)
+        params = gen_legacy_warp_params(256, rng=np.random.default_rng(7))
+        warped = warp_legacy_by_params(image, params)
+        assert warped.shape == image.shape
+
 
 class TestFaceAugmentationPipeline:
     """Tests for augmentation pipeline."""
@@ -468,6 +531,20 @@ class TestFaceAugmentationPipeline:
         augmented, _ = pipeline(image)
 
         assert augmented.shape == (3, 128, 128)
+
+    def test_pipeline_supports_strict_warp_mode(self):
+        pipeline = FaceAugmentationPipeline(
+            target_size=64,
+            warp_mode="strict",
+            apply_color=False,
+        )
+        image = torch.rand(3, 64, 64)
+        mask = torch.ones(1, 64, 64)
+
+        aug_image, aug_mask = pipeline(image, mask)
+        assert aug_image.shape == image.shape
+        assert aug_mask is not None
+        assert aug_mask.shape == mask.shape
 
 
 class TestSimpleAugmentation:
