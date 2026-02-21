@@ -5,12 +5,15 @@ Extract and align faces from images and videos using
 InsightFace detection and SegFormer segmentation.
 """
 
+from __future__ import annotations
+
 import argparse
 import logging
 import sys
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
@@ -20,7 +23,9 @@ from visagen.vision.aligner import FaceAligner
 from visagen.vision.detector import FaceDetector
 from visagen.vision.dflimg import DFLImage, FaceMetadata
 from visagen.vision.face_type import FaceType
-from visagen.vision.segmenter import FaceSegmenter
+
+if TYPE_CHECKING:
+    from visagen.vision.segmenter import FaceSegmenter
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +168,8 @@ class FaceExtractor:
     def _ensure_segmenter(self) -> FaceSegmenter:
         """Lazy-load segmenter on first use."""
         if self.segmenter is None:
+            from visagen.vision.segmenter import FaceSegmenter
+
             self.segmenter = FaceSegmenter()
         return self.segmenter
 

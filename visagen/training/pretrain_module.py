@@ -132,7 +132,9 @@ class PretrainModule(DFLModule):
             src = first
             target = second
         else:
-            raise TypeError(f"Unsupported pretrain batch format: {type(first)}, {type(second)}")
+            raise TypeError(
+                f"Unsupported pretrain batch format: {type(first)}, {type(second)}"
+            )
 
         # Forward pass: encode and decode
         pred = self(src)
@@ -169,7 +171,9 @@ class PretrainModule(DFLModule):
             src = first
             target = second
         else:
-            raise TypeError(f"Unsupported pretrain batch format: {type(first)}, {type(second)}")
+            raise TypeError(
+                f"Unsupported pretrain batch format: {type(first)}, {type(second)}"
+            )
         pred = self(src)
 
         total_loss, loss_dict = self.compute_loss(pred, target)

@@ -733,7 +733,9 @@ class FaceAligner:
         target_mat = self.get_transform_mat(landmarks, output_size, target_face_type)
 
         # Transform corners from target space to global, then to source space
-        corners = np.array([(0, 0), (output_size, 0), (0, output_size)], dtype=np.float32)
+        corners = np.array(
+            [(0, 0), (output_size, 0), (0, output_size)], dtype=np.float32
+        )
 
         # Target corners in global space
         global_pts = transform_points(corners, target_mat, invert=True)
@@ -744,7 +746,9 @@ class FaceAligner:
         # Affine transform from source_pts to corners
         return cast(
             np.ndarray,
-            cv2.getAffineTransform(source_pts.astype(np.float32), corners.astype(np.float32)),
+            cv2.getAffineTransform(
+                source_pts.astype(np.float32), corners.astype(np.float32)
+            ),
         )
 
     def warp_between_face_types(

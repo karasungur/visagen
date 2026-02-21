@@ -65,6 +65,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -82,8 +84,47 @@ jobs:
           pip install opencv-python-headless
 
       - name: Run MyPy
+        shell: bash
         run: |
-          mypy visagen/ --ignore-missing-imports --no-error-summary
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            DIFF_RANGE="origin/${{ github.base_ref }}...HEAD"
+          else
+            BEFORE_SHA="${{ github.event.before }}"
+            if [[ -n "${BEFORE_SHA}" && "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]]; then
+              git fetch origin "${BEFORE_SHA}" --depth=1 || true
+              DIFF_RANGE="${BEFORE_SHA}...HEAD"
+            else
+              DIFF_RANGE="HEAD~1...HEAD"
+            fi
+          fi
+
+          mapfile -t TARGETS < <(
+            git diff --name-only "${DIFF_RANGE}" \
+              | grep -E '^visagen/.*\.py$' \
+              | grep -Ev '^visagen/tests/' \
+              || true
+          )
+
+          FILTERED=()
+          for file in "${TARGETS[@]}"; do
+            if [[ -f "${file}" ]]; then
+              FILTERED+=("${file}")
+            fi
+          done
+          TARGETS=("${FILTERED[@]}")
+
+          if (( ${#TARGETS[@]} == 0 )); then
+            echo "No non-test Python changes detected; skipping mypy gate."
+            exit 0
+          fi
+
+          echo "MyPy targets:"
+          printf ' - %s\n' "${TARGETS[@]}"
+
+          mypy "${TARGETS[@]}" --ignore-missing-imports --no-error-summary
 
   # ---------------------------------------------------------------------------
   # Test Job

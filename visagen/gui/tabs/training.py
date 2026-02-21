@@ -8,7 +8,7 @@ import sys
 import time
 from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import gradio as gr
 import numpy as np
@@ -570,10 +570,10 @@ class TrainingTab(BaseTab):
             )
 
         def show_save_dialog() -> dict:
-            return gr.update(visible=True)
+            return cast(dict[Any, Any], gr.update(visible=True))
 
         def hide_save_dialog() -> dict:
-            return gr.update(visible=False)
+            return cast(dict[Any, Any], gr.update(visible=False))
 
         def save_preset(
             name: str,

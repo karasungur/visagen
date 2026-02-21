@@ -550,7 +550,9 @@ class FrameProcessor:
             return lm
 
         if lm.shape[0] == 106:
-            return cast(np.ndarray, self.aligner.convert_106_to_68(lm).astype(np.float32))
+            return cast(
+                np.ndarray, self.aligner.convert_106_to_68(lm).astype(np.float32)
+            )
 
         if lm.shape[0] == 5:
             raise ValueError(
@@ -699,9 +701,7 @@ class FrameProcessor:
                 strength=1.0,  # Full strength for super resolution
                 model_version=self.config.restore_model_version,
             )
-            self._restorer = cast(
-                Any, FaceRestorer(restore_config, device=self.device)
-            )
+            self._restorer = cast(Any, FaceRestorer(restore_config, device=self.device))
 
         # Get original size
         h, w = swapped_face.shape[:2]
@@ -1117,8 +1117,10 @@ class FrameProcessor:
             magnitude, angle = cv2.cartToPolar(flow[..., 0], flow[..., 1])
 
             # Calculate average motion
-            motion_power = float(np.mean(magnitude))
-            motion_deg = float(np.degrees(np.mean(angle)))
+            magnitude_arr = np.asarray(magnitude, dtype=np.float32)
+            angle_arr = np.asarray(angle, dtype=np.float32)
+            motion_power = float(np.mean(magnitude_arr))
+            motion_deg = float(np.degrees(np.mean(angle_arr)))
 
             # Clamp motion power to reasonable range (0-50)
             motion_power = min(motion_power * 10, 50.0)  # Scale up for visibility

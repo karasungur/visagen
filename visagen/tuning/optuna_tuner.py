@@ -384,7 +384,7 @@ class OptunaTuner:
         if len(self.study.trials) == 0:
             raise ValueError("No trials completed. Run optimize() first.")
 
-        return self.study.best_params
+        return cast(dict[str, Any], self.study.best_params)
 
     def get_best_value(self) -> float:
         """
@@ -393,7 +393,7 @@ class OptunaTuner:
         Returns:
             Best objective value.
         """
-        return self.study.best_value
+        return cast(float, self.study.best_value)
 
     def get_trials_dataframe(self) -> Any:
         """

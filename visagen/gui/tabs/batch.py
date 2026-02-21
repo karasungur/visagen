@@ -7,14 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-import gradio as gr
-
 from visagen.gui.batch import BatchItem, BatchQueue, BatchStatus
 from visagen.gui.command_builders import build_extract_command, build_merge_command
-from visagen.gui.components import (
-    PathInput,
-    PathInputConfig,
-)
 from visagen.gui.tabs.base import BaseTab
 
 if TYPE_CHECKING:
@@ -46,6 +40,10 @@ class BatchTab(BaseTab):
 
     def _build_content(self) -> dict[str, Any]:
         """Build batch processing tab UI."""
+        import gradio as gr
+
+        from visagen.gui.components import PathInput, PathInputConfig
+
         components: dict[str, Any] = {}
 
         gr.Markdown(f"### {self.t('title')}")

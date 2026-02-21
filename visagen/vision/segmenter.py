@@ -16,14 +16,14 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
 
 from visagen.vision.cache import SegmentationCache
 
@@ -154,12 +154,13 @@ class FaceSegmenter:
         # Resolve model source
         model_source, local_only = self._resolve_model_source(model_name)
 
-        # Load model and processor
-        self.processor = SegformerImageProcessor.from_pretrained(
+        # Load model and processor lazily to keep module import optional.
+        processor_cls, model_cls = self._load_transformers()
+        self.processor = processor_cls.from_pretrained(
             model_source,
             local_files_only=local_only,
         )
-        self.model = SegformerForSemanticSegmentation.from_pretrained(
+        self.model = model_cls.from_pretrained(
             model_source,
             local_files_only=local_only,
         )
@@ -168,6 +169,22 @@ class FaceSegmenter:
 
         if self.use_half:
             self.model.half()
+
+    @staticmethod
+    def _load_transformers() -> tuple[Any, Any]:
+        """Import transformers classes on demand."""
+        try:
+            module = import_module("transformers")
+        except ImportError as exc:
+            raise ImportError(
+                "transformers package is required for FaceSegmenter. "
+                "Install with: pip install 'visagen[vision]'"
+            ) from exc
+
+        return (
+            module.SegformerImageProcessor,
+            module.SegformerForSemanticSegmentation,
+        )
 
     def _resolve_model_source(self, model_name: str | Path | None) -> tuple[str, bool]:
         """
@@ -293,12 +310,12 @@ class FaceSegmenter:
                 face_mask = cast(
                     np.ndarray,
                     cv2.adaptiveThreshold(
-                    mask_uint8,
-                    255,
-                    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                    cv2.THRESH_BINARY,
-                    11,
-                    2,
+                        mask_uint8,
+                        255,
+                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                        cv2.THRESH_BINARY,
+                        11,
+                        2,
                     ),
                 )
                 face_mask = face_mask.astype(np.float32)

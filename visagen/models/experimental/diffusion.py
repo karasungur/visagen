@@ -102,7 +102,7 @@ class TextureEncoder(nn.Module):
         Returns:
             Texture latent (B, latent_dim, H/8, W/8).
         """
-        vae = self._load_vae().to(x.device)
+        vae = cast(Any, self._load_vae().to(x.device))
 
         with torch.no_grad():
             # VAE encode: (B, 3, H, W) -> (B, 4, H/8, W/8)

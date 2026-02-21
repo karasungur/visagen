@@ -525,9 +525,7 @@ def color_transfer_idt(
             lo = min(d0r[j].min(), d1r[j].min())
             hi = max(d0r[j].max(), d1r[j].max())
 
-            p0r, edges = np.histogram(
-                d0r[j], bins=bins, range=(float(lo), float(hi))
-            )
+            p0r, edges = np.histogram(d0r[j], bins=bins, range=(float(lo), float(hi)))
             p1r, _ = np.histogram(d1r[j], bins=bins, range=(float(lo), float(hi)))
 
             # Cumulative histograms

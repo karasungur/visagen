@@ -118,7 +118,7 @@ def safe_gaussian_blur2d(
         if sig.dim() == 2 and sig.shape[0] == 1 and b > 1:
             sig = sig.expand(b, -1)
 
-        return kornia.filters.gaussian_blur2d(x, ks, sig)
+        return cast(torch.Tensor, kornia.filters.gaussian_blur2d(x, ks, sig))
     except ImportError:
         return _gaussian_blur2d_native(x, kernel_size, sigma)
 
@@ -208,7 +208,7 @@ class DSSIMLoss(nn.Module):
         c2 = (self.k2 * self.max_val) ** 2
 
         # Expand kernel for all channels (ensure dtype matches for AMP)
-        kernel = self.kernel.to(dtype=pred.dtype).repeat(c, 1, 1, 1)
+        kernel = cast(torch.Tensor, self.kernel).to(dtype=pred.dtype).repeat(c, 1, 1, 1)
 
         # Compute means using depthwise convolution
         mu1 = F.conv2d(pred, kernel, padding=0, groups=c)
@@ -1069,7 +1069,10 @@ class GANLoss(nn.Module):
         self, prediction: torch.Tensor, target_is_real: bool
     ) -> torch.Tensor:
         """Create target tensor with same shape as prediction."""
-        target_val = self.real_label if target_is_real else self.fake_label
+        target_val = cast(
+            torch.Tensor,
+            self.real_label if target_is_real else self.fake_label,
+        )
         return cast(torch.Tensor, target_val.expand_as(prediction))
 
     def forward(
@@ -1311,7 +1314,10 @@ class TemporalGANLoss(nn.Module):
         self, prediction: torch.Tensor, target_is_real: bool
     ) -> torch.Tensor:
         """Create target tensor with same shape as prediction."""
-        target_val = self.real_label if target_is_real else self.fake_label
+        target_val = cast(
+            torch.Tensor,
+            self.real_label if target_is_real else self.fake_label,
+        )
         return cast(torch.Tensor, target_val.expand_as(prediction))
 
     def forward(

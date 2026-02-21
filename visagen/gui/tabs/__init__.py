@@ -1,20 +1,37 @@
-"""GUI Tabs package."""
+"""GUI tabs package with lazy-loaded tab classes."""
+
+from importlib import import_module
+from typing import Any
 
 from .base import BaseTab, TabProtocol
-from .batch import BatchTab
-from .compare import CompareTab
-from .export import ExportTab
-from .extract import ExtractTab
-from .faceset_tools import FacesetToolsTab
-from .inference import InferenceTab
-from .interactive_merge import InteractiveMergeTab
-from .merge import MergeTab
-from .postprocess import PostprocessTab
-from .settings import SettingsTab
-from .sort import SortTab
-from .training import TrainingTab
-from .video_tools import VideoToolsTab
-from .wizard import WizardTab
+
+_TAB_MODULES: dict[str, str] = {
+    "BatchTab": "batch",
+    "CompareTab": "compare",
+    "ExportTab": "export",
+    "ExtractTab": "extract",
+    "FacesetToolsTab": "faceset_tools",
+    "InferenceTab": "inference",
+    "InteractiveMergeTab": "interactive_merge",
+    "MergeTab": "merge",
+    "PostprocessTab": "postprocess",
+    "SettingsTab": "settings",
+    "SortTab": "sort",
+    "TrainingTab": "training",
+    "VideoToolsTab": "video_tools",
+    "WizardTab": "wizard",
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily resolve tab classes to avoid eager optional GUI imports."""
+    if name in _TAB_MODULES:
+        module = import_module(f"{__name__}.{_TAB_MODULES[name]}")
+        value = getattr(module, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 __all__ = [
     "BaseTab",

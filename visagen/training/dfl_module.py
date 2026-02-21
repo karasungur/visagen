@@ -296,9 +296,7 @@ class DFLModule(pl.LightningModule):
 
             eg3d_latent_dim = int(self.hparams.get("eg3d_latent_dim", 512))
             eg3d_plane_channels = int(self.hparams.get("eg3d_plane_channels", 32))
-            eg3d_render_resolution = int(
-                self.hparams.get("eg3d_render_resolution", 64)
-            )
+            eg3d_render_resolution = int(self.hparams.get("eg3d_render_resolution", 64))
 
             self.encoder = EG3DEncoder(
                 latent_dim=eg3d_latent_dim,

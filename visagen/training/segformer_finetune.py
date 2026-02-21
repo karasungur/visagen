@@ -193,7 +193,10 @@ class SegFormerFinetuneModule(pl.LightningModule):
         labels: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         """Forward pass through LoRA model."""
-        return cast(dict[str, torch.Tensor], self.lora_model(pixel_values=pixel_values, labels=labels))
+        return cast(
+            dict[str, torch.Tensor],
+            self.lora_model(pixel_values=pixel_values, labels=labels),
+        )
 
     def training_step(
         self,

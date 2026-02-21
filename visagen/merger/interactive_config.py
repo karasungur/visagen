@@ -64,9 +64,7 @@ SHARPEN_MODES = {
 }
 
 # Merge mode -> FrameProcessor mapping
-_MODE_TO_PROCESSOR: dict[
-    str, tuple[str, str | None] | tuple[str, str | None, bool]
-] = {
+_MODE_TO_PROCESSOR: dict[str, tuple[str, str | None] | tuple[str, str | None, bool]] = {
     "original": ("laplacian", None, True),
     "overlay": ("laplacian", None),
     "hist-match": ("laplacian", "hist-match"),

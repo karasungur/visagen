@@ -69,13 +69,16 @@ def morph_code(
     """
     if training:
         # Random binomial morphing during training
-        binomial = torch.distributions.Binomial(1, morph_factor).sample(
-            code_src.shape[:1]
+        probs = torch.full(
+            code_src.shape[:1],
+            float(morph_factor),
+            device=code_src.device,
+            dtype=code_src.dtype,
         )
+        binomial = torch.bernoulli(probs)
         # Expand to match code dimensions
         while binomial.dim() < code_src.dim():
             binomial = binomial.unsqueeze(-1)
-        binomial = binomial.to(code_src.device)
         return cast(torch.Tensor, code_src * binomial + code_dst * (1 - binomial))
     else:
         # Controlled morphing during inference

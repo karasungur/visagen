@@ -36,7 +36,7 @@ def linear_motion_blur(
     kernel_size = min(max(kernel_size, 2), 50)
 
     # Create horizontal line kernel
-    k = np.zeros((kernel_size, kernel_size), dtype=np.float32)
+    k: np.ndarray = np.zeros((kernel_size, kernel_size), dtype=np.float32)
     k[(kernel_size - 1) // 2, :] = np.ones(kernel_size, dtype=np.float32)
 
     # Rotate kernel by angle

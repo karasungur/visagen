@@ -347,9 +347,7 @@ class BatchProcessor:
                 continue
 
             output_path = output_dir / f"{item.frame_idx:06d}.png"
-            input_queue.put(
-                (item.frame_idx, str(item.frame_path), str(output_path))
-            )
+            input_queue.put((item.frame_idx, str(item.frame_path), str(output_path)))
 
         # Collect results
         results = []

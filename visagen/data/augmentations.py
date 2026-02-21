@@ -595,7 +595,7 @@ def linear_motion_blur(
     Returns:
         Motion-blurred image.
     """
-    k = np.zeros((size, size), dtype=np.float32)
+    k: np.ndarray = np.zeros((size, size), dtype=np.float32)
     k[(size - 1) // 2, :] = np.ones(size, dtype=np.float32)
     M = cv2.getRotationMatrix2D((size / 2 - 0.5, size / 2 - 0.5), angle, 1.0)
     k = cast(np.ndarray, cv2.warpAffine(k, M, (size, size)))

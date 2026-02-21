@@ -726,7 +726,7 @@ class EG3DGenerator(nn.Module):
                 CameraParams.from_euler().unsqueeze(0).expand(B, -1, -1).to(device)
             )
         if intrinsics is None:
-            intrinsics = self.default_intrinsics
+            intrinsics = cast(torch.Tensor, self.default_intrinsics)
 
         # Generate tri-plane
         triplane = self.triplane_gen(z)

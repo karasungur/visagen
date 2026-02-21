@@ -142,7 +142,9 @@ if TORCH_AVAILABLE and TORCHVISION_AVAILABLE:
             """
             # Normalize input
             if self.use_input_norm:
-                x = (x - self.mean) / self.std
+                mean = cast(torch.Tensor, self.mean)
+                std = cast(torch.Tensor, self.std)
+                x = (x - mean) / std
 
             features = {}
             for i, layer in enumerate(self.features):

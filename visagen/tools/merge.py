@@ -449,12 +449,8 @@ def main() -> int:
         print(f"  Color transfer: {fp_cfg.color_transfer_mode}")
         print(f"  Blend mode: {fp_cfg.blend_mode}")
         if fp_cfg.restore_face:
-            print(
-                f"  Face restoration: GFPGAN v{fp_cfg.restore_model_version}"
-            )
-            print(
-                f"  Restore strength: {fp_cfg.restore_strength}"
-            )
+            print(f"  Face restoration: GFPGAN v{fp_cfg.restore_model_version}")
+            print(f"  Restore strength: {fp_cfg.restore_strength}")
         print(f"  Encoder: {config.codec}")
         print()
 

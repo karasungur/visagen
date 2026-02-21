@@ -472,7 +472,8 @@ def denoise_sequence(
 
         # Apply temporal median
         stacked = np.stack(frames, axis=0)
-        result = np.median(stacked, axis=0).astype(np.uint8)
+        stacked_f32 = np.asarray(stacked, dtype=np.float32)
+        result = np.median(stacked_f32, axis=0).astype(np.uint8)
 
         # Save result
         output_path = output_dir / files[idx].name

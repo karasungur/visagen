@@ -42,7 +42,8 @@ class Polygon:
             poly_type: Type of polygon (INCLUDE or EXCLUDE).
         """
         self.type = poly_type
-        self._points = np.empty((0, 2), dtype=np.float32)
+        # Keep shape dynamic for edit operations (append/insert/remove).
+        self._points: np.ndarray = np.empty((0, 2), dtype=np.float32)
         self._n = 0  # Current position (undo pointer)
 
     @property
@@ -338,7 +339,7 @@ class PolygonSet:
         # Sort to ensure correct order
         sorted_polys = sorted(
             self.polygons,
-            key=lambda p: (0 if p.type == PolyType.INCLUDE else 1),
+            key=lambda p: 0 if p.type == PolyType.INCLUDE else 1,
         )
 
         for poly in sorted_polys:
@@ -365,7 +366,7 @@ class PolygonSet:
 
         sorted_polys = sorted(
             self.polygons,
-            key=lambda p: (0 if p.type == PolyType.INCLUDE else 1),
+            key=lambda p: 0 if p.type == PolyType.INCLUDE else 1,
         )
 
         for poly in sorted_polys:

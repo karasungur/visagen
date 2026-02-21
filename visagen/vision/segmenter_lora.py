@@ -196,7 +196,10 @@ class SegFormerLoRA(nn.Module):
         labels: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         """Forward pass through the model."""
-        return cast(dict[str, torch.Tensor], self.model(pixel_values=pixel_values, labels=labels))
+        return cast(
+            dict[str, torch.Tensor],
+            self.model(pixel_values=pixel_values, labels=labels),
+        )
 
     def get_trainable_params(self) -> Iterator[nn.Parameter]:
         """Get only LoRA trainable parameters."""
