@@ -147,7 +147,11 @@ class DALIFaceDataModule(pl.LightningDataModule):
     def _setup_fallback(self, stage: str | None = None) -> None:
         """Set up fallback PyTorch DataLoader."""
         if self._fallback_dm is None:
-            aug_config = self.augmentation_config
+            aug_config = (
+                dict(self.augmentation_config)
+                if self.augmentation_config is not None
+                else None
+            )
             if not self.augment:
                 # Explicitly disable all augmentations for parity with `augment=False`.
                 aug_config = {
@@ -160,6 +164,10 @@ class DALIFaceDataModule(pl.LightningDataModule):
                     "brightness_range": 0.0,
                     "contrast_range": 0.0,
                 }
+            if self.dali_warp_mode == "strict":
+                if aug_config is None:
+                    aug_config = {}
+                aug_config["warp_mode"] = "strict"
             self._fallback_dm = FaceDataModule(
                 src_dir=self.src_dir,
                 dst_dir=self.dst_dir,
@@ -199,6 +207,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
             shard_id=self.shard_id,
             num_shards=self.num_shards,
             warp_mode=self.dali_warp_mode,
+            allow_packed_faceset=self.allow_packed_faceset,
         )
 
         return DALIIteratorWrapper(self._train_iterator)
@@ -229,6 +238,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
             shard_id=self.shard_id,
             num_shards=self.num_shards,
             warp_mode=self.dali_warp_mode,
+            allow_packed_faceset=self.allow_packed_faceset,
         )
 
         return DALIIteratorWrapper(self._val_iterator)
@@ -279,8 +289,18 @@ class DALIIteratorWrapper:
     def __len__(self):
         """Return epoch size."""
         if self._epoch_size is None:
-            self._epoch_size = self.dali_iterator.epoch_size("src_reader")
-        return self._epoch_size // self.dali_iterator.batch_size
+            try:
+                self._epoch_size = int(self.dali_iterator.epoch_size("src_reader"))
+            except Exception:
+                size = getattr(self.dali_iterator, "_size", None)
+                if isinstance(size, (list, tuple)) and len(size) > 0:
+                    size = size[0]
+                if size is None:
+                    raise RuntimeError(
+                        "Unable to determine DALI iterator epoch size."
+                    ) from None
+                self._epoch_size = int(size)
+        return int(self._epoch_size) // int(self.dali_iterator.batch_size)
 
     def reset(self):
         """Reset iterator for new epoch."""
@@ -349,7 +369,7 @@ def create_dali_datamodule(
 
     if force_pytorch or not check_dali_available():
         # Use standard PyTorch DataModule
-        aug_config = augmentation_config
+        aug_config = dict(augmentation_config) if augmentation_config is not None else None
         if not augment:
             aug_config = {
                 "random_flip_prob": 0.0,
@@ -361,6 +381,10 @@ def create_dali_datamodule(
                 "brightness_range": 0.0,
                 "contrast_range": 0.0,
             }
+        if dali_warp_mode == "strict":
+            if aug_config is None:
+                aug_config = {}
+            aug_config["warp_mode"] = "strict"
         return FaceDataModule(
             src_dir=src_dir,
             dst_dir=dst_dir,
