@@ -7,6 +7,7 @@ temporal discriminator training.
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 import cv2
 import numpy as np
@@ -14,25 +15,64 @@ import torch
 from torch.utils.data import Dataset
 
 
+def _scan_image_paths(root_dir: Path) -> list[Path]:
+    """Scan a flat directory for supported image files."""
+    extensions = {".jpg", ".jpeg", ".png"}
+    paths: list[Path] = []
+
+    for ext in extensions:
+        paths.extend(root_dir.glob(f"*{ext}"))
+        paths.extend(root_dir.glob(f"*{ext.upper()}"))
+
+    return sorted(set(paths))
+
+
+def _source_filename_sort_key(path: Path) -> tuple[str, str]:
+    """Sort key using DFL metadata source filename with filename fallback."""
+    fallback = path.stem
+    if path.suffix.lower() not in {".jpg", ".jpeg"}:
+        return fallback, path.name
+
+    try:
+        from visagen.vision.dflimg import DFLImage
+
+        with open(path, "rb") as f:
+            data = f.read()
+        parsed = DFLImage._parse_jpeg_metadata(data)
+        if isinstance(parsed, dict):
+            source_filename = str(parsed.get("source_filename") or fallback)
+            return source_filename, path.name
+    except Exception:
+        pass
+
+    return fallback, path.name
+
+
+def _sort_image_paths(
+    paths: list[Path],
+    sort_mode: Literal["source_filename", "stem"],
+) -> list[Path]:
+    """Sort image paths according to requested temporal ordering mode."""
+    if sort_mode == "source_filename":
+        return sorted(paths, key=_source_filename_sort_key)
+    return sorted(paths, key=lambda p: (p.stem, p.name))
+
+
 class SequenceFaceDataset(Dataset):
     """
     Dataset for loading consecutive frame sequences.
 
     Loads T consecutive frames from video-extracted facesets.
-    Assumes frames are named with sortable indices (e.g., 00001.jpg, 00002.jpg).
 
     Args:
         root_dir: Directory containing aligned face images.
         sequence_length: Number of consecutive frames per sample. Default: 5.
         target_size: Output image size. Default: 256.
-        stride: Skip frames between sequences for data augmentation. Default: 1.
+        stride: Skip frames between sequence starts. Default: 1.
         transform: Optional augmentation transform.
-
-    Example:
-        >>> dataset = SequenceFaceDataset("aligned/", sequence_length=5)
-        >>> sample = dataset[0]
-        >>> sample['sequence'].shape
-        torch.Size([3, 5, 256, 256])
+        sort_mode: Temporal ordering source:
+            - "source_filename": Prefer DFL metadata source filename (legacy parity)
+            - "stem": Filename stem order fallback behavior
     """
 
     def __init__(
@@ -42,6 +82,7 @@ class SequenceFaceDataset(Dataset):
         target_size: int = 256,
         stride: int = 1,
         transform: Callable | None = None,
+        sort_mode: Literal["source_filename", "stem"] = "source_filename",
     ) -> None:
         super().__init__()
 
@@ -50,8 +91,12 @@ class SequenceFaceDataset(Dataset):
         self.target_size = target_size
         self.stride = stride
         self.transform = transform
+        self.sort_mode = sort_mode
 
-        # Scan and sort images by name
+        if self.stride <= 0:
+            raise ValueError(f"stride must be > 0, got {self.stride}")
+
+        # Scan and sort images by requested temporal ordering mode.
         self.image_paths = self._scan_directory()
 
         if len(self.image_paths) < sequence_length:
@@ -64,16 +109,9 @@ class SequenceFaceDataset(Dataset):
         self.valid_starts = self._compute_valid_starts()
 
     def _scan_directory(self) -> list[Path]:
-        """Scan directory for images and sort by name."""
-        extensions = {".jpg", ".jpeg", ".png"}
-        paths: list[Path] = []
-
-        for ext in extensions:
-            paths.extend(self.root_dir.glob(f"*{ext}"))
-            paths.extend(self.root_dir.glob(f"*{ext.upper()}"))
-
-        # Sort by filename to maintain frame order
-        return sorted(paths, key=lambda p: p.stem)
+        """Scan directory for images and sort according to `sort_mode`."""
+        paths = _scan_image_paths(self.root_dir)
+        return _sort_image_paths(paths, self.sort_mode)
 
     def _compute_valid_starts(self) -> list[int]:
         """Compute valid sequence start indices based on stride."""
@@ -113,14 +151,12 @@ class SequenceFaceDataset(Dataset):
 
     def _load_frame(self, path: Path) -> torch.Tensor:
         """Load and preprocess a single frame."""
-        # Load image
         image = cv2.imread(str(path), cv2.IMREAD_COLOR)
         if image is None:
             raise ValueError(f"Failed to load image: {path}")
 
         image = image.astype(np.float32) / 255.0
 
-        # Resize if needed
         h, w = image.shape[:2]
         if h != self.target_size or w != self.target_size:
             image = cv2.resize(
@@ -129,11 +165,9 @@ class SequenceFaceDataset(Dataset):
                 interpolation=cv2.INTER_CUBIC,
             )
 
-        # BGR to RGB, HWC to CHW
         image = image[:, :, ::-1].copy()
         image = np.transpose(image, (2, 0, 1))
 
-        # Convert to tensor and normalize to [-1, 1]
         tensor = torch.from_numpy(image)
         tensor = tensor * 2 - 1
 
@@ -152,14 +186,9 @@ class PairedSequenceDataset(Dataset):
         dst_dir: Directory containing destination face sequences.
         sequence_length: Number of consecutive frames. Default: 5.
         target_size: Output size. Default: 256.
-        stride: Skip frames between sequences. Default: 1.
+        stride: Skip frames between sequence starts. Default: 1.
         transform: Optional augmentation.
-
-    Example:
-        >>> dataset = PairedSequenceDataset("src/", "dst/", sequence_length=5)
-        >>> src_seq, dst_seq = dataset[0]
-        >>> src_seq.shape
-        torch.Size([3, 5, 256, 256])
+        sort_mode: Temporal ordering mode for both src and dst.
     """
 
     def __init__(
@@ -170,6 +199,7 @@ class PairedSequenceDataset(Dataset):
         target_size: int = 256,
         stride: int = 1,
         transform: Callable | None = None,
+        sort_mode: Literal["source_filename", "stem"] = "source_filename",
     ) -> None:
         super().__init__()
 
@@ -179,6 +209,7 @@ class PairedSequenceDataset(Dataset):
             target_size=target_size,
             stride=stride,
             transform=transform,
+            sort_mode=sort_mode,
         )
 
         self.dst_dataset = SequenceFaceDataset(
@@ -187,6 +218,7 @@ class PairedSequenceDataset(Dataset):
             target_size=target_size,
             stride=stride,
             transform=transform,
+            sort_mode=sort_mode,
         )
 
         # Use minimum length to ensure paired access
@@ -225,12 +257,11 @@ class RandomSequenceDataset(Dataset):
         target_size: Output size. Default: 256.
         num_samples: Number of random samples to generate. Default: 1000.
         transform: Optional augmentation.
-
-    Example:
-        >>> dataset = RandomSequenceDataset("faces/", num_samples=1000)
-        >>> sample = dataset[0]
-        >>> sample['sequence'].shape
-        torch.Size([3, 5, 256, 256])
+        sort_mode: Temporal ordering mode for scanned frame list.
+        stride_mode: Sequence stride behavior:
+            - "fixed": contiguous frames (legacy-disabled behavior)
+            - "random": random temporal multiplier in [1, max_stride]
+        max_stride: Maximum temporal multiplier for random stride mode.
     """
 
     def __init__(
@@ -240,6 +271,9 @@ class RandomSequenceDataset(Dataset):
         target_size: int = 256,
         num_samples: int = 1000,
         transform: Callable | None = None,
+        sort_mode: Literal["source_filename", "stem"] = "source_filename",
+        stride_mode: Literal["fixed", "random"] = "random",
+        max_stride: int = 4,
     ) -> None:
         super().__init__()
 
@@ -248,6 +282,12 @@ class RandomSequenceDataset(Dataset):
         self.target_size = target_size
         self.num_samples = num_samples
         self.transform = transform
+        self.sort_mode = sort_mode
+        self.stride_mode = stride_mode
+        self.max_stride = max_stride
+
+        if self.max_stride < 1:
+            raise ValueError(f"max_stride must be >= 1, got {self.max_stride}")
 
         # Scan images
         self.image_paths = self._scan_directory()
@@ -258,19 +298,26 @@ class RandomSequenceDataset(Dataset):
                 f"need at least {sequence_length}."
             )
 
-        # Max valid start index
-        self.max_start = len(self.image_paths) - sequence_length
+        if self.stride_mode == "fixed":
+            self.max_start = self._max_start_for_stride(1)
+        elif self.stride_mode == "random":
+            self.max_start = self._max_start_for_stride(self.max_stride)
+            if self.max_start < 0:
+                raise ValueError("Not enough samples to fit temporal line.")
+        else:
+            raise ValueError(
+                f"Unsupported stride_mode={self.stride_mode!r}. "
+                "Use 'fixed' or 'random'."
+            )
 
     def _scan_directory(self) -> list[Path]:
-        """Scan directory for images and sort by name."""
-        extensions = {".jpg", ".jpeg", ".png"}
-        paths: list[Path] = []
+        """Scan directory for images and sort according to `sort_mode`."""
+        paths = _scan_image_paths(self.root_dir)
+        return _sort_image_paths(paths, self.sort_mode)
 
-        for ext in extensions:
-            paths.extend(self.root_dir.glob(f"*{ext}"))
-            paths.extend(self.root_dir.glob(f"*{ext.upper()}"))
-
-        return sorted(paths, key=lambda p: p.stem)
+    def _max_start_for_stride(self, stride: int) -> int:
+        """Maximum valid start index for a given intra-sequence stride."""
+        return len(self.image_paths) - (self.sequence_length * stride - (stride - 1))
 
     def __len__(self) -> int:
         """Return number of samples."""
@@ -286,13 +333,21 @@ class RandomSequenceDataset(Dataset):
         Returns:
             Dict with 'sequence': (C, T, H, W) tensor.
         """
-        # Use idx as seed for reproducibility
         rng = np.random.default_rng(idx)
-        start_idx = rng.integers(0, self.max_start + 1)
+
+        stride = 1
+        if self.stride_mode == "random":
+            stride = int(rng.integers(1, self.max_stride + 1))
+
+        max_start = self._max_start_for_stride(stride)
+        if max_start < 0:
+            raise ValueError("Not enough images for selected temporal stride.")
+
+        start_idx = int(rng.integers(0, max_start + 1))
 
         frames = []
         for i in range(self.sequence_length):
-            frame_path = self.image_paths[start_idx + i]
+            frame_path = self.image_paths[start_idx + i * stride]
             frame = self._load_frame(frame_path)
             frames.append(frame)
 
