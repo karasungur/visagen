@@ -212,7 +212,7 @@ def gen_legacy_warp_params(
     random_transform_mat = random_transform_mat.astype(np.float32)
 
     u_mat = random_transform_mat.copy()
-    u_mat[:, 2] /= w
+    u_mat[:, 2] = u_mat[:, 2] / float(w)
 
     return {
         "mapx": mapx,
