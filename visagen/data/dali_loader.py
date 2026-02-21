@@ -25,6 +25,8 @@ from .dali_pipeline import check_dali_available, create_dali_iterator
 # Import standard datamodule for fallback
 from .datamodule import FaceDataModule
 
+SUPPORTED_DALI_WARP_MODES = {"affine", "strict"}
+
 
 class DALIFaceDataModule(pl.LightningDataModule):
     """
@@ -77,6 +79,8 @@ class DALIFaceDataModule(pl.LightningDataModule):
         val_split: float = 0.1,
         augmentation_config: dict | None = None,
         uniform_yaw: bool = False,
+        allow_packed_faceset: bool = True,
+        dali_warp_mode: str = "affine",
     ) -> None:
         super().__init__()
 
@@ -94,12 +98,21 @@ class DALIFaceDataModule(pl.LightningDataModule):
         self.val_split = val_split
         self.augmentation_config = augmentation_config
         self.uniform_yaw = uniform_yaw
+        self.allow_packed_faceset = allow_packed_faceset
+        self.dali_warp_mode = dali_warp_mode.lower().strip()
+        if self.dali_warp_mode not in SUPPORTED_DALI_WARP_MODES:
+            raise ValueError(
+                f"Unsupported dali_warp_mode={dali_warp_mode!r}. "
+                f"Use one of {sorted(SUPPORTED_DALI_WARP_MODES)}."
+            )
 
         # Determine if DALI should be used
         if use_dali is None:
             self._use_dali = check_dali_available()
         else:
             self._use_dali = use_dali and check_dali_available()
+        if self.dali_warp_mode == "strict":
+            self._use_dali = False
 
         # Store iterators
         self._train_iterator: Iterator | None = None
@@ -156,6 +169,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
                 val_split=self.val_split,
                 augmentation_config=aug_config,
                 uniform_yaw=self.uniform_yaw,
+                allow_packed_faceset=self.allow_packed_faceset,
             )
         self._fallback_dm.setup(stage)
 
@@ -184,6 +198,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
             seed=self.seed,
             shard_id=self.shard_id,
             num_shards=self.num_shards,
+            warp_mode=self.dali_warp_mode,
         )
 
         return DALIIteratorWrapper(self._train_iterator)
@@ -213,6 +228,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
             seed=self.seed + 1,
             shard_id=self.shard_id,
             num_shards=self.num_shards,
+            warp_mode=self.dali_warp_mode,
         )
 
         return DALIIteratorWrapper(self._val_iterator)
@@ -284,6 +300,8 @@ def create_dali_datamodule(
     val_split: float = 0.1,
     augmentation_config: dict | None = None,
     uniform_yaw: bool = False,
+    allow_packed_faceset: bool = True,
+    dali_warp_mode: str = "affine",
     **kwargs,
 ) -> pl.LightningDataModule:
     """
@@ -319,6 +337,15 @@ def create_dali_datamodule(
         kwargs.pop("fallback_num_workers", kwargs.pop("num_workers", 4))
     )
     use_dali = kwargs.pop("use_dali", None)
+    dali_warp_mode = dali_warp_mode.lower().strip()
+    if dali_warp_mode not in SUPPORTED_DALI_WARP_MODES:
+        raise ValueError(
+            f"Unsupported dali_warp_mode={dali_warp_mode!r}. "
+            f"Use one of {sorted(SUPPORTED_DALI_WARP_MODES)}."
+        )
+
+    if dali_warp_mode == "strict":
+        force_pytorch = True
 
     if force_pytorch or not check_dali_available():
         # Use standard PyTorch DataModule
@@ -343,6 +370,7 @@ def create_dali_datamodule(
             val_split=val_split,
             augmentation_config=aug_config,
             uniform_yaw=uniform_yaw,
+            allow_packed_faceset=allow_packed_faceset,
         )
 
     # Use DALI DataModule
@@ -360,6 +388,8 @@ def create_dali_datamodule(
         val_split=val_split,
         augmentation_config=augmentation_config,
         uniform_yaw=uniform_yaw,
+        allow_packed_faceset=allow_packed_faceset,
+        dali_warp_mode=dali_warp_mode,
         **kwargs,
     )
 

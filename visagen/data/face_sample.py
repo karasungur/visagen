@@ -6,7 +6,7 @@ Lightweight container for face sample data with lazy image loading.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import cv2
 import numpy as np
@@ -26,9 +26,13 @@ class FaceSample:
         shape: Image dimensions (H, W, C).
         landmarks: 68-point facial landmarks in aligned image space.
         xseg_mask: Compressed XSeg mask bytes. Default: None.
+        seg_ie_polys: Interactive segmentation polygon metadata. Default: None.
         eyebrows_expand_mod: Eyebrow expansion modifier. Default: 1.0.
         source_filename: Original source file name. Default: None.
         image_to_face_mat: Affine transform matrix (2, 3). Default: None.
+        packed_faceset_path: Optional path to legacy faceset.pak.
+        packed_offset: Optional byte offset in packed faceset file.
+        packed_size: Optional byte size in packed faceset file.
 
     Example:
         >>> sample = FaceSample(
@@ -47,9 +51,13 @@ class FaceSample:
     shape: tuple[int, int, int]
     landmarks: np.ndarray
     xseg_mask: bytes | None = None
+    seg_ie_polys: Any | None = None
     eyebrows_expand_mod: float = 1.0
     source_filename: str | None = None
     image_to_face_mat: np.ndarray | None = None
+    packed_faceset_path: Path | None = None
+    packed_offset: int | None = None
+    packed_size: int | None = None
     _pitch_yaw_roll: tuple[float, float, float] | None = field(default=None, repr=False)
 
     def load_image(self) -> np.ndarray:
@@ -63,6 +71,26 @@ class FaceSample:
             FileNotFoundError: If image file doesn't exist.
             ValueError: If image cannot be loaded.
         """
+        if (
+            self.packed_faceset_path is not None
+            and self.packed_offset is not None
+            and self.packed_size is not None
+        ):
+            with open(self.packed_faceset_path, "rb") as f:
+                f.seek(self.packed_offset, 0)
+                image_bytes = f.read(self.packed_size)
+
+            image = cv2.imdecode(
+                np.frombuffer(image_bytes, dtype=np.uint8),
+                cv2.IMREAD_COLOR,
+            )
+            if image is None:
+                raise ValueError(
+                    "Failed to decode packed image data at "
+                    f"{self.packed_faceset_path}:{self.packed_offset}"
+                )
+            return image.astype(np.float32) / 255.0
+
         if not self.filepath.exists():
             raise FileNotFoundError(f"Image not found: {self.filepath}")
 
@@ -143,6 +171,7 @@ class FaceSample:
             shape=image.shape,
             landmarks=metadata.landmarks,
             xseg_mask=metadata.xseg_mask,
+            seg_ie_polys=metadata.seg_ie_polys,
             eyebrows_expand_mod=metadata.eyebrows_expand_mod,
             source_filename=metadata.source_filename,
             image_to_face_mat=metadata.image_to_face_mat,

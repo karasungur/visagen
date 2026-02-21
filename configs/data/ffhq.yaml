@@ -3,6 +3,7 @@
 
 dataset:
   type: "pretrain"
+  allow_packed_faceset: true
 
   # Path to FFHQ or similar dataset
   path: "./datasets/ffhq"
@@ -34,6 +35,7 @@ dali:
   enabled: true
   prefetch_queue_depth: 4
   device_id: 0
+  warp_mode: "affine"  # Options: affine, strict (strict forces PyTorch fallback)
 
 # Preprocessing
 preprocessing:

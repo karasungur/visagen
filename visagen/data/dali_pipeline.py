@@ -45,6 +45,9 @@ def check_dali_available() -> bool:
     return DALI_AVAILABLE
 
 
+SUPPORTED_DALI_WARP_MODES = {"affine", "strict"}
+
+
 class FaceSwapExternalSource:
     """
     External source for DALI pipeline that reads face images.
@@ -135,7 +138,7 @@ if DALI_AVAILABLE:
         dst_files: list[str],
         image_size: int = 256,
         # Augmentation parameters
-        flip_prob: float = 0.5,
+        flip_prob: float = 0.4,
         rotation_range: float = 10.0,
         scale_range: tuple[float, float] = (0.95, 1.05),
         brightness_range: tuple[float, float] = (0.9, 1.1),
@@ -146,6 +149,7 @@ if DALI_AVAILABLE:
         warp_rotation_range: tuple[float, float] = (-10.0, 10.0),
         warp_scale_range: tuple[float, float] = (0.95, 1.05),
         warp_translation_range: tuple[float, float] = (-0.05, 0.05),
+        warp_mode: str = "affine",
         # Pipeline settings
         seed: int = 42,
         shard_id: int = 0,
@@ -168,6 +172,7 @@ if DALI_AVAILABLE:
             warp_rotation_range: Rotation range for affine warp (degrees).
             warp_scale_range: Scale range for affine warp.
             warp_translation_range: Translation range for affine warp (relative).
+            warp_mode: DALI warp mode (`affine` or `strict`).
             seed: Random seed.
             shard_id: Shard ID for distributed training.
             num_shards: Total number of shards.
@@ -239,42 +244,48 @@ if DALI_AVAILABLE:
         # Augmentations (applied independently to src and dst)
         # =====================================================================
 
-        # Legacy-style affine warp via external_source generators
-        src_warp_mat = fn.external_source(
-            source=DALIAffineGenerator(
-                size=image_size,
-                rotation_range=warp_rotation_range,
-                scale_range=warp_scale_range,
-                translation_range=warp_translation_range,
-                seed=seed + 101,
-            ),
-            batch=False,
-            device="cpu",
-        )
-        dst_warp_mat = fn.external_source(
-            source=DALIAffineGenerator(
-                size=image_size,
-                rotation_range=warp_rotation_range,
-                scale_range=warp_scale_range,
-                translation_range=warp_translation_range,
-                seed=seed + 202,
-            ),
-            batch=False,
-            device="cpu",
-        )
+        if warp_mode == "affine":
+            # Legacy-compatible affine approximation available in DALI.
+            src_warp_mat = fn.external_source(
+                source=DALIAffineGenerator(
+                    size=image_size,
+                    rotation_range=warp_rotation_range,
+                    scale_range=warp_scale_range,
+                    translation_range=warp_translation_range,
+                    seed=seed + 101,
+                ),
+                batch=False,
+                device="cpu",
+            )
+            dst_warp_mat = fn.external_source(
+                source=DALIAffineGenerator(
+                    size=image_size,
+                    rotation_range=warp_rotation_range,
+                    scale_range=warp_scale_range,
+                    translation_range=warp_translation_range,
+                    seed=seed + 202,
+                ),
+                batch=False,
+                device="cpu",
+            )
 
-        src_images = fn.warp_affine(
-            src_images,
-            matrix=src_warp_mat,
-            fill_value=0,
-            interp_type=types.INTERP_LINEAR,
-        )
-        dst_images = fn.warp_affine(
-            dst_images,
-            matrix=dst_warp_mat,
-            fill_value=0,
-            interp_type=types.INTERP_LINEAR,
-        )
+            src_images = fn.warp_affine(
+                src_images,
+                matrix=src_warp_mat,
+                fill_value=0,
+                interp_type=types.INTERP_LINEAR,
+            )
+            dst_images = fn.warp_affine(
+                dst_images,
+                matrix=dst_warp_mat,
+                fill_value=0,
+                interp_type=types.INTERP_LINEAR,
+            )
+        else:
+            raise ValueError(
+                "DALI strict warp mode is unsupported. "
+                "Use PyTorch backend for strict legacy warp parity."
+            )
 
         # Random horizontal flip
         src_flip = fn.random.coin_flip(probability=flip_prob)
@@ -425,6 +436,7 @@ def create_dali_iterator(
     seed: int = 42,
     shard_id: int = 0,
     num_shards: int = 1,
+    warp_mode: str = "affine",
 ) -> "DALIGenericIterator":
     """
     Create a DALI iterator for face swap training.
@@ -440,6 +452,7 @@ def create_dali_iterator(
         seed: Random seed.
         shard_id: Shard ID for distributed training.
         num_shards: Total number of shards.
+        warp_mode: DALI warp mode (`affine` or `strict`).
 
     Returns:
         DALIGenericIterator yielding {"src_images": tensor, "dst_images": tensor}.
@@ -452,6 +465,17 @@ def create_dali_iterator(
         raise ImportError(
             "NVIDIA DALI is not available. "
             "Install with: pip install nvidia-dali-cuda120"
+        )
+    warp_mode = warp_mode.lower().strip()
+    if warp_mode not in SUPPORTED_DALI_WARP_MODES:
+        raise ValueError(
+            f"Unsupported warp_mode={warp_mode!r}. "
+            f"Use one of {sorted(SUPPORTED_DALI_WARP_MODES)}."
+        )
+    if augment and warp_mode == "strict":
+        raise ValueError(
+            "warp_mode='strict' is not supported by DALI; "
+            "use PyTorch fallback for strict legacy warp."
         )
 
     src_dir = Path(src_dir)
@@ -489,6 +513,7 @@ def create_dali_iterator(
             seed=seed,
             shard_id=shard_id,
             num_shards=num_shards,
+            warp_mode=warp_mode,
             batch_size=batch_size,
             num_threads=num_threads,
             device_id=device_id,
