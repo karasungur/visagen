@@ -19,8 +19,17 @@ from visagen.data.dali_warp import (
     gen_dali_affine_matrix,
     gen_dali_warp_grid,
 )
-from visagen.data.datamodule import FaceDataModule, PairedFaceDataset
-from visagen.data.face_dataset import FaceDataset, SimpleFaceDataset
+from visagen.data.datamodule import (
+    FaceDataModule,
+    PairedFaceDataset,
+    TemporalFaceDataModule,
+    create_temporal_datamodule,
+)
+from visagen.data.face_dataset import (
+    FaceDataset,
+    PackedFacesetReader,
+    SimpleFaceDataset,
+)
 from visagen.data.face_sample import FaceSample
 from visagen.data.noise_dataset import RandomNoiseDataset
 from visagen.data.pretrain_datamodule import (
@@ -42,6 +51,7 @@ __all__ = [
     "RandomNoiseDataset",
     "FaceSample",
     "FaceDataset",
+    "PackedFacesetReader",
     "SimpleFaceDataset",
     # Sequence datasets (temporal)
     "SequenceFaceDataset",
@@ -56,6 +66,8 @@ __all__ = [
     # PyTorch DataModule
     "PairedFaceDataset",
     "FaceDataModule",
+    "TemporalFaceDataModule",
+    "create_temporal_datamodule",
     # Pretrain DataModule
     "PretrainDataset",
     "PretrainDataModule",

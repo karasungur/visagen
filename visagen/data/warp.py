@@ -8,6 +8,8 @@ Uses random displacement grids for data augmentation.
 import random
 from typing import Any, cast
 
+import cv2
+import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -139,6 +141,167 @@ def warp_by_params(
         warped = warped.squeeze(0)
 
     return warped
+
+
+def gen_legacy_warp_params(
+    size: int,
+    *,
+    flip: bool = False,
+    flip_prob: float = 0.4,
+    rotation_range: tuple[float, float] = (-10.0, 10.0),
+    scale_range: tuple[float, float] = (-0.05, 0.05),
+    tx_range: tuple[float, float] = (-0.05, 0.05),
+    ty_range: tuple[float, float] = (-0.05, 0.05),
+    rng: np.random.Generator | None = None,
+    warp_rng: np.random.Generator | None = None,
+) -> dict[str, Any]:
+    """
+    Generate legacy DeepFaceLab warp parameters.
+
+    This mirrors `legacy/core/imagelib/warp.py::gen_warp_params` and returns
+    remap matrices + affine matrix + flip flag for strict parity mode.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+    if warp_rng is None:
+        warp_rng = rng
+
+    w = size
+    rw: int | None = None
+    if w < 64:
+        rw = w
+        w = 64
+
+    rotation = float(rng.uniform(rotation_range[0], rotation_range[1]))
+    scale = float(rng.uniform(1.0 / (1.0 - scale_range[0]), 1.0 + scale_range[1]))
+    tx = float(rng.uniform(tx_range[0], tx_range[1]))
+    ty = float(rng.uniform(ty_range[0], ty_range[1]))
+    p_flip = bool(flip and rng.random() < flip_prob)
+
+    cell_size = [w // (2**i) for i in range(1, 4)][int(warp_rng.integers(0, 3))]
+    cell_size = max(int(cell_size), 1)
+    cell_count = w // cell_size + 1
+
+    grid_points = np.linspace(0, w, cell_count, dtype=np.float32)
+    mapx = np.broadcast_to(grid_points, (cell_count, cell_count)).copy()
+    mapy = mapx.T.copy()
+    if cell_count > 2:
+        shape = (cell_count - 2, cell_count - 2)
+        disp_scale = cell_size * 0.24
+        mapx[1:-1, 1:-1] += (
+            warp_rng.standard_normal(shape).astype(np.float32) * disp_scale
+        )
+        mapy[1:-1, 1:-1] += (
+            warp_rng.standard_normal(shape).astype(np.float32) * disp_scale
+        )
+
+    half_cell_size = cell_size // 2
+    resize_shape = (w + cell_size, w + cell_size)
+    mapx = cv2.resize(mapx, resize_shape, interpolation=cv2.INTER_LINEAR)[
+        half_cell_size : half_cell_size + w,
+        half_cell_size : half_cell_size + w,
+    ].astype(np.float32)
+    mapy = cv2.resize(mapy, resize_shape, interpolation=cv2.INTER_LINEAR)[
+        half_cell_size : half_cell_size + w,
+        half_cell_size : half_cell_size + w,
+    ].astype(np.float32)
+
+    random_transform_mat = cv2.getRotationMatrix2D((w // 2, w // 2), rotation, scale)
+    random_transform_mat[0, 2] += tx * w
+    random_transform_mat[1, 2] += ty * w
+    random_transform_mat = random_transform_mat.astype(np.float32)
+
+    u_mat = random_transform_mat.copy()
+    u_mat[:, 2] = u_mat[:, 2] / float(w)
+
+    return {
+        "mapx": mapx,
+        "mapy": mapy,
+        "rmat": random_transform_mat,
+        "umat": u_mat,
+        "w": w,
+        "rw": rw,
+        "flip": p_flip,
+    }
+
+
+def warp_legacy_by_params(
+    image: torch.Tensor,
+    params: dict[str, Any],
+    *,
+    can_warp: bool = True,
+    can_transform: bool = True,
+    can_flip: bool = True,
+    border_replicate: bool = True,
+    cv2_inter: int = cv2.INTER_CUBIC,
+) -> torch.Tensor:
+    """
+    Apply legacy DeepFaceLab remap+affine+flip warp on torch tensors.
+
+    Args:
+        image: Tensor of shape (C, H, W) or (B, C, H, W).
+        params: Params returned by `gen_legacy_warp_params`.
+        can_warp: Apply remap stage.
+        can_transform: Apply affine stage.
+        can_flip: Apply flip stage based on params["flip"].
+        border_replicate: Use BORDER_REPLICATE for affine border handling.
+        cv2_inter: OpenCV interpolation flag.
+    """
+    squeeze_output = False
+    if image.dim() == 3:
+        image = image.unsqueeze(0)
+        squeeze_output = True
+
+    rw = cast(int | None, params["rw"])
+    mapx = cast(np.ndarray, params["mapx"])
+    mapy = cast(np.ndarray, params["mapy"])
+    rmat = cast(np.ndarray, params["rmat"])
+    w = cast(int, params["w"])
+    do_flip = bool(params.get("flip", False))
+
+    input_device = image.device
+    input_dtype = image.dtype
+
+    image_np = image.detach().cpu().numpy()
+    warped_np: list[np.ndarray] = []
+    for sample in image_np:
+        sample_hwc = np.transpose(sample, (1, 2, 0))
+
+        if (can_warp or can_transform) and rw is not None:
+            sample_hwc = cv2.resize(sample_hwc, (64, 64), interpolation=cv2_inter)
+
+        if can_warp:
+            sample_hwc = cv2.remap(sample_hwc, mapx, mapy, cv2_inter)
+
+        if can_transform:
+            sample_hwc = cv2.warpAffine(
+                sample_hwc,
+                rmat,
+                (w, w),
+                borderMode=(
+                    cv2.BORDER_REPLICATE if border_replicate else cv2.BORDER_CONSTANT
+                ),
+                flags=cv2_inter,
+            )
+
+        if (can_warp or can_transform) and rw is not None:
+            sample_hwc = cv2.resize(sample_hwc, (rw, rw), interpolation=cv2_inter)
+
+        if sample_hwc.ndim == 2:
+            sample_hwc = sample_hwc[..., np.newaxis]
+
+        if can_flip and do_flip:
+            sample_hwc = sample_hwc[:, ::-1, ...]
+
+        warped_np.append(np.transpose(sample_hwc, (2, 0, 1)))
+
+    output = torch.from_numpy(np.stack(warped_np, axis=0)).to(
+        device=input_device, dtype=input_dtype
+    )
+
+    if squeeze_output:
+        output = output.squeeze(0)
+    return output
 
 
 def gen_affine_params(

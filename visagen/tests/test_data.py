@@ -4,15 +4,31 @@ Tests for dataset and augmentation components.
 Covers warp functions, augmentations, dataset loading, and datamodule.
 """
 
+import pickle
+import struct
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 import torch
 
 from visagen.data.augmentations import FaceAugmentationPipeline, SimpleAugmentation
+from visagen.data.datamodule import (
+    PairedFaceDataset,
+    TransformWrapper,
+    UniformYawPairSampler,
+    paired_face_collate_fn,
+)
+from visagen.data.face_dataset import FaceDataset, PackedFacesetReader
 from visagen.data.face_sample import FaceSample
-from visagen.data.warp import gen_affine_params, gen_warp_params, warp_by_params
+from visagen.data.warp import (
+    gen_affine_params,
+    gen_legacy_warp_params,
+    gen_warp_params,
+    warp_by_params,
+    warp_legacy_by_params,
+)
 
 
 class TestFaceSample:
@@ -39,9 +55,85 @@ class TestFaceSample:
             landmarks=np.zeros((68, 2), dtype=np.float32),
         )
         assert sample.xseg_mask is None
+        assert sample.seg_ie_polys is None
         assert sample.eyebrows_expand_mod == 1.0
         assert sample.source_filename is None
         assert sample.image_to_face_mat is None
+
+    def test_sample_loads_from_packed_faceset_offset(self, tmp_path):
+        """FaceSample should decode images from packed faceset offsets."""
+        image = np.full((16, 16, 3), 127, dtype=np.uint8)
+        ok, encoded = cv2.imencode(".jpg", image)
+        assert ok
+        image_bytes = encoded.tobytes()
+
+        packed_path = tmp_path / "faceset.pak"
+        with open(packed_path, "wb") as f:
+            f.write(b"HEAD")
+            offset = f.tell()
+            f.write(image_bytes)
+            size = len(image_bytes)
+            f.write(b"TAIL")
+
+        sample = FaceSample(
+            filepath=tmp_path / "face.jpg",
+            face_type="whole_face",
+            shape=(16, 16, 3),
+            landmarks=np.zeros((68, 2), dtype=np.float32),
+            packed_faceset_path=packed_path,
+            packed_offset=offset,
+            packed_size=size,
+        )
+
+        loaded = sample.load_image()
+        assert loaded.shape == (16, 16, 3)
+        assert loaded.dtype == np.float32
+        assert 0 <= loaded.min() <= loaded.max() <= 1.0
+
+    def test_sample_reads_raw_bytes_from_packed_faceset_offset(self, tmp_path):
+        """FaceSample should expose encoded bytes from packed offsets."""
+        image = np.full((16, 16, 3), 90, dtype=np.uint8)
+        ok, encoded = cv2.imencode(".jpg", image)
+        assert ok
+        image_bytes = encoded.tobytes()
+
+        packed_path = tmp_path / "faceset.pak"
+        with open(packed_path, "wb") as f:
+            f.write(b"HEAD")
+            offset = f.tell()
+            f.write(image_bytes)
+            size = len(image_bytes)
+            f.write(b"TAIL")
+
+        sample = FaceSample(
+            filepath=tmp_path / "face.jpg",
+            face_type="whole_face",
+            shape=(16, 16, 3),
+            landmarks=np.zeros((68, 2), dtype=np.float32),
+            packed_faceset_path=packed_path,
+            packed_offset=offset,
+            packed_size=size,
+        )
+
+        raw = sample.read_raw_bytes()
+        assert raw == image_bytes
+
+    def test_sample_reads_raw_bytes_from_regular_path(self, tmp_path):
+        """FaceSample should expose encoded bytes from filesystem path."""
+        image = np.full((12, 12, 3), 150, dtype=np.uint8)
+        image_path = tmp_path / "face.jpg"
+        ok = cv2.imwrite(str(image_path), image)
+        assert ok
+
+        sample = FaceSample(
+            filepath=image_path,
+            face_type="whole_face",
+            shape=(12, 12, 3),
+            landmarks=np.zeros((68, 2), dtype=np.float32),
+        )
+
+        raw = sample.read_raw_bytes()
+        assert raw == image_path.read_bytes()
 
     def test_sample_landmarks_shape(self):
         """Test landmarks have correct shape."""
@@ -53,6 +145,197 @@ class TestFaceSample:
             landmarks=landmarks,
         )
         assert sample.landmarks.shape == (68, 2)
+
+
+class TestPackedFacesetSupport:
+    """Tests for legacy `faceset.pak` compatibility in FaceDataset."""
+
+    @staticmethod
+    def _write_faceset_archive(tmp_path: Path, configs: list[dict], image_bytes: bytes):
+        configs_raw = pickle.dumps(configs, protocol=4)
+        packed_path = tmp_path / "faceset.pak"
+        with open(packed_path, "wb") as f:
+            f.write(struct.pack("Q", 1))  # version
+            f.write(struct.pack("Q", len(configs_raw)))
+            f.write(configs_raw)
+            f.write(struct.pack("Q", 0))
+            f.write(struct.pack("Q", len(image_bytes)))
+            f.write(image_bytes)
+        return packed_path
+
+    def test_face_dataset_loads_samples_from_faceset_pak(self, tmp_path):
+        image = np.full((32, 32, 3), 200, dtype=np.uint8)
+        ok, encoded = cv2.imencode(".jpg", image)
+        assert ok
+        image_bytes = encoded.tobytes()
+
+        sample_config = {
+            "sample_type": 1,
+            "filename": "face_00001.jpg",
+            "face_type": 4,
+            "shape": (32, 32, 3),
+            "landmarks": np.zeros((68, 2), dtype=np.float32).tolist(),
+            "seg_ie_polys": {"polys": []},
+            "xseg_mask": None,
+            "xseg_mask_compressed": None,
+            "eyebrows_expand_mod": 1.0,
+            "source_filename": "src_00001.jpg",
+            "person_name": None,
+        }
+        self._write_faceset_archive(tmp_path, [sample_config], image_bytes)
+
+        dataset = FaceDataset(tmp_path, target_size=32)
+        assert len(dataset) == 1
+
+        item = dataset[0]
+        assert isinstance(item, dict)
+        assert item["image"].shape == (3, 32, 32)
+        assert item["landmarks"].shape == (68, 2)
+        assert item["seg_ie_polys"] == {"polys": []}
+
+    def test_face_dataset_can_disable_packed_faceset_loading(self, tmp_path):
+        image = np.full((16, 16, 3), 180, dtype=np.uint8)
+        ok, encoded = cv2.imencode(".jpg", image)
+        assert ok
+        image_bytes = encoded.tobytes()
+
+        sample_config = {
+            "sample_type": 1,
+            "filename": "face_00001.jpg",
+            "face_type": 4,
+            "shape": (16, 16, 3),
+            "landmarks": np.zeros((68, 2), dtype=np.float32).tolist(),
+        }
+        self._write_faceset_archive(tmp_path, [sample_config], image_bytes)
+
+        with pytest.raises(ValueError, match="allow_packed_faceset=True"):
+            FaceDataset(tmp_path, allow_packed_faceset=False)
+
+    def test_packed_faceset_reader_raises_on_corrupt_archive(self, tmp_path):
+        packed_path = tmp_path / "faceset.pak"
+        packed_path.write_bytes(b"not-a-valid-packed-archive")
+
+        reader = PackedFacesetReader(packed_path)
+        with pytest.raises(ValueError, match="Failed to parse faceset archive"):
+            reader.read_samples(tmp_path)
+
+
+class TestDatasetSamplingAndTransforms:
+    """Tests for pairing behavior and transform contract wiring."""
+
+    def test_paired_dataset_supports_sampler_generated_tuple_indices(self):
+        class _MockDataset:
+            def __len__(self):
+                return 5
+
+            def __getitem__(self, idx):
+                return {
+                    "image": torch.full((1,), float(idx)),
+                    "landmarks": torch.zeros(68, 2),
+                    "face_type": 0,
+                }
+
+        paired = PairedFaceDataset(_MockDataset(), _MockDataset())
+        src, dst = paired[(1, 3)]
+        assert src["image"].item() == 1.0
+        assert dst["image"].item() == 3.0
+
+    def test_uniform_yaw_pair_sampler_samples_src_and_dst_independently(self):
+        class _MockDataset:
+            def __init__(self, fixed_idx: int):
+                self.fixed_idx = fixed_idx
+
+            def __len__(self):
+                return 8
+
+            def sample_uniform_yaw(self):
+                return self.fixed_idx
+
+        sampler = UniformYawPairSampler(
+            _MockDataset(fixed_idx=2),
+            _MockDataset(fixed_idx=5),
+            num_samples=4,
+            seed=42,
+        )
+        indices = list(iter(sampler))
+        assert indices == [(2, 5), (2, 5), (2, 5), (2, 5)]
+
+    def test_paired_collate_preserves_seg_ie_polys_as_metadata_list(self):
+        batch = [
+            (
+                {
+                    "image": torch.zeros(3, 8, 8),
+                    "landmarks": torch.zeros(68, 2),
+                    "face_type": 0,
+                    "seg_ie_polys": {"polys": [1]},
+                },
+                {
+                    "image": torch.ones(3, 8, 8),
+                    "landmarks": torch.zeros(68, 2),
+                    "face_type": 0,
+                    "seg_ie_polys": {"polys": [2]},
+                },
+            ),
+            (
+                {
+                    "image": torch.zeros(3, 8, 8),
+                    "landmarks": torch.zeros(68, 2),
+                    "face_type": 0,
+                    "seg_ie_polys": {"polys": [3]},
+                },
+                {
+                    "image": torch.ones(3, 8, 8),
+                    "landmarks": torch.zeros(68, 2),
+                    "face_type": 0,
+                    "seg_ie_polys": {"polys": [4]},
+                },
+            ),
+        ]
+
+        src_batch, dst_batch = paired_face_collate_fn(batch)
+        assert isinstance(src_batch["image"], torch.Tensor)
+        assert src_batch["image"].shape == (2, 3, 8, 8)
+        assert src_batch["seg_ie_polys"] == [{"polys": [1]}, {"polys": [3]}]
+        assert dst_batch["seg_ie_polys"] == [{"polys": [2]}, {"polys": [4]}]
+
+    def test_transform_wrapper_passes_cross_target_image_for_color_transfer(self):
+        class _PairDataset:
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, idx):
+                src = {
+                    "image": torch.full((3, 8, 8), 1.0),
+                    "landmarks": torch.zeros(68, 2),
+                    "face_type": 0,
+                }
+                dst = {
+                    "image": torch.full((3, 8, 8), 2.0),
+                    "landmarks": torch.zeros(68, 2),
+                    "face_type": 0,
+                }
+                return src, dst
+
+        class _CaptureTransform:
+            def __init__(self):
+                self.calls = []
+
+            def __call__(self, image, mask=None, target_image=None):
+                if target_image is not None:
+                    self.calls.append(target_image.clone())
+                else:
+                    self.calls.append(None)
+                return image, mask
+
+        transform = _CaptureTransform()
+        wrapped = TransformWrapper(_PairDataset(), transform=transform)
+        wrapped[0]
+
+        assert len(transform.calls) == 2
+        assert transform.calls[0] is not None
+        assert transform.calls[1] is not None
+        assert torch.allclose(transform.calls[0], torch.full((3, 8, 8), 2.0))
+        assert torch.allclose(transform.calls[1], torch.full((3, 8, 8), 1.0))
 
 
 class TestWarpFunctions:
@@ -123,6 +406,18 @@ class TestWarpFunctions:
 
         assert "matrix" in params
         assert params["matrix"].shape == (2, 3)
+
+    def test_gen_legacy_warp_params_returns_legacy_keys(self):
+        params = gen_legacy_warp_params(256, rng=np.random.default_rng(42))
+        assert {"mapx", "mapy", "rmat", "flip", "w"} <= set(params.keys())
+        assert params["mapx"].shape == (256, 256)
+        assert params["mapy"].shape == (256, 256)
+
+    def test_warp_legacy_by_params_preserves_shape(self):
+        image = torch.rand(1, 3, 256, 256)
+        params = gen_legacy_warp_params(256, rng=np.random.default_rng(7))
+        warped = warp_legacy_by_params(image, params)
+        assert warped.shape == image.shape
 
 
 class TestFaceAugmentationPipeline:
@@ -237,6 +532,20 @@ class TestFaceAugmentationPipeline:
         augmented, _ = pipeline(image)
 
         assert augmented.shape == (3, 128, 128)
+
+    def test_pipeline_supports_strict_warp_mode(self):
+        pipeline = FaceAugmentationPipeline(
+            target_size=64,
+            warp_mode="strict",
+            apply_color=False,
+        )
+        image = torch.rand(3, 64, 64)
+        mask = torch.ones(1, 64, 64)
+
+        aug_image, aug_mask = pipeline(image, mask)
+        assert aug_image.shape == image.shape
+        assert aug_mask is not None
+        assert aug_mask.shape == mask.shape
 
 
 class TestSimpleAugmentation:

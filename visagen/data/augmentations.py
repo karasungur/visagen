@@ -15,7 +15,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from visagen.data.warp import gen_warp_params, warp_by_params
+from visagen.data.warp import (
+    gen_legacy_warp_params,
+    gen_warp_params,
+    warp_by_params,
+    warp_legacy_by_params,
+)
 
 
 class FaceAugmentationPipeline(nn.Module):
@@ -37,6 +42,7 @@ class FaceAugmentationPipeline(nn.Module):
         contrast_range: Contrast adjustment range. Default: 0.1.
         apply_geometric: Enable geometric augmentations. Default: True.
         apply_color: Enable color augmentations. Default: True.
+        warp_mode: Warp backend ('affine' or 'strict'). Default: 'affine'.
 
     Example:
         >>> pipeline = FaceAugmentationPipeline(target_size=256)
@@ -63,6 +69,7 @@ class FaceAugmentationPipeline(nn.Module):
         apply_geometric: bool = True,
         apply_color: bool = True,
         color_transfer_mode: str | None = None,
+        warp_mode: str = "affine",
     ) -> None:
         super().__init__()
         self.target_size = target_size
@@ -77,6 +84,11 @@ class FaceAugmentationPipeline(nn.Module):
         self.apply_geometric = apply_geometric
         self.apply_color = apply_color
         self.color_transfer_mode = color_transfer_mode
+        self.warp_mode = warp_mode.lower().strip()
+        if self.warp_mode not in {"affine", "strict"}:
+            raise ValueError(
+                f"Unsupported warp_mode={warp_mode!r}. Use 'affine' or 'strict'."
+            )
 
     def forward(
         self,
@@ -146,7 +158,39 @@ class FaceAugmentationPipeline(nn.Module):
         mask: torch.Tensor | None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Apply geometric augmentations."""
-        b, c, h, w = image.shape
+        _, _, h, w = image.shape
+
+        if self.warp_mode == "strict":
+            legacy_params = gen_legacy_warp_params(
+                size=self.target_size,
+                flip=self.random_flip_prob > 0,
+                flip_prob=self.random_flip_prob,
+                rotation_range=self.rotation_range,
+                scale_range=self.scale_range,
+                tx_range=self.translation_range,
+                ty_range=self.translation_range,
+                rng=np.random.default_rng(),
+            )
+            image = warp_legacy_by_params(
+                image,
+                legacy_params,
+                can_warp=self.random_warp,
+                can_transform=True,
+                can_flip=True,
+                border_replicate=True,
+                cv2_inter=cv2.INTER_LINEAR,
+            )
+            if mask is not None:
+                mask = warp_legacy_by_params(
+                    mask,
+                    legacy_params,
+                    can_warp=self.random_warp,
+                    can_transform=True,
+                    can_flip=True,
+                    border_replicate=False,
+                    cv2_inter=cv2.INTER_LINEAR,
+                )
+            return image, mask
 
         # Random flip
         if random.random() < self.random_flip_prob:

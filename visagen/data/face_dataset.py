@@ -4,10 +4,13 @@ Face Dataset for Training.
 Load DFL-aligned face images with metadata for training.
 """
 
+import io
 import logging
+import pickle
+import struct
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -18,7 +21,200 @@ from visagen.data.face_sample import FaceSample
 from visagen.vision.face_type import FaceType
 
 logger = logging.getLogger(__name__)
-FaceDatasetItem = dict[str, torch.Tensor | int]
+FaceDatasetItem = dict[str, Any]
+PACKED_FACESET_FILENAME = "faceset.pak"
+
+
+class _LegacyPackedUnpickler(pickle.Unpickler):
+    """
+    Unpickler with compatibility fallbacks for legacy enum references.
+
+    Legacy `faceset.pak` may store enum values with import paths that do not
+    exist in the modern runtime. These are downcast to plain ints.
+    """
+
+    _ENUM_FALLBACKS: set[tuple[str, str]] = {
+        ("facelib", "FaceType"),
+        ("facelib.FaceType", "FaceType"),
+        ("samplelib", "SampleType"),
+        ("samplelib.Sample", "SampleType"),
+        ("samplelib.SampleType", "SampleType"),
+    }
+
+    def find_class(self, module: str, name: str) -> Any:
+        if (module, name) in self._ENUM_FALLBACKS:
+            return int
+        return super().find_class(module, name)
+
+
+def _unpickle_legacy_configs(data: bytes) -> Any:
+    return _LegacyPackedUnpickler(io.BytesIO(data)).load()
+
+
+def _to_bytes(value: Any) -> bytes | None:
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, bytearray):
+        return bytes(value)
+    if isinstance(value, memoryview):
+        return value.tobytes()
+    if isinstance(value, np.ndarray):
+        return value.tobytes()
+    return None
+
+
+def _encode_mask_to_png(mask: Any) -> bytes | None:
+    if mask is None:
+        return None
+    if not isinstance(mask, np.ndarray):
+        return None
+
+    mask_np = mask
+    if mask_np.dtype != np.uint8:
+        mask_np = np.clip(mask_np, 0, 1)
+        mask_np = (mask_np * 255).astype(np.uint8)
+
+    if mask_np.ndim == 3 and mask_np.shape[2] > 1:
+        mask_np = mask_np[..., 0]
+
+    ok, encoded = cv2.imencode(".png", mask_np)
+    if not ok:
+        return None
+    return encoded.tobytes()
+
+
+def _normalize_face_type(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, np.integer):
+        value = int(value)
+    if isinstance(value, int):
+        try:
+            return FaceType(value).to_string()
+        except ValueError:
+            return FaceType.WHOLE_FACE.to_string()
+    if hasattr(value, "value"):
+        return _normalize_face_type(value.value)
+    if hasattr(value, "name"):
+        return str(value.name).lower()
+    return FaceType.WHOLE_FACE.to_string()
+
+
+class PackedFacesetReader:
+    """
+    Reader for legacy DeepFaceLab `faceset.pak` archives.
+
+    Parses metadata and image offsets and returns `FaceSample` entries that read
+    image bytes lazily from the packed archive.
+    """
+
+    def __init__(self, packed_path: str | Path) -> None:
+        self.packed_path = Path(packed_path)
+
+    def read_samples(
+        self,
+        root_dir: str | Path,
+        face_type_filter: FaceType | None = None,
+    ) -> list[FaceSample]:
+        root_dir_path = Path(root_dir)
+        if not self.packed_path.exists():
+            return []
+
+        try:
+            with open(self.packed_path, "rb") as f:
+                version = struct.unpack("Q", f.read(8))[0]
+                if version != 1:
+                    raise ValueError(f"Unsupported faceset.pak version: {version}")
+
+                configs_size = struct.unpack("Q", f.read(8))[0]
+                configs_raw = f.read(configs_size)
+                configs = _unpickle_legacy_configs(configs_raw)
+                if not isinstance(configs, list):
+                    raise ValueError("faceset.pak metadata payload is not a list")
+
+                offsets = [
+                    struct.unpack("Q", f.read(8))[0] for _ in range(len(configs) + 1)
+                ]
+                data_start_offset = f.tell()
+        except Exception as e:
+            raise ValueError(
+                f"Failed to parse faceset archive: {self.packed_path}"
+            ) from e
+
+        samples: list[FaceSample] = []
+        for i, config in enumerate(configs):
+            if not isinstance(config, dict):
+                continue
+
+            try:
+                landmarks_raw = config.get("landmarks")
+                if landmarks_raw is None:
+                    continue
+                landmarks = np.array(landmarks_raw, dtype=np.float32)
+
+                face_type = _normalize_face_type(config.get("face_type"))
+                shape_raw = config.get("shape")
+                if shape_raw is None:
+                    shape = (0, 0, 3)
+                else:
+                    shape_tuple = tuple(int(v) for v in shape_raw)
+                    if len(shape_tuple) == 2:
+                        shape = (shape_tuple[0], shape_tuple[1], 3)
+                    elif len(shape_tuple) == 3:
+                        shape = (shape_tuple[0], shape_tuple[1], shape_tuple[2])
+                    else:
+                        shape = (0, 0, 3)
+
+                person_name = config.get("person_name")
+                filename = str(config.get("filename", f"{i:08d}.jpg"))
+                if person_name is not None:
+                    filepath = root_dir_path / str(person_name) / filename
+                else:
+                    filepath = root_dir_path / filename
+
+                xseg_mask = _to_bytes(config.get("xseg_mask_compressed"))
+                if xseg_mask is None:
+                    xseg_mask = _encode_mask_to_png(config.get("xseg_mask"))
+
+                start_offset = int(offsets[i])
+                end_offset = int(offsets[i + 1])
+                if end_offset < start_offset:
+                    raise ValueError("Invalid offset table in faceset.pak")
+
+                sample = FaceSample(
+                    filepath=filepath,
+                    face_type=face_type,
+                    shape=shape,
+                    landmarks=landmarks,
+                    xseg_mask=xseg_mask,
+                    seg_ie_polys=config.get("seg_ie_polys"),
+                    eyebrows_expand_mod=float(config.get("eyebrows_expand_mod", 1.0)),
+                    source_filename=config.get("source_filename"),
+                    packed_faceset_path=self.packed_path,
+                    packed_offset=data_start_offset + start_offset,
+                    packed_size=end_offset - start_offset,
+                )
+
+                if face_type_filter is not None:
+                    try:
+                        sample_type = FaceType.from_string(sample.face_type)
+                        if sample_type != face_type_filter:
+                            continue
+                    except ValueError:
+                        continue
+
+                samples.append(sample)
+            except Exception as e:
+                logger.debug(
+                    "Skipping packed sample %d in %s: %s",
+                    i,
+                    self.packed_path,
+                    e,
+                )
+
+        return samples
 
 
 class FaceDataset(Dataset):
@@ -38,6 +234,7 @@ class FaceDataset(Dataset):
         uniform_yaw: Enable uniform yaw sampling for balanced pose distribution.
             Default: False.
         yaw_bins: Number of yaw bins for uniform sampling. Default: 10.
+        allow_packed_faceset: Enable legacy `faceset.pak` support. Default: True.
 
     Example:
         >>> dataset = FaceDataset(Path("aligned_faces/"))
@@ -56,6 +253,7 @@ class FaceDataset(Dataset):
         preload_metadata: bool = True,
         uniform_yaw: bool = False,
         yaw_bins: int = 10,
+        allow_packed_faceset: bool = True,
     ) -> None:
         super().__init__()
         self.root_dir = Path(root_dir)
@@ -65,11 +263,21 @@ class FaceDataset(Dataset):
         self.with_mask = with_mask
         self.uniform_yaw = uniform_yaw
         self.yaw_bins = yaw_bins
+        self.allow_packed_faceset = allow_packed_faceset
 
         # Scan directory for image files
         self.image_paths = self.scan_directory(self.root_dir)
+        self.packed_faceset_path = self.root_dir / PACKED_FACESET_FILENAME
 
-        if len(self.image_paths) == 0:
+        packed_available = (
+            self.packed_faceset_path.exists() and self.allow_packed_faceset
+        )
+        if len(self.image_paths) == 0 and not packed_available:
+            if self.packed_faceset_path.exists() and not self.allow_packed_faceset:
+                raise ValueError(
+                    "No images found and faceset.pak loading is disabled. "
+                    "Set allow_packed_faceset=True to enable legacy packed input."
+                )
             raise ValueError(f"No images found in {self.root_dir}")
 
         # Load metadata
@@ -77,16 +285,26 @@ class FaceDataset(Dataset):
         if preload_metadata:
             self._preload_metadata()
         else:
-            # Create placeholder samples with paths only
-            self.samples = [
-                FaceSample(
-                    filepath=path,
-                    face_type="unknown",
-                    shape=(0, 0, 0),
-                    landmarks=np.zeros((68, 2)),
-                )
-                for path in self.image_paths
-            ]
+            if packed_available:
+                # Packed facesets require metadata to locate image offsets.
+                self.samples = self._load_packed_faceset(strict=True)
+            else:
+                # Create placeholder samples with paths only
+                self.samples = [
+                    FaceSample(
+                        filepath=path,
+                        face_type="unknown",
+                        shape=(0, 0, 0),
+                        landmarks=np.zeros((68, 2)),
+                    )
+                    for path in self.image_paths
+                ]
+
+        if len(self.samples) == 0:
+            raise ValueError(
+                f"No valid face samples found in {self.root_dir}. "
+                "Check DFL metadata and faceset.pak integrity."
+            )
 
         # Build yaw bins for uniform sampling
         self._yaw_bins_indices: list[list[int]] | None = None
@@ -176,6 +394,7 @@ class FaceDataset(Dataset):
                     "image": image_tensor,
                     "landmarks": torch.from_numpy(sample.landmarks.copy()),
                     "face_type": self._get_face_type_int(sample.face_type),
+                    "seg_ie_polys": sample.seg_ie_polys,
                 }
 
                 if mask_tensor is not None:
@@ -194,6 +413,7 @@ class FaceDataset(Dataset):
                         - 1.0,
                         "landmarks": torch.zeros(68, 2),
                         "face_type": 0,
+                        "seg_ie_polys": None,
                     }
 
         # Should never reach here, but just in case
@@ -201,33 +421,79 @@ class FaceDataset(Dataset):
             "image": torch.zeros(3, self.target_size, self.target_size) - 1.0,
             "landmarks": torch.zeros(68, 2),
             "face_type": 0,
+            "seg_ie_polys": None,
         }
 
     def _preload_metadata(self) -> None:
         """Preload metadata from all images."""
-        for path in self.image_paths:
-            sample = FaceSample.from_dfl_image(path)
+        seen_relpaths: set[str] = set()
 
-            if sample is None:
+        if self.packed_faceset_path.exists() and self.allow_packed_faceset:
+            packed_samples = self._load_packed_faceset(
+                strict=len(self.image_paths) == 0
+            )
+            for sample in packed_samples:
+                rel = str(sample.filepath.relative_to(self.root_dir))
+                seen_relpaths.add(rel)
+                self.samples.append(sample)
+
+        for path in self.image_paths:
+            rel = str(path.relative_to(self.root_dir))
+            if rel in seen_relpaths:
+                continue
+
+            dfl_sample = FaceSample.from_dfl_image(path)
+
+            if dfl_sample is None:
                 # Skip images without DFL metadata
                 continue
 
             # Apply face type filter
             if self.face_type_filter is not None:
                 try:
-                    sample_type = FaceType.from_string(sample.face_type)
+                    sample_type = FaceType.from_string(dfl_sample.face_type)
                     if sample_type != self.face_type_filter:
                         continue
                 except ValueError:
                     continue
 
-            self.samples.append(sample)
+            seen_relpaths.add(rel)
+            self.samples.append(dfl_sample)
 
         if len(self.samples) == 0:
             raise ValueError(
                 f"No valid DFL images found in {self.root_dir}. "
                 "Make sure images have embedded DFL metadata."
             )
+
+    def _load_packed_faceset(self, strict: bool = False) -> list[FaceSample]:
+        """
+        Load FaceSample entries from legacy `faceset.pak`.
+
+        The packed format stores metadata configs followed by an offset table and
+        raw image blobs. We use metadata for face attributes and decode image data
+        lazily via packed offset/size in FaceSample.
+        """
+        if not self.packed_faceset_path.exists() or not self.allow_packed_faceset:
+            return []
+
+        try:
+            reader = PackedFacesetReader(self.packed_faceset_path)
+            return reader.read_samples(
+                root_dir=self.root_dir,
+                face_type_filter=self.face_type_filter,
+            )
+        except Exception as e:
+            if strict:
+                raise ValueError(
+                    f"Failed to read packed faceset at {self.packed_faceset_path}"
+                ) from e
+            logger.warning(
+                "Failed to read packed faceset at %s: %s",
+                self.packed_faceset_path,
+                e,
+            )
+            return []
 
     def _build_yaw_bins(self) -> None:
         """
@@ -294,6 +560,36 @@ class FaceDataset(Dataset):
         # Select random sample from bin
         sample_idx = np.random.choice(non_empty[bin_idx])
         return cast(int, int(sample_idx))
+
+    def build_uniform_yaw_bins_for_indices(
+        self, dataset_indices: list[int]
+    ) -> list[list[int]] | None:
+        """
+        Build subset-local yaw bins from full-dataset yaw bins.
+
+        Args:
+            dataset_indices: Indices in this dataset that belong to a subset.
+
+        Returns:
+            Subset-local bin indices (0..len(dataset_indices)-1), or None if
+            uniform yaw bins are unavailable.
+        """
+        if self._yaw_bins_indices is None:
+            return None
+
+        index_map = {
+            full_idx: sub_idx for sub_idx, full_idx in enumerate(dataset_indices)
+        }
+        subset_bins: list[list[int]] = []
+
+        for full_bin in self._yaw_bins_indices:
+            subset_bin = [index_map[idx] for idx in full_bin if idx in index_map]
+            if subset_bin:
+                subset_bins.append(subset_bin)
+
+        if not subset_bins:
+            return None
+        return subset_bins
 
     @staticmethod
     def scan_directory(root_dir: Path) -> list[Path]:

@@ -8,10 +8,19 @@ Tests cover:
     - Integration with PyTorch Lightning
 """
 
+import pickle
+import struct
+from pathlib import Path
+
+import cv2
 import numpy as np
 import pytest
 
-from visagen.data.dali_pipeline import DALI_AVAILABLE, check_dali_available
+from visagen.data.dali_pipeline import (
+    DALI_AVAILABLE,
+    _resolve_dali_inputs,
+    check_dali_available,
+)
 from visagen.data.dali_warp import (
     DALIAffineGenerator,
     DALIWarpGridGenerator,
@@ -19,6 +28,7 @@ from visagen.data.dali_warp import (
     gen_dali_affine_matrix,
     gen_dali_warp_grid,
 )
+from visagen.data.face_sample import FaceSample
 
 
 class TestDALIAvailability:
@@ -32,6 +42,68 @@ class TestDALIAvailability:
     def test_dali_available_constant_matches_function(self):
         """DALI_AVAILABLE constant should match function result."""
         assert DALI_AVAILABLE == check_dali_available()
+
+    def test_pipeline_flip_default_matches_legacy_value(self):
+        """Default DALI flip probability should align with legacy/PyTorch path."""
+        import visagen.data.dali_pipeline as dali_pipeline
+
+        source = Path(dali_pipeline.__file__).read_text()
+        assert "flip_prob: float = 0.4" in source
+
+    def test_affine_pipeline_does_not_apply_extra_rotate_stage(self):
+        """Affine warp path should not stack an additional rotate transform."""
+        import visagen.data.dali_pipeline as dali_pipeline
+
+        source = Path(dali_pipeline.__file__).read_text()
+        pipeline_block = source.split("def face_swap_pipeline(", 1)[1].split(
+            "def face_swap_pipeline_external(", 1
+        )[0]
+        assert "fn.rotate(" not in pipeline_block
+
+
+class TestDALIInputResolution:
+    """Tests for packed-faceset input resolution used by DALI iterator creation."""
+
+    @staticmethod
+    def _write_faceset_archive(tmp_path: Path, configs: list[dict], image_bytes: bytes):
+        configs_raw = pickle.dumps(configs, protocol=4)
+        packed_path = tmp_path / "faceset.pak"
+        with open(packed_path, "wb") as f:
+            f.write(struct.pack("Q", 1))  # version
+            f.write(struct.pack("Q", len(configs_raw)))
+            f.write(configs_raw)
+            f.write(struct.pack("Q", 0))
+            f.write(struct.pack("Q", len(image_bytes)))
+            f.write(image_bytes)
+        return packed_path
+
+    def test_resolve_dali_inputs_uses_packed_faces_when_no_files(self, tmp_path):
+        image = np.full((32, 32, 3), 200, dtype=np.uint8)
+        ok, encoded = cv2.imencode(".jpg", image)
+        assert ok
+        image_bytes = encoded.tobytes()
+
+        sample_config = {
+            "sample_type": 1,
+            "filename": "face_00001.jpg",
+            "face_type": 4,
+            "shape": (32, 32, 3),
+            "landmarks": np.zeros((68, 2), dtype=np.float32).tolist(),
+            "source_filename": "src_00001.jpg",
+            "person_name": None,
+        }
+        self._write_faceset_archive(tmp_path, [sample_config], image_bytes)
+
+        inputs = _resolve_dali_inputs(tmp_path, allow_packed_faceset=True)
+        assert len(inputs) == 1
+        assert isinstance(inputs[0], FaceSample)
+
+    def test_resolve_dali_inputs_errors_when_packed_disabled(self, tmp_path):
+        packed = tmp_path / "faceset.pak"
+        packed.write_bytes(b"dummy")
+
+        with pytest.raises(ValueError, match="allow_packed_faceset=True"):
+            _resolve_dali_inputs(tmp_path, allow_packed_faceset=False)
 
 
 class TestDALIWarpGrid:
@@ -357,6 +429,53 @@ class TestDALIDataModuleFallback:
         assert dm.val_split == 0.2
         assert dm.uniform_yaw is True
 
+    def test_create_dali_datamodule_strict_mode_forces_pytorch_backend(
+        self, tmp_path, monkeypatch
+    ):
+        """Strict warp mode should select PyTorch path even when DALI is available."""
+        from visagen.data.dali_loader import create_dali_datamodule
+        from visagen.data.datamodule import FaceDataModule
+
+        src_dir = tmp_path / "src"
+        dst_dir = tmp_path / "dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+
+        monkeypatch.setattr(
+            "visagen.data.dali_loader.check_dali_available",
+            lambda: True,
+        )
+
+        dm = create_dali_datamodule(
+            src_dir=src_dir,
+            dst_dir=dst_dir,
+            batch_size=2,
+            image_size=64,
+            force_pytorch=False,
+            use_dali=True,
+            dali_warp_mode="strict",
+            allow_packed_faceset=False,
+        )
+
+        assert isinstance(dm, FaceDataModule)
+        assert dm.allow_packed_faceset is False
+        assert dm.aug_config.get("warp_mode") == "strict"
+
+    def test_create_dali_datamodule_rejects_invalid_warp_mode(self, tmp_path):
+        from visagen.data.dali_loader import create_dali_datamodule
+
+        src_dir = tmp_path / "src"
+        dst_dir = tmp_path / "dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+
+        with pytest.raises(ValueError, match="Unsupported dali_warp_mode"):
+            create_dali_datamodule(
+                src_dir=src_dir,
+                dst_dir=dst_dir,
+                dali_warp_mode="invalid-mode",
+            )
+
     def test_dali_iterator_wrapper_returns_training_tuple_format(self):
         """Wrapper should expose (src_dict, dst_dict) expected by DFLModule."""
         from visagen.data.dali_loader import DALIIteratorWrapper
@@ -389,6 +508,29 @@ class TestDALIDataModuleFallback:
         assert "image" in src_dict
         assert "image" in dst_dict
         assert src_dict["image"].shape == (2, 3, 64, 64)
+
+    def test_dali_iterator_wrapper_len_falls_back_to_size_without_reader(self):
+        """External-source iterators may not expose src_reader epoch_size."""
+        from visagen.data.dali_loader import DALIIteratorWrapper
+
+        class _FakeExternalIterator:
+            batch_size = 2
+            _size = 10
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                raise StopIteration
+
+            def reset(self):
+                return None
+
+            def epoch_size(self, _reader_name):
+                raise RuntimeError("reader_name not available")
+
+        wrapped = DALIIteratorWrapper(_FakeExternalIterator())
+        assert len(wrapped) == 5
 
 
 class TestDALIModuleExports:

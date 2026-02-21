@@ -3,6 +3,7 @@
 
 dataset:
   type: "paired"  # Options: paired, unpaired, pretrain
+  allow_packed_faceset: true
 
   # Source faces (identity to learn)
   src:
@@ -33,6 +34,7 @@ dali:
   enabled: true
   prefetch_queue_depth: 2
   device_id: 0
+  warp_mode: "affine"  # Options: affine, strict (strict forces PyTorch fallback)
 
 # Preprocessing
 preprocessing:

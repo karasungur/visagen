@@ -29,6 +29,7 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from visagen.data.dali_loader import check_dali_available, create_dali_datamodule
+from visagen.data.datamodule import create_temporal_datamodule
 from visagen.training.callbacks import (
     AutoBackupCallback,
     CommandFileReaderCallback,
@@ -158,6 +159,26 @@ Examples:
         default="auto",
         choices=["auto", "dali", "pytorch"],
         help="Data backend (default: auto)",
+    )
+    parser.add_argument(
+        "--dali-warp-mode",
+        type=str,
+        default="affine",
+        choices=["affine", "strict"],
+        help="DALI warp policy (strict forces PyTorch fallback)",
+    )
+    parser.add_argument(
+        "--allow-packed-faceset",
+        dest="allow_packed_faceset",
+        action="store_true",
+        default=True,
+        help="Enable legacy faceset.pak loading (default: enabled)",
+    )
+    parser.add_argument(
+        "--no-packed-faceset",
+        dest="allow_packed_faceset",
+        action="store_false",
+        help="Disable legacy faceset.pak loading",
     )
 
     # Model arguments
@@ -508,7 +529,8 @@ def resolve_precision(precision: str, accelerator: str) -> str:
 
     if precision == "16-mixed":
         print(
-            "Warning: Mixed precision requested but only CPU is available; using precision=32."
+            "Warning: Mixed precision requested but only CPU is available; "
+            "using precision=32."
         )
         return "32"
     return precision
@@ -545,6 +567,8 @@ def main() -> int:
         "num_workers": 4,
         "val_split": 0.1,
         "data_backend": "auto",
+        "dali_warp_mode": "affine",
+        "allow_packed_faceset": True,
         "dssim_weight": 10.0,
         "l1_weight": 10.0,
         "lpips_weight": 0.0,
@@ -652,6 +676,10 @@ def main() -> int:
         dali_incompatible_reasons.append("landmark-based losses")
     if args.face_style_weight > 0 or args.bg_style_weight > 0:
         dali_incompatible_reasons.append("mask-based style losses")
+    if args.masked_training:
+        dali_incompatible_reasons.append("masked blur training")
+    if args.dali_warp_mode == "strict":
+        dali_incompatible_reasons.append("strict DFL warp mode")
     if effective_data_backend != "pytorch" and dali_incompatible_reasons:
         print(
             "Warning: DALI backend currently does not provide "
@@ -666,26 +694,43 @@ def main() -> int:
         )
         effective_data_backend = "pytorch"
 
-    datamodule = create_dali_datamodule(
-        src_dir=args.src_dir,
-        dst_dir=args.dst_dir,
-        batch_size=args.batch_size,
-        image_size=args.image_size,
-        num_threads=max(1, args.num_workers),
-        device_id=0,
-        augment=not args.no_augmentation,
-        seed=42,
-        force_pytorch=effective_data_backend == "pytorch",
-        num_workers=args.num_workers,
-        val_split=args.val_split,
-        augmentation_config=aug_config,
-        uniform_yaw=args.uniform_yaw,
-        use_dali=True if effective_data_backend == "dali" else None,
-    )
+    datamodule: pl.LightningDataModule
+    if args.temporal_enabled:
+        datamodule = create_temporal_datamodule(
+            src_dir=args.src_dir,
+            dst_dir=args.dst_dir,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            target_size=args.image_size,
+            val_split=args.val_split,
+            sequence_length=args.temporal_sequence_length,
+        )
+    else:
+        datamodule = create_dali_datamodule(
+            src_dir=args.src_dir,
+            dst_dir=args.dst_dir,
+            batch_size=args.batch_size,
+            image_size=args.image_size,
+            num_threads=max(1, args.num_workers),
+            device_id=0,
+            augment=not args.no_augmentation,
+            seed=42,
+            force_pytorch=effective_data_backend == "pytorch",
+            num_workers=args.num_workers,
+            val_split=args.val_split,
+            augmentation_config=aug_config,
+            uniform_yaw=args.uniform_yaw,
+            allow_packed_faceset=args.allow_packed_faceset,
+            dali_warp_mode=args.dali_warp_mode,
+            use_dali=True if effective_data_backend == "dali" else None,
+        )
 
     # Setup data to get sample counts
     datamodule.setup("fit")
-    backend_name = "dali" if getattr(datamodule, "using_dali", False) else "pytorch"
+    if args.temporal_enabled:
+        backend_name = "pytorch-temporal"
+    else:
+        backend_name = "dali" if getattr(datamodule, "using_dali", False) else "pytorch"
     train_samples = getattr(datamodule, "num_train_samples", "N/A")
     val_samples = getattr(datamodule, "num_val_samples", "N/A")
     print("\nDataset:")

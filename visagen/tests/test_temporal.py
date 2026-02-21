@@ -30,6 +30,7 @@ from visagen.training.losses import (
     TemporalDiscriminatorLoss,
     TemporalGANLoss,
 )
+from visagen.vision.dflimg import DFLImage, FaceMetadata
 
 # =============================================================================
 # ResidualBlock3D Tests
@@ -360,6 +361,19 @@ class TestSequenceFaceDataset:
                 img.save(Path(tmpdir) / f"{i:05d}.jpg")
             yield tmpdir
 
+    @staticmethod
+    def _create_dfl_image(path: Path, source_filename: str) -> None:
+        image = np.full((32, 32, 3), 128, dtype=np.uint8)
+        metadata = FaceMetadata(
+            landmarks=np.zeros((68, 2), dtype=np.float32),
+            source_landmarks=np.zeros((68, 2), dtype=np.float32),
+            source_rect=(0, 0, 31, 31),
+            source_filename=source_filename,
+            face_type="whole_face",
+            image_to_face_mat=np.eye(2, 3, dtype=np.float32),
+        )
+        DFLImage.save(path, image, metadata)
+
     def test_sequence_shape(self, temp_image_dir):
         """Test dataset returns correct sequence shape."""
         from visagen.data import SequenceFaceDataset
@@ -418,6 +432,42 @@ class TestSequenceFaceDataset:
 
             with pytest.raises(ValueError, match="Not enough images"):
                 SequenceFaceDataset(tmpdir, sequence_length=5)
+
+    def test_source_filename_sort_mode_uses_dfl_metadata_order(self):
+        """Legacy temporal order should prioritize source_filename metadata."""
+        from visagen.data import SequenceFaceDataset
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._create_dfl_image(root / "1.jpg", "frame_0003.png")
+            self._create_dfl_image(root / "2.jpg", "frame_0001.png")
+            self._create_dfl_image(root / "3.jpg", "frame_0002.png")
+
+            dataset = SequenceFaceDataset(
+                root,
+                sequence_length=2,
+                target_size=32,
+                sort_mode="source_filename",
+            )
+            assert [p.name for p in dataset.image_paths] == ["2.jpg", "3.jpg", "1.jpg"]
+
+    def test_source_filename_sort_mode_falls_back_to_stem(self):
+        """When metadata is absent, source_filename mode should fall back to stem."""
+        from visagen.data import SequenceFaceDataset
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for name in ["10.jpg", "2.jpg", "1.jpg"]:
+                img = Image.fromarray(np.random.randint(0, 255, (32, 32, 3), np.uint8))
+                img.save(root / name)
+
+            dataset = SequenceFaceDataset(
+                root,
+                sequence_length=2,
+                target_size=32,
+                sort_mode="source_filename",
+            )
+            assert [p.name for p in dataset.image_paths] == ["1.jpg", "10.jpg", "2.jpg"]
 
 
 class TestPairedSequenceDataset:
@@ -503,6 +553,60 @@ class TestRandomSequenceDataset:
         sample2 = dataset[5]
 
         assert torch.allclose(sample1["sequence"], sample2["sequence"])
+
+    def test_random_stride_mode_can_skip_frames(self, temp_image_dir, monkeypatch):
+        """Random stride mode should occasionally sample with temporal gaps > 1."""
+        from visagen.data import RandomSequenceDataset
+
+        dataset = RandomSequenceDataset(
+            temp_image_dir,
+            sequence_length=5,
+            num_samples=50,
+            target_size=64,
+            stride_mode="random",
+            max_stride=4,
+        )
+
+        def _fake_load_frame(path: Path) -> torch.Tensor:
+            value = float(int(path.stem))
+            return torch.full((3, 4, 4), value)
+
+        monkeypatch.setattr(dataset, "_load_frame", _fake_load_frame)
+
+        saw_gap = False
+        for sample_idx in range(20):
+            seq = dataset[sample_idx]["sequence"]
+            frame_ids = [int(seq[0, t, 0, 0].item()) for t in range(seq.shape[1])]
+            gaps = [b - a for a, b in zip(frame_ids[:-1], frame_ids[1:], strict=True)]
+            if any(g > 1 for g in gaps):
+                saw_gap = True
+                break
+
+        assert saw_gap
+
+    def test_fixed_stride_mode_remains_contiguous(self, temp_image_dir, monkeypatch):
+        """Fixed stride mode should keep per-frame gaps at exactly 1."""
+        from visagen.data import RandomSequenceDataset
+
+        dataset = RandomSequenceDataset(
+            temp_image_dir,
+            sequence_length=5,
+            num_samples=10,
+            target_size=64,
+            stride_mode="fixed",
+            max_stride=4,
+        )
+
+        def _fake_load_frame(path: Path) -> torch.Tensor:
+            value = float(int(path.stem))
+            return torch.full((3, 4, 4), value)
+
+        monkeypatch.setattr(dataset, "_load_frame", _fake_load_frame)
+
+        seq = dataset[0]["sequence"]
+        frame_ids = [int(seq[0, t, 0, 0].item()) for t in range(seq.shape[1])]
+        gaps = [b - a for a, b in zip(frame_ids[:-1], frame_ids[1:], strict=True)]
+        assert all(g == 1 for g in gaps)
 
 
 # =============================================================================
@@ -615,3 +719,45 @@ class TestDFLModuleTemporalIntegration:
 
         assert len(optimizers) == 3  # generator + spatial D + temporal D
         assert len(schedulers) == 3
+
+
+class TestTemporalDataModule:
+    """Tests for temporal datamodule integration contract."""
+
+    @pytest.fixture
+    def temp_paired_dirs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src_dir = Path(tmpdir) / "src"
+            dst_dir = Path(tmpdir) / "dst"
+            src_dir.mkdir()
+            dst_dir.mkdir()
+
+            for i in range(12):
+                img = Image.fromarray(
+                    np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)
+                )
+                img.save(src_dir / f"{i:05d}.jpg")
+                img.save(dst_dir / f"{i:05d}.jpg")
+
+            yield src_dir, dst_dir
+
+    def test_temporal_datamodule_returns_sequence_dict_contract(self, temp_paired_dirs):
+        from visagen.data.datamodule import create_temporal_datamodule
+
+        src_dir, dst_dir = temp_paired_dirs
+        dm = create_temporal_datamodule(
+            src_dir=src_dir,
+            dst_dir=dst_dir,
+            batch_size=2,
+            num_workers=0,
+            target_size=64,
+            val_split=0.2,
+            sequence_length=4,
+        )
+        dm.setup("fit")
+        src_dict, dst_dict = next(iter(dm.train_dataloader()))
+
+        assert isinstance(src_dict, dict)
+        assert isinstance(dst_dict, dict)
+        assert src_dict["image"].shape == (2, 3, 4, 64, 64)
+        assert dst_dict["image"].shape == (2, 3, 4, 64, 64)
