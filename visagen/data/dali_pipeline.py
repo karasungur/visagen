@@ -188,7 +188,9 @@ def _resolve_dali_inputs(
             resolved_samples: list[Path | FaceSample] = []
             resolved_samples.extend(samples)
             return resolved_samples
-        raise ValueError(f"faceset.pak exists but contains no readable samples: {root_dir}")
+        raise ValueError(
+            f"faceset.pak exists but contains no readable samples: {root_dir}"
+        )
 
     raise FileNotFoundError(f"No images found in {root_dir}")
 
@@ -733,9 +735,9 @@ def create_dali_iterator(
         dst_dir,
         allow_packed_faceset=allow_packed_faceset,
     )
-    use_external_source = any(isinstance(item, FaceSample) for item in src_inputs) or any(
-        isinstance(item, FaceSample) for item in dst_inputs
-    )
+    use_external_source = any(
+        isinstance(item, FaceSample) for item in src_inputs
+    ) or any(isinstance(item, FaceSample) for item in dst_inputs)
 
     external_source: FaceSwapExternalSource | None = None
     if use_external_source:

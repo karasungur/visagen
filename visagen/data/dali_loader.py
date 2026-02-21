@@ -369,7 +369,9 @@ def create_dali_datamodule(
 
     if force_pytorch or not check_dali_available():
         # Use standard PyTorch DataModule
-        aug_config = dict(augmentation_config) if augmentation_config is not None else None
+        aug_config = (
+            dict(augmentation_config) if augmentation_config is not None else None
+        )
         if not augment:
             aug_config = {
                 "random_flip_prob": 0.0,

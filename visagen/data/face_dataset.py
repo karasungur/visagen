@@ -135,8 +135,7 @@ class PackedFacesetReader:
                     raise ValueError("faceset.pak metadata payload is not a list")
 
                 offsets = [
-                    struct.unpack("Q", f.read(8))[0]
-                    for _ in range(len(configs) + 1)
+                    struct.unpack("Q", f.read(8))[0] for _ in range(len(configs) + 1)
                 ]
                 data_start_offset = f.tell()
         except Exception as e:

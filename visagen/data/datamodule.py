@@ -122,10 +122,7 @@ class PairedFaceDataset(Dataset):
 
     def __getitem__(
         self, idx: int | tuple[int, int]
-    ) -> (
-        tuple[dict[str, Any], dict[str, Any]]
-        | tuple[torch.Tensor, torch.Tensor]
-    ):
+    ) -> tuple[dict[str, Any], dict[str, Any]] | tuple[torch.Tensor, torch.Tensor]:
         """
         Get paired sample.
 
@@ -514,7 +511,6 @@ if pl is not None:
                 return int(len(self.val_dataset))
             return 0
 
-
     class TemporalFaceDataModule(pl.LightningDataModule):
         """
         Temporal DataModule for sequence-based training.
@@ -608,7 +604,6 @@ if pl is not None:
                 return int(len(self.val_dataset))
             return 0
 
-
     def create_temporal_datamodule(
         src_dir: str | Path,
         dst_dir: str | Path,
@@ -641,7 +636,6 @@ else:
                 "Install with: pip install pytorch-lightning"
             )
 
-
     class TemporalFaceDataModule:  # type: ignore
         """TemporalFaceDataModule requires pytorch-lightning."""
 
@@ -650,7 +644,6 @@ else:
                 "TemporalFaceDataModule requires pytorch-lightning. "
                 "Install with: pip install pytorch-lightning"
             )
-
 
     def create_temporal_datamodule(*args, **kwargs):  # type: ignore
         raise ImportError(

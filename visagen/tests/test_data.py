@@ -337,6 +337,7 @@ class TestDatasetSamplingAndTransforms:
         assert torch.allclose(transform.calls[0], torch.full((3, 8, 8), 2.0))
         assert torch.allclose(transform.calls[1], torch.full((3, 8, 8), 1.0))
 
+
 class TestWarpFunctions:
     """Tests for grid warping functions."""
 
