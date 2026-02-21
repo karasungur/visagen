@@ -186,7 +186,7 @@ class TestOptunaTuner:
         assert output_path.exists()
 
         # Read and verify content
-        import yaml
+        import yaml  # type: ignore[import-untyped]
 
         with open(output_path) as f:
             config = yaml.safe_load(f)
