@@ -33,6 +33,15 @@ class TestDALIAvailability:
         """DALI_AVAILABLE constant should match function result."""
         assert DALI_AVAILABLE == check_dali_available()
 
+    def test_pipeline_flip_default_matches_legacy_value(self):
+        """Default DALI flip probability should align with legacy/PyTorch path."""
+        from pathlib import Path
+
+        import visagen.data.dali_pipeline as dali_pipeline
+
+        source = Path(dali_pipeline.__file__).read_text()
+        assert "flip_prob: float = 0.4" in source
+
 
 class TestDALIWarpGrid:
     """Tests for DFL-style warp grid generation."""
@@ -356,6 +365,52 @@ class TestDALIDataModuleFallback:
         assert dm.num_workers == 2
         assert dm.val_split == 0.2
         assert dm.uniform_yaw is True
+
+    def test_create_dali_datamodule_strict_mode_forces_pytorch_backend(
+        self, tmp_path, monkeypatch
+    ):
+        """Strict warp mode should select PyTorch path even when DALI is available."""
+        from visagen.data.dali_loader import create_dali_datamodule
+        from visagen.data.datamodule import FaceDataModule
+
+        src_dir = tmp_path / "src"
+        dst_dir = tmp_path / "dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+
+        monkeypatch.setattr(
+            "visagen.data.dali_loader.check_dali_available",
+            lambda: True,
+        )
+
+        dm = create_dali_datamodule(
+            src_dir=src_dir,
+            dst_dir=dst_dir,
+            batch_size=2,
+            image_size=64,
+            force_pytorch=False,
+            use_dali=True,
+            dali_warp_mode="strict",
+            allow_packed_faceset=False,
+        )
+
+        assert isinstance(dm, FaceDataModule)
+        assert dm.allow_packed_faceset is False
+
+    def test_create_dali_datamodule_rejects_invalid_warp_mode(self, tmp_path):
+        from visagen.data.dali_loader import create_dali_datamodule
+
+        src_dir = tmp_path / "src"
+        dst_dir = tmp_path / "dst"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+
+        with pytest.raises(ValueError, match="Unsupported dali_warp_mode"):
+            create_dali_datamodule(
+                src_dir=src_dir,
+                dst_dir=dst_dir,
+                dali_warp_mode="invalid-mode",
+            )
 
     def test_dali_iterator_wrapper_returns_training_tuple_format(self):
         """Wrapper should expose (src_dict, dst_dict) expected by DFLModule."""

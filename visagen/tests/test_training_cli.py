@@ -49,6 +49,20 @@ def test_cli_accepts_data_backend():
     assert "{auto,dali,pytorch}" in result.stdout
 
 
+def test_cli_accepts_dali_warp_mode():
+    """Verify --dali-warp-mode argument and choices are exposed."""
+    result = _run_train_help()
+    assert "--dali-warp-mode" in result.stdout
+    assert "{affine,strict}" in result.stdout
+
+
+def test_cli_accepts_packed_faceset_flags():
+    """Verify packed faceset compatibility flags are accepted."""
+    result = _run_train_help()
+    assert "--allow-packed-faceset" in result.stdout
+    assert "--no-packed-faceset" in result.stdout
+
+
 def test_cli_default_precision_is_16_mixed():
     """Help output should advertise the modern mixed precision default."""
     result = _run_train_help()

@@ -615,3 +615,45 @@ class TestDFLModuleTemporalIntegration:
 
         assert len(optimizers) == 3  # generator + spatial D + temporal D
         assert len(schedulers) == 3
+
+
+class TestTemporalDataModule:
+    """Tests for temporal datamodule integration contract."""
+
+    @pytest.fixture
+    def temp_paired_dirs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src_dir = Path(tmpdir) / "src"
+            dst_dir = Path(tmpdir) / "dst"
+            src_dir.mkdir()
+            dst_dir.mkdir()
+
+            for i in range(12):
+                img = Image.fromarray(
+                    np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)
+                )
+                img.save(src_dir / f"{i:05d}.jpg")
+                img.save(dst_dir / f"{i:05d}.jpg")
+
+            yield src_dir, dst_dir
+
+    def test_temporal_datamodule_returns_sequence_dict_contract(self, temp_paired_dirs):
+        from visagen.data.datamodule import create_temporal_datamodule
+
+        src_dir, dst_dir = temp_paired_dirs
+        dm = create_temporal_datamodule(
+            src_dir=src_dir,
+            dst_dir=dst_dir,
+            batch_size=2,
+            num_workers=0,
+            target_size=64,
+            val_split=0.2,
+            sequence_length=4,
+        )
+        dm.setup("fit")
+        src_dict, dst_dict = next(iter(dm.train_dataloader()))
+
+        assert isinstance(src_dict, dict)
+        assert isinstance(dst_dict, dict)
+        assert src_dict["image"].shape == (2, 3, 4, 64, 64)
+        assert dst_dict["image"].shape == (2, 3, 4, 64, 64)
