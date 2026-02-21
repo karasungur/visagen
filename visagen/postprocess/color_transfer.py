@@ -16,7 +16,7 @@ Reference:
     - https://github.com/dcoeurjo/OTColorTransfer
 """
 
-from typing import Literal
+from typing import Literal, cast
 
 import cv2
 import numpy as np
@@ -238,7 +238,7 @@ def linear_color_transfer(
     # Reshape and add source mean
     result = ts.T.reshape(h, w, c) + mu_s
 
-    return np.clip(result.astype(np.float32), 0, 1)
+    return cast(np.ndarray, np.clip(result.astype(np.float32), 0, 1))
 
 
 def color_transfer_sot(
@@ -318,7 +318,7 @@ def color_transfer_sot(
 
         for _ in range(batch_size):
             # Random projection direction
-            direction = np.random.normal(size=c).astype(src.dtype)
+            direction = np.asarray(np.random.normal(size=c), dtype=np.float32)
             direction /= npla.norm(direction)
 
             # Project onto random direction
@@ -373,7 +373,7 @@ def color_transfer_sot(
             src_diff_filt = src_diff_filt[..., None]
         new_src = src + src_diff_filt
 
-    return np.clip(new_src, 0, 1).astype(np.float32)
+    return cast(np.ndarray, np.clip(new_src, 0, 1).astype(np.float32))
 
 
 def color_transfer_mkl(
@@ -455,7 +455,7 @@ def color_transfer_mkl(
     target_flat = target.reshape(-1, c)
     result = (target_flat - mx0) @ T.real + mx1
 
-    return np.clip(result.reshape(h, w, c).astype(np.float32), 0, 1)
+    return cast(np.ndarray, np.clip(result.reshape(h, w, c).astype(np.float32), 0, 1))
 
 
 def color_transfer_idt(
@@ -525,8 +525,8 @@ def color_transfer_idt(
             lo = min(d0r[j].min(), d1r[j].min())
             hi = max(d0r[j].max(), d1r[j].max())
 
-            p0r, edges = np.histogram(d0r[j], bins=bins, range=[lo, hi])
-            p1r, _ = np.histogram(d1r[j], bins=bins, range=[lo, hi])
+            p0r, edges = np.histogram(d0r[j], bins=bins, range=(float(lo), float(hi)))
+            p1r, _ = np.histogram(d1r[j], bins=bins, range=(float(lo), float(hi)))
 
             # Cumulative histograms
             cp0r = p0r.cumsum().astype(np.float32)
@@ -550,7 +550,7 @@ def color_transfer_idt(
     else:
         new_target = d0.T.reshape(h, w, c)
 
-    return np.clip(new_target.astype(np.float32), 0, 1)
+    return cast(np.ndarray, np.clip(new_target.astype(np.float32), 0, 1))
 
 
 def color_transfer_mix(
@@ -721,7 +721,7 @@ def channel_hist_match(
 
     interp_t_values = np.interp(s_quantiles, t_quantiles, t_values)
 
-    return interp_t_values[bin_idx].reshape(oldshape)
+    return cast(np.ndarray, interp_t_values[bin_idx].reshape(oldshape))
 
 
 def color_hist_match(

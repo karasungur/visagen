@@ -76,10 +76,12 @@ class ProcessControl:
     def start_button(self) -> gr.Button:
         if self._start_btn is None:
             self.build()
+        assert self._start_btn is not None
         return self._start_btn
 
     @property
     def stop_button(self) -> gr.Button:
         if self._stop_btn is None:
             self.build()
+        assert self._stop_btn is not None
         return self._stop_btn

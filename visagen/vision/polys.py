@@ -42,13 +42,14 @@ class Polygon:
             poly_type: Type of polygon (INCLUDE or EXCLUDE).
         """
         self.type = poly_type
-        self._points = np.empty((0, 2), dtype=np.float32)
+        # Keep shape dynamic for edit operations (append/insert/remove).
+        self._points: np.ndarray = np.empty((0, 2), dtype=np.float32)
         self._n = 0  # Current position (undo pointer)
 
     @property
     def points(self) -> np.ndarray:
         """Get current valid points."""
-        return self._points[: self._n].copy()
+        return np.asarray(self._points[: self._n].copy(), dtype=np.float32)
 
     @points.setter
     def points(self, value: np.ndarray) -> None:
@@ -281,7 +282,7 @@ class PolygonSet:
         Returns:
             The newly created Polygon.
         """
-        poly = Polygon(type=poly_type)
+        poly = Polygon(poly_type=poly_type)
         self.polygons.append(poly)
         return poly
 
@@ -338,7 +339,7 @@ class PolygonSet:
         # Sort to ensure correct order
         sorted_polys = sorted(
             self.polygons,
-            key=lambda p: (0 if p.type == PolyType.INCLUDE else 1),
+            key=lambda p: 0 if p.type == PolyType.INCLUDE else 1,
         )
 
         for poly in sorted_polys:
@@ -365,7 +366,7 @@ class PolygonSet:
 
         sorted_polys = sorted(
             self.polygons,
-            key=lambda p: (0 if p.type == PolyType.INCLUDE else 1),
+            key=lambda p: 0 if p.type == PolyType.INCLUDE else 1,
         )
 
         for poly in sorted_polys:
@@ -376,7 +377,7 @@ class PolygonSet:
             color = 255 if poly.type == PolyType.INCLUDE else 0
             cv2.fillPoly(result, [pts], color)
 
-        return result
+        return np.asarray(result, dtype=mask.dtype)
 
     def scale(self, factor: float) -> "PolygonSet":
         """
@@ -421,12 +422,9 @@ class PolygonSet:
             for item in data:
                 if isinstance(item, (list, tuple)) and len(item) >= 2:
                     poly_type, pts = item[0], item[1]
-                    polyset.polygons.append(
-                        Polygon(
-                            type=PolyType(poly_type),
-                            points=np.array(pts, dtype=np.float32),
-                        )
-                    )
+                    poly = Polygon(poly_type=PolyType(poly_type))
+                    poly.points = np.array(pts, dtype=np.float32)
+                    polyset.polygons.append(poly)
         elif isinstance(data, dict):
             # New format: {"polys": [...]}
             for poly_data in data.get("polys", []):

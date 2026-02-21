@@ -15,6 +15,7 @@ from pathlib import Path
 
 from visagen.merger.frame_processor import FrameProcessorConfig
 from visagen.merger.merger import FaceMerger, MergerConfig
+from visagen.merger.video_io import check_nvenc_available
 
 
 def parse_args() -> argparse.Namespace:
@@ -101,8 +102,31 @@ Examples:
         "--color-transfer",
         type=str,
         default="rct",
-        choices=["rct", "lct", "sot", "none"],
+        choices=[
+            "rct",
+            "lct",
+            "sot",
+            "mkl",
+            "idt",
+            "mix",
+            "hist-match",
+            "neural",
+            "none",
+        ],
         help="Color transfer mode (default: rct)",
+    )
+    color.add_argument(
+        "--neural-color-mode",
+        type=str,
+        default="statistics",
+        choices=["histogram", "statistics", "gram"],
+        help="Neural color transfer mode (default: statistics)",
+    )
+    color.add_argument(
+        "--neural-color-strength",
+        type=float,
+        default=0.8,
+        help="Neural color transfer strength 0.0-1.0 (default: 0.8)",
     )
 
     # Blending options
@@ -132,7 +156,10 @@ Examples:
     restore.add_argument(
         "--restore-face",
         action="store_true",
-        help="Enable GFPGAN face restoration",
+        help=(
+            "Enable face restoration (GFPGAN by default; "
+            "falls back to GPEN when GFPGAN is unavailable)"
+        ),
     )
     restore.add_argument(
         "--restore-strength",
@@ -161,6 +188,11 @@ Examples:
         "--no-hardware-encoder",
         action="store_true",
         help="Disable hardware encoder (NVENC) even if available",
+    )
+    video.add_argument(
+        "--require-nvenc",
+        action="store_true",
+        help="Fail fast unless NVENC hardware encoding is available and selected",
     )
     video.add_argument(
         "--crf",
@@ -289,6 +321,8 @@ def build_config(args: argparse.Namespace) -> MergerConfig:
         color_transfer_mode=args.color_transfer
         if args.color_transfer != "none"
         else None,
+        neural_color_mode=args.neural_color_mode,
+        neural_color_strength=args.neural_color_strength,
         blend_mode=args.blend_mode,
         mask_erode=args.mask_erode,
         mask_blur=args.mask_blur,
@@ -306,6 +340,20 @@ def build_config(args: argparse.Namespace) -> MergerConfig:
             "Warning: --no-hardware-encoder used with hardware codec, forcing libx264"
         )
         codec = "libx264"
+
+    if args.require_nvenc:
+        if args.no_hardware_encoder:
+            raise ValueError(
+                "--require-nvenc cannot be used with --no-hardware-encoder"
+            )
+        if not check_nvenc_available():
+            raise ValueError("NVENC is required but not available on this system.")
+        if codec == "auto":
+            codec = "h264_nvenc"
+        elif codec not in ("h264_nvenc", "hevc_nvenc"):
+            raise ValueError(
+                "--require-nvenc requires codec to be h264_nvenc, hevc_nvenc, or auto"
+            )
 
     # Build merger config
     config = MergerConfig(
@@ -390,19 +438,19 @@ def main() -> int:
 
     # Run merger
     if not args.quiet:
+        if config.frame_processor_config is None:
+            print("Error: frame processor config is missing", file=sys.stderr)
+            return 1
+        fp_cfg = config.frame_processor_config
         print("Visagen Merge")
         print(f"  Input: {args.input}")
         print(f"  Output: {args.output}")
         print(f"  Checkpoint: {args.checkpoint}")
-        print(f"  Color transfer: {config.frame_processor_config.color_transfer_mode}")
-        print(f"  Blend mode: {config.frame_processor_config.blend_mode}")
-        if config.frame_processor_config.restore_face:
-            print(
-                f"  Face restoration: GFPGAN v{config.frame_processor_config.restore_model_version}"
-            )
-            print(
-                f"  Restore strength: {config.frame_processor_config.restore_strength}"
-            )
+        print(f"  Color transfer: {fp_cfg.color_transfer_mode}")
+        print(f"  Blend mode: {fp_cfg.blend_mode}")
+        if fp_cfg.restore_face:
+            print(f"  Face restoration: GFPGAN v{fp_cfg.restore_model_version}")
+            print(f"  Restore strength: {fp_cfg.restore_strength}")
         print(f"  Encoder: {config.codec}")
         print()
 
@@ -422,6 +470,9 @@ def main() -> int:
                 print(f"  Failed: {stats.failed_frames}")
             print(f"  Faces detected: {stats.faces_detected}")
             print(f"  Faces swapped: {stats.faces_swapped}")
+            if stats.frames_with_errors > 0:
+                print(f"  Frames with recoverable errors: {stats.frames_with_errors}")
+                print(f"  Recoverable processing errors: {stats.processing_errors}")
             print(f"  Total time: {stats.total_time:.1f}s")
             print(f"  Average FPS: {stats.fps:.1f}")
             print()

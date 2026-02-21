@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import gradio as gr
 import numpy as np
@@ -278,7 +278,7 @@ class CompareTab(BaseTab):
         if img.shape[:2] != (256, 256):
             output = cv2.resize(output, (img.shape[1], img.shape[0]))
 
-        return output
+        return cast(np.ndarray, output)
 
     def _calculate_metrics(
         self,

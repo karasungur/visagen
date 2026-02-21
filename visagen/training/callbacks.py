@@ -13,7 +13,7 @@ import logging
 import shutil
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytorch_lightning as pl
 import torch
@@ -203,11 +203,13 @@ class PreviewCallback(Callback):
             # Log to TensorBoard
             if trainer.logger is not None:
                 try:
-                    trainer.logger.experiment.add_image(
-                        "preview/training",
-                        grid,
-                        trainer.global_step,
-                    )
+                    experiment = cast(Any, getattr(trainer.logger, "experiment", None))
+                    if experiment is not None:
+                        experiment.add_image(
+                            "preview/training",
+                            grid,
+                            trainer.global_step,
+                        )
                 except AttributeError:
                     # Logger doesn't support add_image (e.g., CSVLogger)
                     pass
@@ -619,6 +621,15 @@ class CommandFileReaderCallback(Callback):
                 logger.warning(f"Unknown parameter '{key}' in command file, skipping")
                 continue
 
+            if key in {"temporal_power", "temporal_consistency_weight"} and not getattr(
+                pl_module, "temporal_enabled", False
+            ):
+                logger.warning(
+                    "Ignoring '%s' update because temporal training is disabled.",
+                    key,
+                )
+                continue
+
             try:
                 float_value = float(value)
             except (TypeError, ValueError):
@@ -666,5 +677,18 @@ class CommandFileReaderCallback(Callback):
             if old_value != value:
                 setattr(pl_module, key, value)
                 logger.info(f"[Step {trainer.global_step}] {key} updated to {value}")
+                if key == "temporal_consistency_weight":
+                    temporal_loss = getattr(
+                        pl_module, "temporal_consistency_loss", None
+                    )
+                    if temporal_loss is not None and hasattr(temporal_loss, "weight"):
+                        old_weight = temporal_loss.weight
+                        if old_weight != value:
+                            temporal_loss.weight = value
+                            logger.info(
+                                "[Step %s] temporal_consistency_loss.weight synced to %s",
+                                trainer.global_step,
+                                value,
+                            )
         else:
             logger.warning(f"Module does not have attribute '{key}', cannot update")

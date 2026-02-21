@@ -9,12 +9,14 @@ import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import cv2
 import numpy as np
 
 from visagen.merger.interactive_config import (
     InteractiveMergerSession,
+    map_merge_mode_to_processor,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,7 @@ class InteractiveMerger:
         # Debounced auto-save
         self._save_timer: threading.Timer | None = None
         self._save_delay: float = 2.0  # 2 seconds debounce
+        self._last_process_status: str = "ok"
 
     @property
     def processor(self):
@@ -174,7 +177,7 @@ class InteractiveMerger:
 
     def _get_frame_list(self, frames_dir: Path) -> list[Path]:
         """Get sorted list of image files in directory."""
-        frames = []
+        frames: list[Path] = []
 
         for ext in self.IMAGE_EXTENSIONS:
             frames.extend(frames_dir.glob(f"*{ext}"))
@@ -208,13 +211,27 @@ class InteractiveMerger:
             frame = cv2.imread(str(frame_path))
             if frame is None:
                 logger.error(f"Failed to read frame: {frame_path}")
+                self._last_process_status = f"failed_to_read:{frame_path.name}"
                 return None
+
+            # Explicit passthrough mode (legacy 'original')
+            if self.session.config.mode == "original":
+                output_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                self._last_process_status = "ok"
+                self._add_to_cache(cache_key, output_rgb)
+                return cast(np.ndarray, output_rgb)
 
             # Apply configuration to processor
             self._apply_config_to_processor()
 
             # Process frame
             result = self.processor.process_frame(frame, frame_idx=idx)
+            if result.had_errors:
+                self._last_process_status = (
+                    f"frame_processed_with_errors:{result.error_count}"
+                )
+            else:
+                self._last_process_status = "ok"
 
             # Convert BGR to RGB for Gradio display
             output_rgb = cv2.cvtColor(result.output_image, cv2.COLOR_BGR2RGB)
@@ -222,9 +239,10 @@ class InteractiveMerger:
             # Cache result
             self._add_to_cache(cache_key, output_rgb)
 
-            return output_rgb
+            return cast(np.ndarray, output_rgb)
 
-        except Exception:
+        except Exception as e:
+            self._last_process_status = f"processing_exception:{type(e).__name__}"
             logger.exception(f"Error processing frame {idx}")
             return None
 
@@ -269,13 +287,28 @@ class InteractiveMerger:
         # Map interactive config to processor config
         proc_config = self.processor.config
 
+        # Merge mode -> blend mode (+ optional forced color transfer)
+        blend_mode, forced_color_transfer, _passthrough_original = (
+            map_merge_mode_to_processor(config.mode)
+        )
+        proc_config.blend_mode = blend_mode
+
         # Color transfer
         if config.color_transfer == "none":
             proc_config.color_transfer_mode = None
         else:
             proc_config.color_transfer_mode = config.color_transfer
 
-        # Mask processing - Pozitif değer = erode, negatif değer = dilate
+        if forced_color_transfer is not None:
+            proc_config.color_transfer_mode = forced_color_transfer
+
+        proc_config.hist_match_threshold = config.hist_match_threshold
+        proc_config.masked_hist_match = config.masked_hist_match
+
+        # Mask mode
+        proc_config.mask_mode = config.mask_mode
+
+        # Mask processing: positive values erode, negative values dilate.
         if config.erode_mask > 0:
             proc_config.mask_erode = config.erode_mask
             proc_config.mask_dilate = 0
@@ -308,6 +341,15 @@ class InteractiveMerger:
         proc_config.image_denoise_power = config.image_denoise_power
         proc_config.bicubic_degrade_power = config.bicubic_degrade_power
         proc_config.color_degrade_power = config.color_degrade_power
+        logger.debug(
+            "interactive_mapping mode=%s blend=%s mask=%s hist=%s face_scale=%s sharpen=%s",
+            config.mode,
+            proc_config.blend_mode,
+            proc_config.mask_mode,
+            proc_config.hist_match_threshold,
+            proc_config.face_scale,
+            proc_config.sharpen_amount,
+        )
 
     def update_config(self, **kwargs) -> np.ndarray | None:
         """
@@ -431,12 +473,14 @@ class InteractiveMerger:
     def export_all(
         self,
         progress_callback: Callable[[int, int], None] | None = None,
+        stop_event: threading.Event | None = None,
     ) -> tuple[bool, str, int]:
         """
         Export all frames with current configuration.
 
         Args:
             progress_callback: Optional callback(current, total) for progress.
+            stop_event: Optional cancellation event checked between frames.
 
         Returns:
             Tuple of (success, message, num_exported).
@@ -452,12 +496,18 @@ class InteractiveMerger:
             exported = 0
 
             for idx, _frame_path in enumerate(self.frames):
+                if stop_event is not None and stop_event.is_set():
+                    return False, f"Export cancelled ({exported}/{total})", exported
+
                 if progress_callback:
                     progress_callback(idx, total)
 
                 success, _ = self.export_frame(idx)
                 if success:
                     exported += 1
+
+            if progress_callback:
+                progress_callback(total, total)
 
             # Save session with export
             self.save_session()
@@ -498,3 +548,7 @@ class InteractiveMerger:
             return None
 
         return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    def get_last_process_status(self) -> str:
+        """Get status of the most recent frame processing call."""
+        return self._last_process_status

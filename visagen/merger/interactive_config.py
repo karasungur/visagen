@@ -12,29 +12,36 @@ from typing import Any
 
 # Available merge modes
 MERGE_MODES = {
-    "original": "Show original frame without changes",
+    "original": "Show original frame without merge",
     "overlay": "Overlay predicted face onto destination (default)",
     "hist-match": "Match histogram of predicted to destination",
     "seamless": "Use OpenCV seamlessClone for blending",
     "seamless-hist-match": "Seamless clone with histogram matching",
-    "raw-rgb": "Raw RGB output from model",
-    "raw-predict": "Raw model prediction",
 }
 
-# Available mask modes (simplified for SegFormer)
+# Legacy mode aliases mapped to supported modes
+LEGACY_MERGE_MODE_ALIASES = {
+    "raw-rgb": "overlay",
+    "raw-predict": "overlay",
+}
+
+# Available mask modes supported by FrameProcessor
 MASK_MODES = {
     "full": "Full face mask (1.0 everywhere)",
-    "dst": "Destination mask only",
-    "learned_prd": "Learned predicted mask",
-    "learned_dst": "Learned destination mask",
-    "learned_prd_x_dst": "Learned prd * dst",
-    "learned_prd_plus_dst": "Learned prd + dst",
-    "segformer_prd": "SegFormer predicted face parsing",
-    "segformer_dst": "SegFormer destination face parsing",
-    "segformer_prd_x_dst": "SegFormer prd * dst",
-    "all_combined": "All masks combined",
     "convex_hull": "Convex hull from landmarks",
+    "dst": "Destination-driven mask",
     "segmented": "SegFormer face segmentation (default)",
+}
+
+LEGACY_MASK_MODE_ALIASES = {
+    "learned_prd": "segmented",
+    "learned_dst": "segmented",
+    "learned_prd_x_dst": "segmented",
+    "learned_prd_plus_dst": "segmented",
+    "segformer_prd": "segmented",
+    "segformer_dst": "segmented",
+    "segformer_prd_x_dst": "segmented",
+    "all_combined": "segmented",
 }
 
 # Available color transfer modes
@@ -46,6 +53,7 @@ COLOR_TRANSFER_MODES = {
     "idt": "Iterative Distribution Transfer",
     "sot": "Sliced Optimal Transport",
     "mix": "Mixed LCT+SOT (best quality)",
+    "hist-match": "Histogram matching",
 }
 
 # Available sharpen modes
@@ -54,6 +62,35 @@ SHARPEN_MODES = {
     "box": "Box filter sharpening",
     "gaussian": "Gaussian sharpening",
 }
+
+# Merge mode -> FrameProcessor mapping
+_MODE_TO_PROCESSOR: dict[str, tuple[str, str | None] | tuple[str, str | None, bool]] = {
+    "original": ("laplacian", None, True),
+    "overlay": ("laplacian", None),
+    "hist-match": ("laplacian", "hist-match"),
+    "seamless": ("poisson", None),
+    "seamless-hist-match": ("poisson", "hist-match"),
+}
+
+
+def map_merge_mode_to_processor(mode: str) -> tuple[str, str | None, bool]:
+    """
+    Map interactive merge mode to (blend_mode, forced_color_transfer).
+
+    Returns:
+        Tuple where:
+        - blend_mode is one of FrameProcessor blend modes.
+        - forced_color_transfer is an optional color transfer override.
+        - passthrough_original indicates original frame bypass.
+    """
+    normalized = mode.lower()
+    normalized = LEGACY_MERGE_MODE_ALIASES.get(normalized, normalized)
+    mapped = _MODE_TO_PROCESSOR.get(normalized, ("laplacian", None))
+    if len(mapped) == 2:
+        blend_mode, forced_color_transfer = mapped
+        return blend_mode, forced_color_transfer, False
+    blend_mode, forced_color_transfer, passthrough_original = mapped
+    return blend_mode, forced_color_transfer, passthrough_original
 
 
 @dataclass
@@ -66,8 +103,8 @@ class InteractiveMergerConfig:
 
     Attributes:
         mode: Merge mode (overlay, hist-match, seamless, etc.)
-        mask_mode: Mask generation mode (full, convex_hull, segmented)
-        color_transfer: Color transfer algorithm (none, rct, lct, mkl, idt, sot)
+        mask_mode: Mask generation mode (full, convex_hull, dst, segmented)
+        color_transfer: Color transfer algorithm
         erode_mask: Mask erosion amount (-100 to 100, negative = dilate)
         blur_mask: Mask blur amount (0 to 100)
         face_scale: Face scale adjustment (-50 to 50)
@@ -120,6 +157,10 @@ class InteractiveMergerConfig:
 
     def _validate(self) -> None:
         """Validate all configuration values are within bounds."""
+        # Normalize legacy aliases before validation
+        self.mode = LEGACY_MERGE_MODE_ALIASES.get(self.mode, self.mode)
+        self.mask_mode = LEGACY_MASK_MODE_ALIASES.get(self.mask_mode, self.mask_mode)
+
         # Mode validation
         if self.mode not in MERGE_MODES:
             raise ValueError(

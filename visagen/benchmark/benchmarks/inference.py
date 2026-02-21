@@ -182,7 +182,7 @@ class InferenceBenchmark:
             exporter = ONNXExporter(
                 checkpoint_path=self.config.checkpoint_path,
                 output_path=onnx_path,
-                config=ExportConfig(input_size=input_size),
+                config=ExportConfig(),
             )
             exporter.export()
 
@@ -214,7 +214,7 @@ class InferenceBenchmark:
                 exporter = ONNXExporter(
                     checkpoint_path=self.config.checkpoint_path,
                     output_path=onnx_path,
-                    config=ExportConfig(input_size=input_size),
+                    config=ExportConfig(),
                 )
                 exporter.export()
 

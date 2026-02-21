@@ -9,7 +9,7 @@ Requires NVIDIA TensorRT and CUDA.
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -207,7 +207,7 @@ class TensorRTRunner:
             d_input.free()
             d_output.free()
 
-        return h_output
+        return cast(np.ndarray, h_output)
 
     def warmup(
         self,

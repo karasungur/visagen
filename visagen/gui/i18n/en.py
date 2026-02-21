@@ -357,12 +357,16 @@ TRANSLATIONS = {
         },
         "color_transfer": {
             "label": "Color Transfer Mode",
-            "info": "RCT=Reinhard, LCT=Linear, SOT=Sliced OT",
+            "info": "RCT=Reinhard, LCT=Linear, SOT/MKL/IDT/MIX/Hist-Match supported",
             "choices": {
+                "none": "None",
                 "rct": "RCT (Reinhard)",
                 "lct": "LCT (Linear)",
                 "sot": "SOT (Sliced OT)",
-                "none": "None",
+                "mkl": "MKL (Monge-Kantorovitch)",
+                "idt": "IDT (Iterative)",
+                "mix": "Mix (LCT+SOT Best)",
+                "hist-match": "Histogram Match",
             },
         },
         "blend_mode": {
@@ -453,8 +457,6 @@ TRANSLATIONS = {
                 "hist-match": "Histogram Match",
                 "seamless": "Seamless",
                 "seamless-hist-match": "Seamless + Hist Match",
-                "raw-rgb": "Raw RGB",
-                "raw-predict": "Raw Predict",
             },
         },
         "mask_mode": {
@@ -463,6 +465,7 @@ TRANSLATIONS = {
             "choices": {
                 "full": "Full",
                 "convex_hull": "Convex Hull",
+                "dst": "Destination",
                 "segmented": "Segmented",
             },
         },
@@ -477,6 +480,7 @@ TRANSLATIONS = {
                 "idt": "IDT (Iterative)",
                 "sot": "SOT (Sliced OT)",
                 "mix": "Mix (LCT+SOT Best)",
+                "hist-match": "Histogram Match",
             },
         },
         # Mask processing
@@ -766,6 +770,18 @@ TRANSLATIONS = {
                 "label": "End Time",
                 "info": "Format: HH:MM:SS or seconds",
             },
+            "codec": {
+                "label": "Codec",
+                "info": "Use 'copy' for stream copy or select a codec to re-encode",
+            },
+            "audio_track": {
+                "label": "Audio Track ID",
+                "info": "Audio stream index to keep (default: 0)",
+            },
+            "bitrate": {
+                "label": "Bitrate (optional)",
+                "info": "Used only when codec is not copy (e.g., 16M)",
+            },
             "start": "Cut Video",
             "log": {
                 "label": "Log",
@@ -1048,6 +1064,20 @@ TRANSLATIONS = {
             "cancel": "Cancel",
             "preview_gallery": "Preview",
             "progress": "Progress",
+        },
+        "annotation": {
+            "title": "Annotation Import/Export",
+            "input_dir": "Image Directory",
+            "output_path": "Export Output (dir or .json)",
+            "format": "Export Format",
+            "include_image_data": "Include image data in LabelMe JSON",
+            "min_area": "Minimum Polygon Area",
+            "export": "Export Annotations",
+            "import_path": "Annotation Input (dir or file)",
+            "import_output_dir": "Import Output Directory",
+            "import_format": "Import Format",
+            "import": "Import Masks",
+            "status": "Annotation Status",
         },
     },
     # Wizard tab

@@ -8,6 +8,8 @@ Implements AdaBelief algorithm with specific features used in DeepFaceLab (legac
 """
 
 import math
+from collections.abc import Callable
+from typing import overload
 
 import torch
 from torch.optim import Optimizer
@@ -81,8 +83,14 @@ class AdaBelief(Optimizer):
             group.setdefault("lr_cos_period", 0)
             group.setdefault("clipnorm", 0.0)
 
+    @overload
+    def step(self, closure: None = None) -> None: ...
+
+    @overload
+    def step(self, closure: Callable[[], float]) -> float: ...
+
     @torch.no_grad()
-    def step(self, closure=None) -> float | None:
+    def step(self, closure: Callable[[], float] | None = None) -> float | None:
         """
         Performs a single optimization step.
 

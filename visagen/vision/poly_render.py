@@ -6,7 +6,7 @@ Provides visualization and interaction utilities for polygons.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import cv2
 import numpy as np
@@ -145,7 +145,7 @@ def overlay_polygons_on_image(
                 cv2.circle(result, pt_int, point_radius, point_color, -1)
 
     # Blend overlay
-    result = cv2.addWeighted(result, 1.0, overlay, alpha, 0)
+    result = cast(np.ndarray, cv2.addWeighted(result, 1.0, overlay, alpha, 0))
 
     return result
 
@@ -187,7 +187,7 @@ def find_nearest_point(
             if distance < best_distance and distance <= threshold:
                 best_poly_idx = poly_idx
                 best_point_idx = point_idx
-                best_distance = distance
+                best_distance = float(distance)
 
     return (best_poly_idx, best_point_idx, best_distance)
 
@@ -242,7 +242,7 @@ def find_nearest_edge(
             if distance < best_distance and distance <= threshold:
                 best_poly_idx = poly_idx
                 best_edge_idx = i
-                best_distance = distance
+                best_distance = float(distance)
                 best_point = (float(projection[0]), float(projection[1]))
 
     return (best_poly_idx, best_edge_idx, best_distance, best_point)

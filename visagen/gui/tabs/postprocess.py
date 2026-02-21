@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, cast
 
 import gradio as gr
 import numpy as np
@@ -16,6 +16,8 @@ from visagen.gui.components import (
     SliderInput,
 )
 from visagen.gui.tabs.base import BaseTab
+
+NeuralColorMode = Literal["histogram", "statistics", "gram"]
 
 
 class PostprocessTab(BaseTab):
@@ -280,6 +282,7 @@ class PostprocessTab(BaseTab):
             import cv2
 
             from visagen.postprocess import color_transfer
+            from visagen.postprocess.color_transfer import ColorTransferMode
 
             # Ensure float32 [0, 1] and BGR
             if source.dtype == np.uint8:
@@ -290,7 +293,9 @@ class PostprocessTab(BaseTab):
             source_bgr = cv2.cvtColor(source, cv2.COLOR_RGB2BGR)
             target_bgr = cv2.cvtColor(target, cv2.COLOR_RGB2BGR)
 
-            result_bgr = color_transfer(mode, target_bgr, source_bgr)
+            result_bgr = color_transfer(
+                cast(ColorTransferMode, mode), target_bgr, source_bgr
+            )
             result_rgb = cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB)
 
             return (result_rgb * 255).astype(np.uint8)
@@ -313,6 +318,7 @@ class PostprocessTab(BaseTab):
             import cv2
 
             from visagen.postprocess import blend
+            from visagen.postprocess.blending import BlendMode
 
             if foreground.dtype == np.uint8:
                 foreground = foreground.astype(np.float32) / 255.0
@@ -327,7 +333,7 @@ class PostprocessTab(BaseTab):
             if mask.shape[:2] != foreground.shape[:2]:
                 mask = cv2.resize(mask, (foreground.shape[1], foreground.shape[0]))
 
-            result = blend(mode, foreground, background, mask)
+            result = blend(cast(BlendMode, mode), foreground, background, mask)
             return (result * 255).astype(np.uint8)
 
         except Exception as e:
@@ -351,12 +357,15 @@ class PostprocessTab(BaseTab):
             image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
             if mode == "gpen":
-                from visagen.postprocess.gpen import restore_face_gpen
+                from visagen.postprocess.gpen import GPENModelSize, restore_face_gpen
 
+                model_size_int = int(gpen_size)
+                if model_size_int not in (256, 512, 1024):
+                    raise gr.Error(f"Unsupported GPEN model size: {gpen_size}")
                 restored_bgr = restore_face_gpen(
                     image_bgr,
                     strength=strength,
-                    model_size=int(gpen_size),
+                    model_size=cast(GPENModelSize, model_size_int),
                 )
             else:
                 from visagen.postprocess.restore import restore_face
@@ -399,7 +408,7 @@ class PostprocessTab(BaseTab):
             result_bgr = neural_color_transfer(
                 target_bgr,
                 source_bgr,
-                mode=mode,
+                mode=cast(NeuralColorMode, mode),
                 strength=strength,
                 preserve_luminance=preserve,
             )

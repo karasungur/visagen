@@ -16,6 +16,7 @@ Requires:
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytorch_lightning as pl
 
@@ -73,6 +74,9 @@ class DALIFaceDataModule(pl.LightningDataModule):
         shard_id: int = 0,
         use_dali: bool | None = None,
         fallback_num_workers: int = 4,
+        val_split: float = 0.1,
+        augmentation_config: dict | None = None,
+        uniform_yaw: bool = False,
     ) -> None:
         super().__init__()
 
@@ -87,6 +91,9 @@ class DALIFaceDataModule(pl.LightningDataModule):
         self.num_shards = num_shards
         self.shard_id = shard_id
         self.fallback_num_workers = fallback_num_workers
+        self.val_split = val_split
+        self.augmentation_config = augmentation_config
+        self.uniform_yaw = uniform_yaw
 
         # Determine if DALI should be used
         if use_dali is None:
@@ -127,17 +134,32 @@ class DALIFaceDataModule(pl.LightningDataModule):
     def _setup_fallback(self, stage: str | None = None) -> None:
         """Set up fallback PyTorch DataLoader."""
         if self._fallback_dm is None:
+            aug_config = self.augmentation_config
+            if not self.augment:
+                # Explicitly disable all augmentations for parity with `augment=False`.
+                aug_config = {
+                    "random_flip_prob": 0.0,
+                    "random_warp": False,
+                    "rotation_range": (0.0, 0.0),
+                    "scale_range": (0.0, 0.0),
+                    "translation_range": (0.0, 0.0),
+                    "hsv_shift_amount": 0.0,
+                    "brightness_range": 0.0,
+                    "contrast_range": 0.0,
+                }
             self._fallback_dm = FaceDataModule(
                 src_dir=self.src_dir,
                 dst_dir=self.dst_dir,
                 batch_size=self.batch_size,
-                image_size=self.image_size,
+                target_size=self.image_size,
                 num_workers=self.fallback_num_workers,
-                augment=self.augment,
+                val_split=self.val_split,
+                augmentation_config=aug_config,
+                uniform_yaw=self.uniform_yaw,
             )
         self._fallback_dm.setup(stage)
 
-    def train_dataloader(self) -> Iterator:
+    def train_dataloader(self) -> Any:
         """
         Get training data loader.
 
@@ -147,6 +169,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
         if not self._use_dali:
             if self._fallback_dm is None:
                 self._setup_fallback("fit")
+            assert self._fallback_dm is not None
             return self._fallback_dm.train_dataloader()
 
         # Create DALI iterator
@@ -163,9 +186,9 @@ class DALIFaceDataModule(pl.LightningDataModule):
             num_shards=self.num_shards,
         )
 
-        return self._train_iterator
+        return DALIIteratorWrapper(self._train_iterator)
 
-    def val_dataloader(self) -> Iterator:
+    def val_dataloader(self) -> Any:
         """
         Get validation data loader.
 
@@ -175,6 +198,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
         if not self._use_dali:
             if self._fallback_dm is None:
                 self._setup_fallback("validate")
+            assert self._fallback_dm is not None
             return self._fallback_dm.val_dataloader()
 
         # Create DALI iterator without augmentation
@@ -191,7 +215,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
             num_shards=self.num_shards,
         )
 
-        return self._val_iterator
+        return DALIIteratorWrapper(self._val_iterator)
 
     def teardown(self, stage: str | None = None) -> None:
         """Clean up resources."""
@@ -199,7 +223,7 @@ class DALIFaceDataModule(pl.LightningDataModule):
         self._val_iterator = None
 
         if self._fallback_dm is not None:
-            self._fallback_dm.teardown(stage)
+            self._fallback_dm.teardown(stage or "fit")
 
 
 class DALIIteratorWrapper:
@@ -221,16 +245,17 @@ class DALIIteratorWrapper:
         return self
 
     def __next__(self):
-        """Get next batch, converting DALI format to dict."""
+        """Get next batch, converting DALI format to training tuple format."""
         try:
             data = next(self.dali_iterator)
             # DALI returns list of dicts, one per pipeline
             # We use single pipeline, so take first element
             batch = data[0]
-            return {
-                "src_images": batch["src_images"],
-                "dst_images": batch["dst_images"],
-            }
+            # Match FaceDataModule contract: (src_dict, dst_dict)
+            return (
+                {"image": batch["src_images"]},
+                {"image": batch["dst_images"]},
+            )
         except StopIteration:
             self.dali_iterator.reset()
             raise
@@ -256,6 +281,9 @@ def create_dali_datamodule(
     augment: bool = True,
     seed: int = 42,
     force_pytorch: bool = False,
+    val_split: float = 0.1,
+    augmentation_config: dict | None = None,
+    uniform_yaw: bool = False,
     **kwargs,
 ) -> pl.LightningDataModule:
     """
@@ -287,15 +315,34 @@ def create_dali_datamodule(
         ... )
         >>> print(f"Using DALI: {dm.using_dali}")
     """
+    fallback_num_workers = int(
+        kwargs.pop("fallback_num_workers", kwargs.pop("num_workers", 4))
+    )
+    use_dali = kwargs.pop("use_dali", None)
+
     if force_pytorch or not check_dali_available():
         # Use standard PyTorch DataModule
+        aug_config = augmentation_config
+        if not augment:
+            aug_config = {
+                "random_flip_prob": 0.0,
+                "random_warp": False,
+                "rotation_range": (0.0, 0.0),
+                "scale_range": (0.0, 0.0),
+                "translation_range": (0.0, 0.0),
+                "hsv_shift_amount": 0.0,
+                "brightness_range": 0.0,
+                "contrast_range": 0.0,
+            }
         return FaceDataModule(
             src_dir=src_dir,
             dst_dir=dst_dir,
             batch_size=batch_size,
-            image_size=image_size,
-            num_workers=kwargs.get("num_workers", 4),
-            augment=augment,
+            target_size=image_size,
+            num_workers=fallback_num_workers,
+            val_split=val_split,
+            augmentation_config=aug_config,
+            uniform_yaw=uniform_yaw,
         )
 
     # Use DALI DataModule
@@ -308,6 +355,11 @@ def create_dali_datamodule(
         device_id=device_id,
         augment=augment,
         seed=seed,
+        use_dali=use_dali,
+        fallback_num_workers=fallback_num_workers,
+        val_split=val_split,
+        augmentation_config=augmentation_config,
+        uniform_yaw=uniform_yaw,
         **kwargs,
     )
 
@@ -336,16 +388,16 @@ def benchmark_dataloaders(
 
     import torch
 
-    results = {}
+    results: dict[str, float | None] = {}
 
     # Benchmark PyTorch DataLoader
     pytorch_dm = FaceDataModule(
         src_dir=src_dir,
         dst_dir=dst_dir,
         batch_size=batch_size,
-        image_size=image_size,
+        target_size=image_size,
         num_workers=4,
-        augment=True,
+        augmentation_config=None,
     )
     pytorch_dm.setup("fit")
     pytorch_loader = pytorch_dm.train_dataloader()
@@ -354,8 +406,9 @@ def benchmark_dataloaders(
     for i, batch in enumerate(pytorch_loader):
         if i >= 5:
             break
-        _ = batch["src_images"].cuda()
-        _ = batch["dst_images"].cuda()
+        src_dict, dst_dict = batch
+        _ = src_dict["image"].cuda()
+        _ = dst_dict["image"].cuda()
 
     torch.cuda.synchronize()
     start = time.perf_counter()
@@ -363,8 +416,9 @@ def benchmark_dataloaders(
     for i, batch in enumerate(pytorch_loader):
         if i >= num_batches:
             break
-        _ = batch["src_images"].cuda()
-        _ = batch["dst_images"].cuda()
+        src_dict, dst_dict = batch
+        _ = src_dict["image"].cuda()
+        _ = dst_dict["image"].cuda()
 
     torch.cuda.synchronize()
     pytorch_time = time.perf_counter() - start
@@ -390,8 +444,9 @@ def benchmark_dataloaders(
         for i, batch in enumerate(dali_loader):
             if i >= 5:
                 break
-            _ = batch["src_images"]
-            _ = batch["dst_images"]
+            src_dict, dst_dict = batch
+            _ = src_dict["image"]
+            _ = dst_dict["image"]
 
         torch.cuda.synchronize()
         start = time.perf_counter()
@@ -399,8 +454,9 @@ def benchmark_dataloaders(
         for i, batch in enumerate(dali_loader):
             if i >= num_batches:
                 break
-            _ = batch["src_images"]
-            _ = batch["dst_images"]
+            src_dict, dst_dict = batch
+            _ = src_dict["image"]
+            _ = dst_dict["image"]
 
         torch.cuda.synchronize()
         dali_time = time.perf_counter() - start

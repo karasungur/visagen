@@ -197,8 +197,9 @@ class SSIMSimilaritySorter(SortMethod):
 
                 next_idx = min(
                     remaining,
-                    key=lambda idx: 1.0
-                    - _ssim_similarity(current_image, image_data[idx][1]),
+                    key=lambda idx: (
+                        1.0 - _ssim_similarity(current_image, image_data[idx][1])
+                    ),
                 )
                 order.append(next_idx)
                 remaining.remove(next_idx)

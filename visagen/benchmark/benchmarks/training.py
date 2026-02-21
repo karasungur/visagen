@@ -10,6 +10,8 @@ Benchmarks training throughput with synthetic data:
 Measures images per second for different batch sizes and resolutions.
 """
 
+from typing import Any
+
 from visagen.benchmark.config import BenchmarkConfig, BenchmarkResult
 from visagen.benchmark.profilers import (
     CUDATimer,
@@ -83,7 +85,7 @@ class TrainingBenchmark:
         """
         import torch
 
-        from visagen.models import Decoder, Encoder
+        from visagen.models import ConvNeXtEncoder, Decoder
         from visagen.training.losses import DSSIMLoss
 
         device = self.config.device if self.config.device != "auto" else "cuda"
@@ -91,8 +93,17 @@ class TrainingBenchmark:
             device = "cpu"
 
         # Create encoder-decoder model
-        encoder = Encoder(in_channels=3, base_channels=64)
-        decoder = Decoder(base_channels=64, out_channels=3)
+        encoder = ConvNeXtEncoder(
+            in_channels=3,
+            dims=[64, 128, 256, 512],
+            depths=[2, 2, 4, 2],
+        )
+        decoder = Decoder(
+            latent_channels=512,
+            dims=[512, 256, 128, 64],
+            skip_dims=[256, 128, 64, 64],
+            out_channels=3,
+        )
 
         encoder = encoder.to(device)
         decoder = decoder.to(device)
@@ -207,12 +218,12 @@ class TrainingBenchmark:
 
     def _training_step(
         self,
-        encoder: object,
-        decoder: object,
-        optimizer: object,
-        loss_fn: object,
-        src_batch: object,
-        dst_batch: object,
+        encoder: Any,
+        decoder: Any,
+        optimizer: Any,
+        loss_fn: Any,
+        src_batch: Any,
+        dst_batch: Any,
     ) -> None:
         """Perform a single training step.
 
@@ -227,11 +238,13 @@ class TrainingBenchmark:
         import torch
 
         # Forward pass
-        src_enc = encoder(src_batch)  # type: ignore
-        dst_enc = encoder(dst_batch)  # type: ignore
+        src_features, src_latent = encoder(src_batch)  # type: ignore[misc]
+        dst_features, dst_latent = encoder(dst_batch)  # type: ignore[misc]
 
-        src_dec = decoder(src_enc)  # type: ignore
-        dst_dec = decoder(dst_enc)  # type: ignore
+        src_skips = src_features[:-1][::-1] + [src_features[0]]
+        dst_skips = dst_features[:-1][::-1] + [dst_features[0]]
+        src_dec = decoder(src_latent, src_skips)  # type: ignore[misc]
+        dst_dec = decoder(dst_latent, dst_skips)  # type: ignore[misc]
 
         # Calculate loss
         loss = loss_fn(src_dec, src_batch) + loss_fn(dst_dec, dst_batch)  # type: ignore

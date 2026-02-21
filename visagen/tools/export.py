@@ -22,6 +22,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import cast
 
 
 def parse_args() -> argparse.Namespace:
@@ -147,7 +148,7 @@ Examples:
 def detect_format(args: argparse.Namespace) -> str:
     """Auto-detect export format from output extension."""
     if args.format:
-        return args.format
+        return cast(str, args.format)
 
     output_ext = args.output.suffix.lower()
     if output_ext == ".onnx":

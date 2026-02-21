@@ -11,6 +11,8 @@ References:
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 
@@ -86,7 +88,7 @@ class AdaptiveInstanceNorm2d(nn.Module):
         beta = self.beta_fc(style).view(batch_size, channels, 1, 1)
 
         # Apply style modulation
-        return normalized * gamma + beta
+        return cast(torch.Tensor, normalized * gamma + beta)
 
     def extra_repr(self) -> str:
         """Return extra representation string."""
@@ -144,12 +146,14 @@ class AdaINResBlock(nn.Module):
         self.act = nn.SiLU(inplace=True)
 
         # Skip connection
+        self.skip: nn.Module
         if in_channels != out_channels:
             self.skip = nn.Conv2d(in_channels, out_channels, 1, bias=False)
         else:
             self.skip = nn.Identity()
 
         # Upsampling
+        self.up: nn.Module
         if upsample:
             self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
         else:
@@ -187,4 +191,4 @@ class AdaINResBlock(nn.Module):
         out = out + skip
         out = self.act(out)
 
-        return out
+        return cast(torch.Tensor, out)

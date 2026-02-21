@@ -18,6 +18,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
+from typing import cast
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import (
@@ -27,7 +28,7 @@ from pytorch_lightning.callbacks import (
 )
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from visagen.data.datamodule import FaceDataModule
+from visagen.data.dali_loader import check_dali_available, create_dali_datamodule
 from visagen.training.callbacks import (
     AutoBackupCallback,
     CommandFileReaderCallback,
@@ -150,6 +151,13 @@ Examples:
         type=float,
         default=0.1,
         help="Validation split ratio (default: 0.1)",
+    )
+    parser.add_argument(
+        "--data-backend",
+        type=str,
+        default="auto",
+        choices=["auto", "dali", "pytorch"],
+        help="Data backend (default: auto)",
     )
 
     # Model arguments
@@ -287,9 +295,9 @@ Examples:
     parser.add_argument(
         "--precision",
         type=str,
-        default="32",
+        default="16-mixed",
         choices=["32", "16-mixed", "bf16-mixed"],
-        help="Training precision (default: 32)",
+        help="Training precision (default: 16-mixed)",
     )
 
     # Checkpoint arguments
@@ -440,10 +448,76 @@ Examples:
     return parser.parse_args()
 
 
+def resolve_precision(precision: str, accelerator: str) -> str:
+    """Resolve precision against available hardware, falling back safely."""
+    if precision == "32":
+        return precision
+
+    try:
+        import torch
+    except Exception:
+        print("Warning: Could not verify hardware for mixed precision. Using 32.")
+        return "32"
+
+    accelerator_norm = accelerator.lower()
+    mps_backend = getattr(torch.backends, "mps", None)
+    mps_available = bool(mps_backend is not None and mps_backend.is_available())
+
+    if accelerator_norm in {"gpu", "cuda"}:
+        if not torch.cuda.is_available():
+            print("Warning: CUDA not available; falling back to precision=32.")
+            return "32"
+        if precision == "bf16-mixed" and hasattr(torch.cuda, "is_bf16_supported"):
+            if not torch.cuda.is_bf16_supported():
+                print(
+                    "Warning: bf16-mixed is not supported on this GPU; using 16-mixed."
+                )
+                return "16-mixed"
+        return precision
+
+    if accelerator_norm == "mps":
+        if not mps_available:
+            print("Warning: MPS not available; falling back to precision=32.")
+            return "32"
+        if precision == "bf16-mixed":
+            print("Warning: bf16-mixed is not supported on MPS; using 16-mixed.")
+            return "16-mixed"
+        return precision
+
+    if accelerator_norm == "cpu":
+        if precision == "16-mixed":
+            print("Warning: 16-mixed requires CUDA/MPS; falling back to precision=32.")
+            return "32"
+        return precision
+
+    # auto: infer runtime device preference (CUDA -> MPS -> CPU)
+    if torch.cuda.is_available():
+        if precision == "bf16-mixed" and hasattr(torch.cuda, "is_bf16_supported"):
+            if not torch.cuda.is_bf16_supported():
+                print(
+                    "Warning: bf16-mixed is not supported on this GPU; using 16-mixed."
+                )
+                return "16-mixed"
+        return precision
+
+    if mps_available:
+        if precision == "bf16-mixed":
+            print("Warning: bf16-mixed is not supported on MPS; using 16-mixed.")
+            return "16-mixed"
+        return precision
+
+    if precision == "16-mixed":
+        print(
+            "Warning: Mixed precision requested but only CPU is available; using precision=32."
+        )
+        return "32"
+    return precision
+
+
 def load_config(config_path: Path) -> dict:
     """Load YAML configuration file."""
     try:
-        import yaml
+        import yaml  # type: ignore[import-untyped]
     except ImportError:
         print(
             "Error: PyYAML required for config files. Install with: pip install pyyaml"
@@ -451,7 +525,7 @@ def load_config(config_path: Path) -> dict:
         sys.exit(1)
 
     with open(config_path) as f:
-        return yaml.safe_load(f)
+        return cast(dict, yaml.safe_load(f))
 
 
 def main() -> int:
@@ -470,6 +544,7 @@ def main() -> int:
         "image_size": 256,
         "num_workers": 4,
         "val_split": 0.1,
+        "data_backend": "auto",
         "dssim_weight": 10.0,
         "l1_weight": 10.0,
         "lpips_weight": 0.0,
@@ -492,7 +567,7 @@ def main() -> int:
         "max_steps": 0,
         "devices": 1,
         "accelerator": "auto",
-        "precision": "32",
+        "precision": "16-mixed",
         "model_type": "standard",
         "encoder_dims": "64,128,256,512",
         "encoder_depths": "2,2,4,2",
@@ -543,6 +618,9 @@ def main() -> int:
     # Create output directory
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Validate precision against runtime capabilities
+    args.precision = resolve_precision(args.precision, args.accelerator)
+
     # Parse model dimensions
     encoder_dims = [int(d) for d in args.encoder_dims.split(",")]
     encoder_depths = [int(d) for d in args.encoder_depths.split(",")]
@@ -566,23 +644,54 @@ def main() -> int:
     print("Loading data from:")
     print(f"  Source: {args.src_dir}")
     print(f"  Destination: {args.dst_dir}")
+    effective_data_backend = args.data_backend
+    dali_incompatible_reasons: list[str] = []
+    if args.temporal_enabled:
+        dali_incompatible_reasons.append("temporal training sequences")
+    if args.eyes_mouth_weight > 0 or args.gaze_weight > 0:
+        dali_incompatible_reasons.append("landmark-based losses")
+    if args.face_style_weight > 0 or args.bg_style_weight > 0:
+        dali_incompatible_reasons.append("mask-based style losses")
+    if effective_data_backend != "pytorch" and dali_incompatible_reasons:
+        print(
+            "Warning: DALI backend currently does not provide "
+            + ", ".join(dali_incompatible_reasons)
+            + ". Falling back to PyTorch."
+        )
+        effective_data_backend = "pytorch"
 
-    datamodule = FaceDataModule(
+    if effective_data_backend == "dali" and not check_dali_available():
+        print(
+            "Warning: DALI backend requested but unavailable. Falling back to PyTorch."
+        )
+        effective_data_backend = "pytorch"
+
+    datamodule = create_dali_datamodule(
         src_dir=args.src_dir,
         dst_dir=args.dst_dir,
         batch_size=args.batch_size,
+        image_size=args.image_size,
+        num_threads=max(1, args.num_workers),
+        device_id=0,
+        augment=not args.no_augmentation,
+        seed=42,
+        force_pytorch=effective_data_backend == "pytorch",
         num_workers=args.num_workers,
-        target_size=args.image_size,
         val_split=args.val_split,
         augmentation_config=aug_config,
         uniform_yaw=args.uniform_yaw,
+        use_dali=True if effective_data_backend == "dali" else None,
     )
 
     # Setup data to get sample counts
-    datamodule.setup()
+    datamodule.setup("fit")
+    backend_name = "dali" if getattr(datamodule, "using_dali", False) else "pytorch"
+    train_samples = getattr(datamodule, "num_train_samples", "N/A")
+    val_samples = getattr(datamodule, "num_val_samples", "N/A")
     print("\nDataset:")
-    print(f"  Training samples: {datamodule.num_train_samples}")
-    print(f"  Validation samples: {datamodule.num_val_samples}")
+    print(f"  Backend: {backend_name}")
+    print(f"  Training samples: {train_samples}")
+    print(f"  Validation samples: {val_samples}")
 
     # Tuning mode
     if args.tune:

@@ -13,6 +13,8 @@ Example:
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -40,7 +42,7 @@ class TextureConsistencyLoss(nn.Module):
         self.layers = layers or [4, 9, 16, 23]  # VGG-19 layers
 
         # Lazy load VGG to avoid import overhead
-        self._vgg = None
+        self._vgg: Any | None = None
 
         # Register ImageNet normalization constants
         self.register_buffer(
@@ -50,13 +52,17 @@ class TextureConsistencyLoss(nn.Module):
             "std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
         )
 
-    def _get_vgg(self, device: torch.device) -> nn.Module:
+    def _get_vgg(self, device: torch.device) -> nn.Sequential:
         """Lazy load VGG-19 model."""
         if self._vgg is None:
             try:
                 from torchvision.models import VGG19_Weights, vgg19
 
-                vgg = vgg19(weights=VGG19_Weights.IMAGENET1K_V1).features
+                try:
+                    vgg = vgg19(weights=VGG19_Weights.IMAGENET1K_V1).features
+                except Exception:
+                    # Offline/sandbox environments may block weight downloads.
+                    vgg = vgg19(weights=None).features
                 vgg = vgg.eval().to(device)
                 for p in vgg.parameters():
                     p.requires_grad = False
@@ -66,7 +72,8 @@ class TextureConsistencyLoss(nn.Module):
                     "torchvision is required for TextureConsistencyLoss. "
                     "Install with: pip install torchvision"
                 )
-        return self._vgg.to(device)
+        assert self._vgg is not None
+        return cast(nn.Sequential, self._vgg.to(device))
 
     def gram_matrix(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -100,12 +107,10 @@ class TextureConsistencyLoss(nn.Module):
         vgg = self._get_vgg(pred.device)
 
         # Normalize to ImageNet range [0, 1] then apply normalization
-        pred_norm = (pred * 0.5 + 0.5 - self.mean.to(pred.device)) / self.std.to(
-            pred.device
-        )
-        target_norm = (target * 0.5 + 0.5 - self.mean.to(pred.device)) / self.std.to(
-            pred.device
-        )
+        mean = cast(torch.Tensor, self.mean).to(pred.device)
+        std = cast(torch.Tensor, self.std).to(pred.device)
+        pred_norm = (pred * 0.5 + 0.5 - mean) / std
+        target_norm = (target * 0.5 + 0.5 - mean) / std
 
         loss = torch.tensor(0.0, device=pred.device)
         x_pred, x_target = pred_norm, target_norm
@@ -146,7 +151,7 @@ class PerceptualTextureLoss(nn.Module):
         self.texture_weight = texture_weight
         self.perceptual_weight = perceptual_weight
 
-        self._vgg = None
+        self._vgg: Any | None = None
 
         self.register_buffer(
             "mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
@@ -155,17 +160,22 @@ class PerceptualTextureLoss(nn.Module):
             "std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
         )
 
-    def _get_vgg(self, device: torch.device) -> nn.Module:
+    def _get_vgg(self, device: torch.device) -> nn.Sequential:
         """Lazy load VGG-19 model."""
         if self._vgg is None:
             from torchvision.models import VGG19_Weights, vgg19
 
-            vgg = vgg19(weights=VGG19_Weights.IMAGENET1K_V1).features
+            try:
+                vgg = vgg19(weights=VGG19_Weights.IMAGENET1K_V1).features
+            except Exception:
+                # Offline/sandbox environments may block weight downloads.
+                vgg = vgg19(weights=None).features
             vgg = vgg.eval().to(device)
             for p in vgg.parameters():
                 p.requires_grad = False
             self._vgg = vgg
-        return self._vgg.to(device)
+        assert self._vgg is not None
+        return cast(nn.Sequential, self._vgg.to(device))
 
     def gram_matrix(self, x: torch.Tensor) -> torch.Tensor:
         """Compute Gram matrix."""
@@ -189,12 +199,10 @@ class PerceptualTextureLoss(nn.Module):
         """
         vgg = self._get_vgg(pred.device)
 
-        pred_norm = (pred * 0.5 + 0.5 - self.mean.to(pred.device)) / self.std.to(
-            pred.device
-        )
-        target_norm = (target * 0.5 + 0.5 - self.mean.to(pred.device)) / self.std.to(
-            pred.device
-        )
+        mean = cast(torch.Tensor, self.mean).to(pred.device)
+        std = cast(torch.Tensor, self.std).to(pred.device)
+        pred_norm = (pred * 0.5 + 0.5 - mean) / std
+        target_norm = (target * 0.5 + 0.5 - mean) / std
 
         perceptual_loss = torch.tensor(0.0, device=pred.device)
         texture_loss = torch.tensor(0.0, device=pred.device)
@@ -261,6 +269,7 @@ class DiffusionLoss(nn.Module):
         self.texture_weight = texture_weight
         self.perceptual_weight = perceptual_weight
 
+        self.texture_loss: TextureConsistencyLoss | None
         if texture_weight > 0 or perceptual_weight > 0:
             self.texture_loss = TextureConsistencyLoss()
         else:

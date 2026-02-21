@@ -101,13 +101,13 @@ def get_ffprobe_path() -> Path:
         pass
 
     # Fallback to system PATH
-    ffprobe = shutil.which("ffprobe")
-    if ffprobe is None:
+    ffprobe_path_str = shutil.which("ffprobe")
+    if ffprobe_path_str is None:
         raise RuntimeError(
             "FFprobe not found. Install FFmpeg system-wide for full functionality, "
             "or use imageio-ffmpeg (ffprobe may have limited availability)."
         )
-    return Path(ffprobe)
+    return Path(ffprobe_path_str)
 
 
 def get_video_info(video_path: Path) -> VideoInfo:
@@ -459,11 +459,21 @@ def denoise_sequence(
             frames_to_load.append(files[neighbor_idx])
 
         # Load frames
-        frames = [cv2.imread(str(f)) for f in frames_to_load]
+        frames_raw = [cv2.imread(str(f)) for f in frames_to_load]
+        frames = [frame for frame in frames_raw if frame is not None]
+        if len(frames) != len(frames_to_load):
+            failed_files = [
+                path.name
+                for path, frame in zip(frames_to_load, frames_raw, strict=True)
+                if frame is None
+            ]
+            failed_str = ", ".join(failed_files)
+            raise RuntimeError(f"Failed to read frame(s) during denoise: {failed_str}")
 
         # Apply temporal median
         stacked = np.stack(frames, axis=0)
-        result = np.median(stacked, axis=0).astype(np.uint8)
+        stacked_f32 = np.asarray(stacked, dtype=np.float32)
+        result = np.median(stacked_f32, axis=0).astype(np.uint8)
 
         # Save result
         output_path = output_dir / files[idx].name
@@ -544,6 +554,18 @@ def main() -> None:
     cut_parser.add_argument(
         "--codec", type=str, default="copy", help="Video codec (copy for stream copy)"
     )
+    cut_parser.add_argument(
+        "--audio-track-id",
+        type=int,
+        default=0,
+        help="Audio track index to map (default: 0)",
+    )
+    cut_parser.add_argument(
+        "--bitrate",
+        type=str,
+        default=None,
+        help="Target bitrate when re-encoding (e.g., 16M)",
+    )
 
     # Denoise command
     denoise_parser = subparsers.add_parser(
@@ -599,7 +621,9 @@ def main() -> None:
             args.output,
             args.start,
             args.end,
+            audio_track=args.audio_track_id,
             codec=args.codec,
+            bitrate=args.bitrate,
         )
         print(f"Cut video saved to: {args.output}")
 

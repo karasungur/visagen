@@ -250,6 +250,9 @@ class TestProcessedFrame:
         assert result.faces_detected == 1
         assert result.faces_swapped == 1
         assert result.processing_time == 0.05
+        assert result.had_errors is False
+        assert result.error_count == 0
+        assert result.error_messages == []
 
 
 # =============================================================================
@@ -294,8 +297,38 @@ class TestFrameProcessor:
 
             assert mask.shape == (256, 256)
             assert mask.dtype == np.float32
-            assert mask.max() <= 1.0
+            assert mask.max() <= 255.0
             assert mask.min() >= 0.0
+
+    def test_normalize_landmarks_106_to_68(self, mock_model):
+        """106-point landmarks should be converted to 68-point format."""
+        from visagen.merger.frame_processor import FrameProcessor
+
+        with patch(
+            "visagen.merger.frame_processor.FrameProcessor._load_model"
+        ) as load_mock:
+            load_mock.return_value = mock_model
+            processor = FrameProcessor(mock_model, device="cpu")
+
+            landmarks_106 = np.random.rand(106, 2).astype(np.float32)
+            landmarks_68 = processor._normalize_landmarks(landmarks_106)
+
+            assert landmarks_68.shape == (68, 2)
+            assert landmarks_68.dtype == np.float32
+
+    def test_normalize_landmarks_rejects_5_point(self, mock_model):
+        """5-point landmarks are unsupported in DFL alignment path."""
+        from visagen.merger.frame_processor import FrameProcessor
+
+        with patch(
+            "visagen.merger.frame_processor.FrameProcessor._load_model"
+        ) as load_mock:
+            load_mock.return_value = mock_model
+            processor = FrameProcessor(mock_model, device="cpu")
+
+            landmarks_5 = np.random.rand(5, 2).astype(np.float32)
+            with pytest.raises(ValueError):
+                processor._normalize_landmarks(landmarks_5)
 
 
 # =============================================================================
@@ -556,6 +589,38 @@ class TestMergeCLI:
         assert args.resume is True
         assert args.verbose is True
 
+    def test_parse_args_neural_color_options(self, temp_dir, monkeypatch):
+        """Test parsing neural color transfer arguments."""
+        from visagen.tools.merge import parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--color-transfer",
+                "neural",
+                "--neural-color-mode",
+                "gram",
+                "--neural-color-strength",
+                "0.65",
+            ],
+        )
+
+        args = parse_args()
+
+        assert args.color_transfer == "neural"
+        assert args.neural_color_mode == "gram"
+        assert args.neural_color_strength == 0.65
+
     def test_build_config(self, temp_dir, monkeypatch):
         """Test building config from args."""
         from visagen.tools.merge import build_config, parse_args
@@ -583,6 +648,39 @@ class TestMergeCLI:
 
         assert config.input_path == input_file
         assert config.frame_processor_config.color_transfer_mode is None
+
+    def test_build_config_neural_color_transfer(self, temp_dir, monkeypatch):
+        """Neural color CLI options should propagate to frame processor config."""
+        from visagen.tools.merge import build_config, parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--color-transfer",
+                "neural",
+                "--neural-color-mode",
+                "statistics",
+                "--neural-color-strength",
+                "0.9",
+            ],
+        )
+
+        args = parse_args()
+        config = build_config(args)
+
+        assert config.frame_processor_config.color_transfer_mode == "neural"
+        assert config.frame_processor_config.neural_color_mode == "statistics"
+        assert config.frame_processor_config.neural_color_strength == 0.9
 
 
 # =============================================================================
@@ -979,3 +1077,86 @@ class TestMergeCLINVENC:
         assert config.codec == "libx264"
         captured = capsys.readouterr()
         assert "Warning" in captured.out or config.codec == "libx264"
+
+    def test_require_nvenc_auto_selects_hardware_codec(self, temp_dir, monkeypatch):
+        """Test --require-nvenc with auto codec picks h264_nvenc when available."""
+        from visagen.tools.merge import build_config, parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr("visagen.tools.merge.check_nvenc_available", lambda: True)
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--require-nvenc",
+            ],
+        )
+
+        args = parse_args()
+        config = build_config(args)
+        assert config.codec == "h264_nvenc"
+
+    def test_require_nvenc_fails_when_unavailable(self, temp_dir, monkeypatch):
+        """Test --require-nvenc fails fast when NVENC is unavailable."""
+        import pytest
+
+        from visagen.tools.merge import build_config, parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr("visagen.tools.merge.check_nvenc_available", lambda: False)
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--require-nvenc",
+            ],
+        )
+
+        args = parse_args()
+        with pytest.raises(ValueError, match="NVENC is required"):
+            build_config(args)
+
+    def test_require_nvenc_conflicts_with_no_hardware(self, temp_dir, monkeypatch):
+        """Test --require-nvenc cannot be combined with --no-hardware-encoder."""
+        import pytest
+
+        from visagen.tools.merge import build_config, parse_args
+
+        input_file = temp_dir / "input.mp4"
+        input_file.touch()
+        checkpoint = temp_dir / "model.ckpt"
+        checkpoint.touch()
+
+        monkeypatch.setattr("visagen.tools.merge.check_nvenc_available", lambda: True)
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "visagen-merge",
+                str(input_file),
+                str(temp_dir / "output.mp4"),
+                "--checkpoint",
+                str(checkpoint),
+                "--require-nvenc",
+                "--no-hardware-encoder",
+            ],
+        )
+
+        args = parse_args()
+        with pytest.raises(ValueError, match="cannot be used"):
+            build_config(args)

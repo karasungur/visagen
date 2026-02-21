@@ -7,6 +7,7 @@ Matches legacy DeepFaceLab augmentation behavior.
 
 import math
 import random
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -324,7 +325,7 @@ class FaceAugmentationPipeline(nn.Module):
                 from visagen.postprocess.color_transfer import color_transfer
 
                 res_np = color_transfer(
-                    self.color_transfer_mode,
+                    cast(Any, self.color_transfer_mode),
                     img_np,  # Target (image to modify)
                     tgt_np,  # Source (image to match)
                 )
@@ -570,7 +571,7 @@ def blur_out_mask(
     # Combine: sharp foreground + normalized blurred background
     result = image * mask + (blurred_bg / blur_norm) * anti_mask
 
-    return result
+    return cast(torch.Tensor, result)
 
 
 # =============================================================================
@@ -594,12 +595,12 @@ def linear_motion_blur(
     Returns:
         Motion-blurred image.
     """
-    k = np.zeros((size, size), dtype=np.float32)
+    k: np.ndarray = np.zeros((size, size), dtype=np.float32)
     k[(size - 1) // 2, :] = np.ones(size, dtype=np.float32)
     M = cv2.getRotationMatrix2D((size / 2 - 0.5, size / 2 - 0.5), angle, 1.0)
-    k = cv2.warpAffine(k, M, (size, size))
-    k = k / np.sum(k)
-    return cv2.filter2D(image, -1, k)
+    k = cast(np.ndarray, cv2.warpAffine(k, M, (size, size)))
+    k = (k / np.sum(k)).astype(np.float32)
+    return cast(np.ndarray, cv2.filter2D(image, -1, k))
 
 
 def apply_random_sharpen(
@@ -733,6 +734,8 @@ def apply_random_jpeg_compress(
     img_uint8 = np.clip(image, 0, 255).astype(np.uint8)
     _, encoded = cv2.imencode(".jpg", img_uint8, [cv2.IMWRITE_JPEG_QUALITY, quality])
     result = cv2.imdecode(encoded, cv2.IMREAD_UNCHANGED)
+    if result is None:
+        return img_uint8
 
     if mask is not None:
         result = image * (1 - mask) + result * mask
@@ -774,7 +777,7 @@ def apply_face_flare(
     )
     result = image.astype(np.float32) + flare
 
-    return np.clip(result, 0, 255).astype(np.uint8)
+    return cast(np.ndarray, np.clip(result, 0, 255).astype(np.uint8))
 
 
 def apply_bg_flare(
@@ -812,7 +815,7 @@ def apply_bg_flare(
     )
     result = image.astype(np.float32) + flare
 
-    return np.clip(result, 0, 255).astype(np.uint8)
+    return cast(np.ndarray, np.clip(result, 0, 255).astype(np.uint8))
 
 
 def random_circle_faded(size: tuple[int, int]) -> np.ndarray:
@@ -845,7 +848,7 @@ def random_circle_faded(size: tuple[int, int]) -> np.ndarray:
     # Apply fade
     mask = np.clip((fade_end - distances) / (fade_end - fade_start + 1e-6), 0, 1)
 
-    return mask[..., np.newaxis].astype(np.float32)
+    return cast(np.ndarray, mask[..., np.newaxis].astype(np.float32))
 
 
 def apply_random_hsv_shift(

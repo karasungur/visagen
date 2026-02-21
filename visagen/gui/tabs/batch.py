@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
-import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-import gradio as gr
+from typing import TYPE_CHECKING, Any, cast
 
 from visagen.gui.batch import BatchItem, BatchQueue, BatchStatus
-from visagen.gui.components import (
-    PathInput,
-    PathInputConfig,
-)
+from visagen.gui.command_builders import build_extract_command, build_merge_command
 from visagen.gui.tabs.base import BaseTab
 
 if TYPE_CHECKING:
     from visagen.gui.i18n import I18n
     from visagen.gui.state.app_state import AppState
+
+
+logger = logging.getLogger(__name__)
 
 
 class BatchTab(BaseTab):
@@ -42,6 +40,10 @@ class BatchTab(BaseTab):
 
     def _build_content(self) -> dict[str, Any]:
         """Build batch processing tab UI."""
+        import gradio as gr
+
+        from visagen.gui.components import PathInput, PathInputConfig
+
         components: dict[str, Any] = {}
 
         gr.Markdown(f"### {self.t('title')}")
@@ -108,7 +110,7 @@ class BatchTab(BaseTab):
             datatype=["str", "str", "str", "str"],
             interactive=False,
             wrap=True,
-            row_count=(5, "dynamic"),
+            row_count=5,
         )
 
         # Progress section
@@ -118,6 +120,7 @@ class BatchTab(BaseTab):
                 value="0 / 0 (0%)",
                 interactive=False,
             )
+            components["refresh_timer"] = gr.Timer(value=1.0)
 
         # Control buttons
         with gr.Row():
@@ -167,8 +170,11 @@ class BatchTab(BaseTab):
             for file in files:
                 # Handle both file objects and string paths
                 input_path = file.name if hasattr(file, "name") else str(file)
-                out_name = Path(input_path).stem + "_processed.mp4"
-                out_path = str(output_path / out_name)
+                stem = Path(input_path).stem
+                if operation == "extract":
+                    out_path = str(output_path / stem)
+                else:
+                    out_path = str(output_path / f"{stem}_processed.mp4")
                 self.batch_queue.add(input_path, out_path, operation)
                 added_count += 1
 
@@ -180,74 +186,101 @@ class BatchTab(BaseTab):
 
         def start_processing(checkpoint: str) -> str:
             """Start batch processing."""
-            if self.batch_queue.is_running():
-                return self.t("status.already_running")
+            if self.batch_queue.is_running() or self.state.processes.is_running(
+                "batch"
+            ):
+                return cast(str, self.t("status.already_running"))
 
-            if not checkpoint or not Path(checkpoint).exists():
-                return self.i18n.t("errors.path_not_found")
-
-            pending_count = sum(
-                1
+            pending_items = [
+                item
                 for item in self.batch_queue.items
                 if item.status == BatchStatus.PENDING
-            )
+            ]
+            pending_count = len(pending_items)
             if pending_count == 0:
-                return self.t("status.no_pending")
+                return cast(str, self.t("status.no_pending"))
+
+            if self._pending_merge_requires_checkpoint(pending_items):
+                if not checkpoint or not Path(checkpoint).exists():
+                    return cast(str, self.i18n.t("errors.path_not_found"))
 
             def process_item(item: BatchItem) -> None:
                 """Process a single batch item."""
                 if item.operation == "merge":
-                    cmd = [
-                        sys.executable,
-                        "-m",
-                        "visagen.tools.merge",
-                        "--input",
+                    if not checkpoint:
+                        raise ValueError("Checkpoint is required for merge operation")
+                    cmd = build_merge_command(
                         item.input_path,
-                        "--output",
                         item.output_path,
-                        "--checkpoint",
                         checkpoint,
-                    ]
+                    )
                 elif item.operation == "extract":
-                    cmd = [
-                        sys.executable,
-                        "-m",
-                        "visagen.tools.extract",
-                        "--input",
+                    cmd = build_extract_command(
                         item.input_path,
-                        "--output",
                         item.output_path,
-                    ]
+                    )
                 else:
                     raise ValueError(f"Unknown operation: {item.operation}")
+                logger.debug("Resolved argv: %s", " ".join(cmd))
 
-                item.process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                )
+                process: subprocess.Popen | None = None
+                try:
+                    process = self.state.processes.launch(
+                        "batch",
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                    )
+                    if process is None:
+                        raise RuntimeError(
+                            "Batch process is already running. Stop it before restarting."
+                        )
 
-                # Wait for completion
-                if item.process.stdout:
-                    for line in iter(item.process.stdout.readline, ""):
-                        if not line:
-                            break
-                        # Could parse progress from output here
-                        if item.process.poll() is not None:
-                            break
+                    item.process = process
 
-                item.process.wait()
+                    # Wait for completion while draining output to avoid pipe backpressure.
+                    if process.stdout:
+                        for line in iter(process.stdout.readline, ""):
+                            if not line:
+                                break
+                            if process.poll() is not None:
+                                break
 
-                if item.process.returncode != 0:
-                    item.status = BatchStatus.FAILED
-                    item.error = f"Exit code: {item.process.returncode}"
+                    remaining, _ = process.communicate()
+                    if remaining:
+                        logger.debug("Batch tail output (%s): %s", item.id, remaining)
+
+                    exit_code = process.returncode
+                    if item.status == BatchStatus.RUNNING and exit_code in {
+                        -15,
+                        -9,
+                        143,
+                        137,
+                    }:
+                        item.status = BatchStatus.CANCELLED
+                    elif item.status == BatchStatus.RUNNING and exit_code != 0:
+                        item.status = BatchStatus.FAILED
+                        item.error = f"Exit code: {exit_code}"
+                finally:
+                    if process is not None:
+                        if process.poll() is None:
+                            process.terminate()
+                            try:
+                                process.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                process.kill()
+                                process.wait()
+                        self.state.processes.clear_if("batch", process)
+                    item.process = None
 
             self.batch_queue.start(process_item)
-            return self.t("status.started", count=pending_count)
+            return cast(str, self.t("status.started", count=pending_count))
 
         def stop_processing() -> tuple[list[list[str]], str, str]:
             """Stop batch processing."""
+            self.state.processes.terminate("batch")
             self.batch_queue.stop()
             return (
                 self.batch_queue.get_table_data(),
@@ -298,6 +331,17 @@ class BatchTab(BaseTab):
             fn=refresh_table,
             outputs=[c["queue_table"], c["progress_text"]],
         )
+
+        c["refresh_timer"].tick(
+            fn=refresh_table,
+            outputs=[c["queue_table"], c["progress_text"]],
+            show_progress=False,
+        )
+
+    @staticmethod
+    def _pending_merge_requires_checkpoint(items: list[BatchItem]) -> bool:
+        """Return True when pending queue contains at least one merge task."""
+        return any(item.operation == "merge" for item in items)
 
     def _get_progress_text(self) -> str:
         """Get formatted progress text."""

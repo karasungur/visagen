@@ -223,7 +223,7 @@ class TestDFLModuleHyperparameters:
         )
 
         # Check hparams contains new values
-        assert module.hparams.blur_out_mask is True
-        assert module.hparams.true_face_power == 0.5
-        assert module.hparams.face_style_weight == 0.2
-        assert module.hparams.bg_style_weight == 0.3
+        assert module.hparams.get("blur_out_mask") is True
+        assert module.hparams.get("true_face_power") == 0.5
+        assert module.hparams.get("face_style_weight") == 0.2
+        assert module.hparams.get("bg_style_weight") == 0.3

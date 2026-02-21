@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import cv2
 import gradio as gr
@@ -158,7 +158,10 @@ def create_mask_overlay(
 
     # Resize mask if dimensions don't match
     if mask_norm.shape[:2] != face.shape[:2]:
-        mask_norm = cv2.resize(mask_norm, (face.shape[1], face.shape[0]))
+        mask_norm = cast(
+            np.ndarray,
+            cv2.resize(mask_norm, (face.shape[1], face.shape[0])),
+        )
 
     # Create colored overlay
     overlay = face.copy()

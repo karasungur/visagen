@@ -17,6 +17,8 @@ Example:
     >>> decoder_dst = archi.Decoder(name='dst')
 """
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 
@@ -181,7 +183,7 @@ class Quick96Model(nn.Module):
         """
         features = self.encoder(x)
         code = self.inter(features)
-        return code
+        return cast(torch.Tensor, code)
 
     def decode_src(self, code: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -193,7 +195,7 @@ class Quick96Model(nn.Module):
         Returns:
             Tuple of (reconstructed_image, mask).
         """
-        return self.decoder_src(code)
+        return cast(tuple[torch.Tensor, torch.Tensor], self.decoder_src(code))
 
     def decode_dst(self, code: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -205,7 +207,7 @@ class Quick96Model(nn.Module):
         Returns:
             Tuple of (reconstructed_image, mask).
         """
-        return self.decoder_dst(code)
+        return cast(tuple[torch.Tensor, torch.Tensor], self.decoder_dst(code))
 
     def forward(
         self,

@@ -32,13 +32,15 @@ import logging
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import cv2
 import numpy as np
 
 if TYPE_CHECKING:
     from gfpgan import GFPGANer
+
+    from visagen.postprocess.gpen import GPENRestorer
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +154,7 @@ class FaceRestorer:
 
         # Lazy-loaded instances
         self._gfpgan: GFPGANer | None = None
-        self._gpen = None
+        self._gpen: GPENRestorer | None = None
         self._initialization_attempted = False
 
     @property
@@ -282,14 +284,20 @@ class FaceRestorer:
         if self._gpen is None:
             from visagen.postprocess.gpen import GPENConfig, GPENRestorer
 
+            model_size = self.config.gpen_model_size
+            if model_size not in (256, 512, 1024):
+                model_size = 512
+
             gpen_config = GPENConfig(
                 enabled=True,
-                model_size=self.config.gpen_model_size,
+                model_size=cast(Literal[256, 512, 1024], model_size),
                 strength=self.config.strength,
             )
             self._gpen = GPENRestorer(gpen_config, device=self.device)
 
-        return self._gpen.restore(face_image, strength)
+        if self._gpen is None:
+            return face_image
+        return cast(np.ndarray, self._gpen.restore(face_image, strength))
 
     def _restore_gfpgan(
         self,
@@ -298,6 +306,21 @@ class FaceRestorer:
     ) -> np.ndarray:
         """Restore using GFPGAN."""
         if self.gfpgan is None:
+            try:
+                from visagen.postprocess.gpen import is_gpen_available
+
+                if is_gpen_available():
+                    logger.warning(
+                        "GFPGAN unavailable in gfpgan mode. Falling back to GPEN."
+                    )
+                    return self._restore_gpen(face_image, strength)
+            except Exception as e:
+                logger.debug("GPEN fallback availability check failed: %s", e)
+
+            logger.warning(
+                "GFPGAN unavailable in gfpgan mode and GPEN fallback unavailable. "
+                "Returning original face."
+            )
             return face_image
 
         strength = strength if strength is not None else self.config.strength
@@ -350,9 +373,9 @@ class FaceRestorer:
 
             # Convert back to original dtype
             if input_float:
-                return restored.astype(np.float32) / 255.0
+                return cast(np.ndarray, restored.astype(np.float32) / 255.0)
             else:
-                return restored
+                return cast(np.ndarray, restored)
 
         except Exception as e:
             logger.warning(f"GFPGAN restoration failed: {e}")
@@ -371,9 +394,16 @@ class FaceRestorer:
         if self.config.mode == "gpen":
             from visagen.postprocess.gpen import is_gpen_available
 
-            return is_gpen_available()
+            return cast(bool, is_gpen_available())
         elif self.config.mode == "gfpgan":
-            return is_gfpgan_available()
+            if is_gfpgan_available():
+                return True
+            try:
+                from visagen.postprocess.gpen import is_gpen_available
+
+                return cast(bool, is_gpen_available())
+            except Exception:
+                return False
 
         return False
 
@@ -410,4 +440,4 @@ def restore_face(
         model_version=model_version,
     )
     restorer = FaceRestorer(config, device=device)
-    return restorer.restore(face_image)
+    return cast(np.ndarray, restorer.restore(face_image))

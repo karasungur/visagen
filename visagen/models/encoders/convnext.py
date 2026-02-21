@@ -180,8 +180,8 @@ class ConvNeXtEncoder(nn.Module):
     def __init__(
         self,
         in_channels: int = 3,
-        dims: list[int] = None,
-        depths: list[int] = None,
+        dims: list[int] | None = None,
+        depths: list[int] | None = None,
         drop_path_rate: float = 0.1,
     ) -> None:
         super().__init__()

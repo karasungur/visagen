@@ -7,6 +7,7 @@ Load DFL-aligned face images with metadata for training.
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import cv2
 import numpy as np
@@ -17,6 +18,7 @@ from visagen.data.face_sample import FaceSample
 from visagen.vision.face_type import FaceType
 
 logger = logging.getLogger(__name__)
+FaceDatasetItem = dict[str, torch.Tensor | int]
 
 
 class FaceDataset(Dataset):
@@ -95,7 +97,7 @@ class FaceDataset(Dataset):
         """Return number of samples."""
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> FaceDatasetItem:
         """
         Get a sample with retry logic for corrupt images.
 
@@ -170,7 +172,7 @@ class FaceDataset(Dataset):
                     image_tensor = image_tensor * 2 - 1
 
                 # Build output dict
-                output = {
+                output: FaceDatasetItem = {
                     "image": image_tensor,
                     "landmarks": torch.from_numpy(sample.landmarks.copy()),
                     "face_type": self._get_face_type_int(sample.face_type),
@@ -280,18 +282,18 @@ class FaceDataset(Dataset):
             Sample index.
         """
         if self._yaw_bins_indices is None or len(self._yaw_bins_indices) == 0:
-            return np.random.randint(len(self.samples))
+            return int(np.random.randint(len(self.samples)))
 
         # Extra safety: filter empty bins at runtime
         non_empty = [b for b in self._yaw_bins_indices if len(b) > 0]
         if not non_empty:
-            return np.random.randint(len(self.samples))
+            return int(np.random.randint(len(self.samples)))
 
         # Select random bin
         bin_idx = np.random.randint(len(non_empty))
         # Select random sample from bin
         sample_idx = np.random.choice(non_empty[bin_idx])
-        return sample_idx
+        return cast(int, int(sample_idx))
 
     @staticmethod
     def scan_directory(root_dir: Path) -> list[Path]:
@@ -305,7 +307,7 @@ class FaceDataset(Dataset):
             List of image file paths, sorted alphabetically.
         """
         extensions = {".jpg", ".jpeg", ".png"}
-        paths = []
+        paths: list[Path] = []
 
         for ext in extensions:
             paths.extend(root_dir.glob(f"*{ext}"))

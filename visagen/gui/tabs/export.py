@@ -79,6 +79,7 @@ class ExportTab(BaseTab):
                         key="export.precision",
                         choices=["fp32", "fp16", "int8"],
                         default="fp16",
+                        interactive=False,
                     ),
                     self.i18n,
                 ).build()
@@ -104,6 +105,12 @@ class ExportTab(BaseTab):
 
     def _setup_events(self, c: dict[str, Any]) -> None:
         """Wire up export event handlers."""
+        c["format"].change(
+            fn=lambda export_format: gr.update(interactive=export_format == "tensorrt"),
+            inputs=[c["format"]],
+            outputs=[c["precision"]],
+        )
+
         c["start_btn"].click(
             fn=self._start_export,
             inputs=[
@@ -144,38 +151,52 @@ class ExportTab(BaseTab):
             str(output_path) if output_path else "./model.onnx",
             "--format",
             export_format,
-            "--precision",
-            precision,
         ]
+        if export_format == "tensorrt":
+            cmd.extend(["--precision", precision])
 
         if validate:
             cmd.append("--validate")
 
-        yield f"Starting export...\n$ {' '.join(cmd)}\n"
+        info_note = ""
+        if export_format == "onnx":
+            info_note = (
+                "Note: Precision selection only applies to TensorRT builds; "
+                "ONNX export uses model defaults.\n"
+            )
 
+        yield f"Starting export...\n{info_note}$ {' '.join(cmd)}\n"
+
+        process: subprocess.Popen | None = None
         try:
-            self.state.processes.export = subprocess.Popen(
+            process = self.state.processes.launch(
+                "export",
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
             )
+            if process is None:
+                yield "\n\nExport is already running. Stop the active job first."
+                return
 
-            if self.state.processes.export.stdout:
-                for line in iter(self.state.processes.export.stdout.readline, ""):
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
                     if line:
                         yield line
-                    if self.state.processes.export.poll() is not None:
+                    if process.poll() is not None:
                         break
 
-            remaining, _ = self.state.processes.export.communicate()
+            remaining, _ = process.communicate()
             if remaining:
                 yield remaining
 
-            exit_code = self.state.processes.export.returncode
+            exit_code = process.returncode
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
+            elif exit_code in {-15, -9, 143, 137}:
+                yield f"\n\n{self.i18n.t('status.stopped')}"
             else:
                 yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
 
@@ -183,7 +204,15 @@ class ExportTab(BaseTab):
             yield f"\n\nError: {e}"
 
         finally:
-            self.state.processes.export = None
+            if process is not None:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                self.state.processes.clear_if("export", process)
 
     def _stop_export(self) -> str:
         """Stop export process."""

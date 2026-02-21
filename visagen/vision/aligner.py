@@ -8,6 +8,7 @@ and Umeyama similarity transform, compatible with legacy DFL format.
 import logging
 import math
 from dataclasses import dataclass
+from typing import cast
 
 import cv2
 import numpy as np
@@ -307,7 +308,7 @@ class FaceAligner:
 
         # Get corner points in global space
         g_p = transform_points(
-            np.float32([(0, 0), (1, 0), (1, 1), (0, 1), (0.5, 0.5)]),
+            np.array([(0, 0), (1, 0), (1, 1), (0, 1), (0.5, 0.5)], dtype=np.float32),
             mat,
             invert=True,
         )
@@ -386,16 +387,17 @@ class FaceAligner:
             )
 
         # Calculate affine transform from 3 global points to output size
-        pts2 = np.float32(
+        pts2 = np.array(
             [
                 (0, 0),
                 (output_size, 0),
                 (output_size, output_size),
-            ]
+            ],
+            dtype=np.float32,
         )
-        mat = cv2.getAffineTransform(l_t.astype(np.float32), pts2)
+        mat = cv2.getAffineTransform(l_t.astype(np.float32), pts2.astype(np.float32))
 
-        return mat
+        return cast(np.ndarray, mat)
 
     def align(
         self,
@@ -557,7 +559,7 @@ class FaceAligner:
 
     def _polygon_area(self, x: np.ndarray, y: np.ndarray) -> float:
         """Calculate polygon area using shoelace formula."""
-        return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+        return float(0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1))))
 
     def _rotation_matrix_to_euler(self, R: np.ndarray) -> tuple[float, float, float]:
         """Convert rotation matrix to Euler angles (pitch, yaw, roll)."""
@@ -731,7 +733,9 @@ class FaceAligner:
         target_mat = self.get_transform_mat(landmarks, output_size, target_face_type)
 
         # Transform corners from target space to global, then to source space
-        corners = np.float32([(0, 0), (output_size, 0), (0, output_size)])
+        corners = np.array(
+            [(0, 0), (output_size, 0), (0, output_size)], dtype=np.float32
+        )
 
         # Target corners in global space
         global_pts = transform_points(corners, target_mat, invert=True)
@@ -740,7 +744,12 @@ class FaceAligner:
         source_pts = transform_points(global_pts, source_mat)
 
         # Affine transform from source_pts to corners
-        return cv2.getAffineTransform(source_pts, corners)
+        return cast(
+            np.ndarray,
+            cv2.getAffineTransform(
+                source_pts.astype(np.float32), corners.astype(np.float32)
+            ),
+        )
 
     def warp_between_face_types(
         self,
@@ -762,17 +771,20 @@ class FaceAligner:
             Warped image in target face type space.
         """
         if source_face_type == target_face_type:
-            return image.copy()
+            return cast(np.ndarray, image.copy())
 
         h, w = image.shape[:2]
         mat = self.get_face_type_transform_mat(
             landmarks, w, source_face_type, target_face_type
         )
 
-        return cv2.warpAffine(
-            image,
-            mat,
-            (w, w),
-            flags=cv2.INTER_LANCZOS4,
-            borderMode=cv2.BORDER_REPLICATE,
+        return cast(
+            np.ndarray,
+            cv2.warpAffine(
+                image,
+                mat,
+                (w, w),
+                flags=cv2.INTER_LANCZOS4,
+                borderMode=cv2.BORDER_REPLICATE,
+            ),
         )

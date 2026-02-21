@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import gradio as gr
 
+from visagen.gui.command_builders import (
+    build_extract_command,
+    build_merge_command,
+    build_train_command,
+)
 from visagen.gui.components import (
     PathInput,
     PathInputConfig,
@@ -197,6 +201,10 @@ class WizardTab(BaseTab):
                     self.t("step2.extract"),
                     variant="primary",
                 )
+                components["step2_stop"] = gr.Button(
+                    self.i18n.t("common.stop"),
+                    variant="stop",
+                )
                 components["step2_next"] = gr.Button(
                     self.t("next_step"),
                     interactive=False,
@@ -284,7 +292,17 @@ class WizardTab(BaseTab):
                 with gr.Column():
                     components["merge_color_transfer"] = gr.Dropdown(
                         label=self.t("step4.color_transfer"),
-                        choices=["rct", "lct", "sot", "none"],
+                        choices=[
+                            "rct",
+                            "lct",
+                            "sot",
+                            "mkl",
+                            "idt",
+                            "mix",
+                            "hist-match",
+                            "neural",
+                            "none",
+                        ],
                         value="rct",
                     )
                 with gr.Column():
@@ -305,6 +323,10 @@ class WizardTab(BaseTab):
                 components["step4_apply"] = gr.Button(
                     self.t("step4.apply"),
                     variant="primary",
+                )
+                components["step4_stop"] = gr.Button(
+                    self.i18n.t("common.stop"),
+                    variant="stop",
                 )
 
             components["final_status"] = gr.Textbox(
@@ -398,6 +420,82 @@ class WizardTab(BaseTab):
         ) -> Generator[tuple, None, None]:
             """Run face extraction for both source and destination."""
             log_lines = []
+            stop_codes = {-15, -9, 143, 137}
+
+            def run_stage(cmd: list[str]) -> Generator[tuple, None, bool]:
+                process: subprocess.Popen | None = None
+                try:
+                    process = self.state.processes.launch(
+                        "extract",
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                    )
+                    if process is None:
+                        log_lines.append(
+                            "Extraction is already running. Stop it first."
+                        )
+                        yield (
+                            "\n".join(log_lines[-50:]),
+                            gr.update(interactive=False),
+                        )
+                        return False
+
+                    if process.stdout:
+                        for line in iter(process.stdout.readline, ""):
+                            log_lines.append(line.strip())
+                            yield (
+                                "\n".join(log_lines[-50:]),
+                                gr.update(interactive=False),
+                            )
+                            if process.poll() is not None:
+                                break
+
+                    remaining, _ = process.communicate()
+                    if remaining:
+                        log_lines.extend(
+                            line.strip()
+                            for line in remaining.splitlines()
+                            if line.strip()
+                        )
+                        yield (
+                            "\n".join(log_lines[-50:]),
+                            gr.update(interactive=False),
+                        )
+
+                    exit_code = process.returncode
+                    if exit_code == 0:
+                        return True
+                    if exit_code in stop_codes:
+                        log_lines.append(self.i18n.t("status.extraction_stopped"))
+                    else:
+                        log_lines.append(
+                            f"Extraction failed with exit code: {exit_code}"
+                        )
+                    yield (
+                        "\n".join(log_lines[-50:]),
+                        gr.update(interactive=False),
+                    )
+                    return False
+                except Exception as e:
+                    log_lines.append(f"Error: {e}")
+                    yield (
+                        "\n".join(log_lines[-50:]),
+                        gr.update(interactive=False),
+                    )
+                    return False
+                finally:
+                    if process is not None:
+                        if process.poll() is None:
+                            process.terminate()
+                            try:
+                                process.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                process.kill()
+                                process.wait()
+                        self.state.processes.clear_if("extract", process)
 
             # Extract source faces
             log_lines.append("=== Extracting source faces ===")
@@ -409,39 +507,17 @@ class WizardTab(BaseTab):
             src_video = self._workspace_dir / "data_src" / "source.mp4"
             src_output = self._workspace_dir / "data_src" / "aligned"
 
-            cmd = [
-                sys.executable,
-                "-m",
-                "visagen.tools.extract",
-                "--input",
-                str(src_video),
-                "--output",
-                str(src_output),
-                "--face-type",
-                face_type,
-                "--output-size",
-                str(output_size),
-            ]
+            cmd = build_extract_command(
+                src_video,
+                src_output,
+                face_type=face_type,
+                output_size=output_size,
+            )
+            log_lines.append(f"Resolved argv: {' '.join(cmd)}")
 
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                )
-
-                for line in iter(proc.stdout.readline, ""):
-                    log_lines.append(line.strip())
-                    yield (
-                        "\n".join(log_lines[-50:]),
-                        gr.update(interactive=False),
-                    )
-
-                proc.wait()
-            except Exception as e:
-                log_lines.append(f"Error: {e}")
+            src_ok = yield from run_stage(cmd)
+            if not src_ok:
+                return
 
             # Extract destination faces
             log_lines.append("")
@@ -454,39 +530,17 @@ class WizardTab(BaseTab):
             dst_video = self._workspace_dir / "data_dst" / "destination.mp4"
             dst_output = self._workspace_dir / "data_dst" / "aligned"
 
-            cmd = [
-                sys.executable,
-                "-m",
-                "visagen.tools.extract",
-                "--input",
-                str(dst_video),
-                "--output",
-                str(dst_output),
-                "--face-type",
-                face_type,
-                "--output-size",
-                str(output_size),
-            ]
+            cmd = build_extract_command(
+                dst_video,
+                dst_output,
+                face_type=face_type,
+                output_size=output_size,
+            )
+            log_lines.append(f"Resolved argv: {' '.join(cmd)}")
 
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                )
-
-                for line in iter(proc.stdout.readline, ""):
-                    log_lines.append(line.strip())
-                    yield (
-                        "\n".join(log_lines[-50:]),
-                        gr.update(interactive=False),
-                    )
-
-                proc.wait()
-            except Exception as e:
-                log_lines.append(f"Error: {e}")
+            dst_ok = yield from run_stage(cmd)
+            if not dst_ok:
+                return
 
             log_lines.append("")
             log_lines.append("✅ Extraction completed!")
@@ -501,6 +555,17 @@ class WizardTab(BaseTab):
             fn=run_extraction,
             inputs=[c["extract_face_type"], c["extract_size"]],
             outputs=[c["extract_log"], c["step2_next"]],
+        )
+
+        def stop_extraction() -> str:
+            """Stop extraction process."""
+            if self.state.processes.terminate("extract"):
+                return self.i18n.t("status.extraction_stopped")
+            return self.i18n.t("status.no_extraction")
+
+        c["step2_stop"].click(
+            fn=stop_extraction,
+            outputs=[c["extract_log"]],
         )
 
         # Step 2 navigation
@@ -555,59 +620,83 @@ class WizardTab(BaseTab):
             dst_dir = self._workspace_dir / "data_dst" / "aligned"
             model_dir = self._workspace_dir / "model"
 
-            cmd = [
-                sys.executable,
-                "-m",
-                "visagen.tools.train",
-                "--src-dir",
-                str(src_dir),
-                "--dst-dir",
-                str(dst_dir),
-                "--output-dir",
-                str(model_dir),
-                "--max-epochs",
-                str(epochs),
-                "--batch-size",
-                str(batch_size),
-            ]
-
-            # Add preset-specific options
+            precision: str | None = None
+            lpips_weight: float | None = None
             if preset == "quick":
-                cmd.extend(["--precision", "16-mixed"])
+                precision = "16-mixed"
             elif preset == "quality":
-                cmd.extend(["--lpips-weight", "1.0"])
+                lpips_weight = 1.0
+            cmd = build_train_command(
+                src_dir,
+                dst_dir,
+                model_dir,
+                batch_size=batch_size,
+                max_epochs=epochs,
+                precision=precision,
+                lpips_weight=lpips_weight,
+            )
+            log_lines.append(f"Resolved argv: {' '.join(cmd)}")
 
+            process: subprocess.Popen | None = None
+            training_completed = False
             try:
-                self.state.processes.training = subprocess.Popen(
+                process = self.state.processes.launch(
+                    "training",
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
                 )
-
-                for line in iter(self.state.processes.training.stdout.readline, ""):
-                    log_lines.append(line.strip())
+                if process is None:
+                    log_lines.append("Training is already running. Stop it first.")
                     yield (
                         "\n".join(log_lines[-50:]),
                         gr.update(interactive=False),
                         gr.update(visible=False),
                     )
-                    if self.state.processes.training.poll() is not None:
-                        break
+                    return
 
-                self.state.processes.training.wait()
+                if process.stdout:
+                    for line in iter(process.stdout.readline, ""):
+                        log_lines.append(line.strip())
+                        yield (
+                            "\n".join(log_lines[-50:]),
+                            gr.update(interactive=False),
+                            gr.update(visible=False),
+                        )
+                        if process.poll() is not None:
+                            break
+
+                process.wait()
+                exit_code = process.returncode
+                if exit_code == 0:
+                    training_completed = True
+                elif exit_code in {-15, -9, 143, 137}:
+                    log_lines.append(self.t("step3.stopped"))
+                else:
+                    log_lines.append(f"Training failed with exit code: {exit_code}")
             except Exception as e:
                 log_lines.append(f"Error: {e}")
+            finally:
+                if process is not None:
+                    if process.poll() is None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait()
+                    self.state.processes.clear_if("training", process)
 
-            log_lines.append("")
-            log_lines.append("✅ Training completed!")
-            self._completed_steps.add(2)
-            self.state.processes.training = None
+            if training_completed:
+                log_lines.append("")
+                log_lines.append("✅ Training completed!")
+                self._completed_steps.add(2)
 
             yield (
                 "\n".join(log_lines[-50:]),
-                gr.update(interactive=True),
+                gr.update(interactive=training_completed),
                 gr.update(visible=False),
             )
 
@@ -619,10 +708,9 @@ class WizardTab(BaseTab):
 
         def stop_training():
             """Stop training process."""
-            if self.state.processes.training:
-                self.state.processes.training.terminate()
-                self.state.processes.training = None
-            return self.t("step3.stopped")
+            if self.state.processes.terminate("training"):
+                return self.t("step3.stopped")
+            return self.i18n.t("status.no_training")
 
         c["step3_stop"].click(
             fn=stop_training,
@@ -688,57 +776,106 @@ class WizardTab(BaseTab):
                 )
                 return
 
-            cmd = [
-                sys.executable,
-                "-m",
-                "visagen.tools.merge",
-                "--input",
-                str(input_video),
-                "--output",
+            cmd = build_merge_command(
+                input_video,
                 output_path,
-                "--checkpoint",
-                str(checkpoint),
-                "--color-transfer",
-                color_transfer,
-                "--blend-mode",
-                blend_mode,
-            ]
+                checkpoint,
+                color_transfer=color_transfer,
+                blend_mode=blend_mode,
+            )
+            log_lines.append(f"Resolved argv: {' '.join(cmd)}")
 
+            process: subprocess.Popen | None = None
             try:
-                proc = subprocess.Popen(
+                process = self.state.processes.launch(
+                    "merge",
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
                 )
-
-                for line in iter(proc.stdout.readline, ""):
-                    log_lines.append(line.strip())
+                if process is None:
+                    log_lines.append("Merge is already running. Stop it first.")
                     yield (
                         "\n".join(log_lines[-50:]),
                         "",
                         gr.update(visible=False),
                     )
+                    return
 
-                proc.wait()
+                if process.stdout:
+                    for line in iter(process.stdout.readline, ""):
+                        log_lines.append(line.strip())
+                        yield (
+                            "\n".join(log_lines[-50:]),
+                            "",
+                            gr.update(visible=False),
+                        )
+                        if process.poll() is not None:
+                            break
+
+                remaining, _ = process.communicate()
+                if remaining:
+                    log_lines.extend(
+                        line.strip() for line in remaining.splitlines() if line.strip()
+                    )
+
+                exit_code = process.returncode
+                if exit_code == 0:
+                    log_lines.append("")
+                    log_lines.append("✅ Video creation completed!")
+                    self._completed_steps.add(3)
+
+                    yield (
+                        "\n".join(log_lines[-50:]),
+                        self.t("step4.success", path=output_path),
+                        gr.update(visible=True, value=output_path),
+                    )
+                    return
+                if exit_code in {-15, -9, 143, 137}:
+                    log_lines.append(self.i18n.t("status.stopped"))
+                else:
+                    log_lines.append(f"Merge failed with exit code: {exit_code}")
+
+                yield (
+                    "\n".join(log_lines[-50:]),
+                    "",
+                    gr.update(visible=False),
+                )
             except Exception as e:
                 log_lines.append(f"Error: {e}")
-
-            log_lines.append("")
-            log_lines.append("✅ Video creation completed!")
-            self._completed_steps.add(3)
-
-            yield (
-                "\n".join(log_lines[-50:]),
-                self.t("step4.success", path=output_path),
-                gr.update(visible=True, value=output_path),
-            )
+                yield (
+                    "\n".join(log_lines[-50:]),
+                    "",
+                    gr.update(visible=False),
+                )
+            finally:
+                if process is not None:
+                    if process.poll() is None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait()
+                    self.state.processes.clear_if("merge", process)
 
         c["step4_apply"].click(
             fn=run_merge,
             inputs=[c["output_path"], c["merge_color_transfer"], c["merge_blend"]],
             outputs=[c["merge_log"], c["final_status"], c["final_video"]],
+        )
+
+        def stop_merge() -> str:
+            """Stop merge process."""
+            if self.state.processes.terminate("merge"):
+                return self.i18n.t("status.stopped")
+            return self.i18n.t("status.no_merge")
+
+        c["step4_stop"].click(
+            fn=stop_merge,
+            outputs=[c["merge_log"]],
         )
 
         # Step 4 navigation

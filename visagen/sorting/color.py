@@ -35,7 +35,8 @@ class BrightnessSorter(SortMethod):
     ) -> float:
         """Compute mean brightness (V channel)."""
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        return float(np.mean(hsv[..., 2]))
+        channel = np.asarray(hsv[..., 2], dtype=np.float32)
+        return float(np.mean(channel))
 
 
 class HueSorter(SortMethod):
@@ -58,7 +59,8 @@ class HueSorter(SortMethod):
     ) -> float:
         """Compute mean hue (H channel)."""
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        return float(np.mean(hsv[..., 0]))
+        channel = np.asarray(hsv[..., 0], dtype=np.float32)
+        return float(np.mean(channel))
 
 
 class BlackPixelSorter(SortMethod):
@@ -109,7 +111,8 @@ class SaturationSorter(SortMethod):
     ) -> float:
         """Compute mean saturation (S channel)."""
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        return float(np.mean(hsv[..., 1]))
+        channel = np.asarray(hsv[..., 1], dtype=np.float32)
+        return float(np.mean(channel))
 
 
 class ContrastSorter(SortMethod):
@@ -131,4 +134,5 @@ class ContrastSorter(SortMethod):
     ) -> float:
         """Compute contrast (std of grayscale)."""
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        return float(np.std(gray))
+        gray_f32 = np.asarray(gray, dtype=np.float32)
+        return float(np.std(gray_f32))

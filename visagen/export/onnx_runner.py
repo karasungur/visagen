@@ -7,6 +7,7 @@ with GPU/CPU support and optimized session configuration.
 
 import logging
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 
@@ -73,10 +74,10 @@ class ONNXRunner:
             f"ONNXRunner initialized: device={device}, input_shape={self.input_shape}"
         )
 
-    def _create_session(self, ort) -> "ort.InferenceSession":
+    def _create_session(self, ort: Any) -> Any:
         """Create optimized ONNX Runtime session."""
         # Configure providers
-        providers = []
+        providers: list[Any] = []
 
         if self.device == "cuda":
             # Check CUDA availability
@@ -141,7 +142,7 @@ class ONNXRunner:
             {self.input_name: image},
         )
 
-        return outputs[0]
+        return cast(np.ndarray, outputs[0])
 
     def batch_inference(
         self,

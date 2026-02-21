@@ -239,21 +239,35 @@ class FacesetToolsTab(BaseTab):
 
         yield f"Starting faceset enhancement...\n$ {' '.join(cmd)}\n"
 
+        process: subprocess.Popen | None = None
         try:
-            self.state.processes.faceset_tools = subprocess.Popen(
+            process = self.state.processes.launch(
+                "faceset_tools",
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
             )
+            if process is None:
+                yield "\n\nFaceset tools process is already running. Stop it first."
+                return
 
-            for line in iter(self.state.processes.faceset_tools.stdout.readline, ""):
-                if line:
-                    yield line
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    if line:
+                        yield line
+                    if process.poll() is not None:
+                        break
 
-            exit_code = self.state.processes.faceset_tools.wait()
+            remaining, _ = process.communicate()
+            if remaining:
+                yield remaining
+
+            exit_code = process.returncode
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
+            elif exit_code in {-15, -9, 143, 137}:
+                yield f"\n\n{self.i18n.t('status.stopped')}"
             else:
                 yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
 
@@ -261,7 +275,15 @@ class FacesetToolsTab(BaseTab):
             yield f"\n\nError: {e}"
 
         finally:
-            self.state.processes.faceset_tools = None
+            if process is not None:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                self.state.processes.clear_if("faceset_tools", process)
 
     def _run_resize_faceset(
         self,
@@ -295,21 +317,35 @@ class FacesetToolsTab(BaseTab):
 
         yield f"Starting faceset resize...\n$ {' '.join(cmd)}\n"
 
+        process: subprocess.Popen | None = None
         try:
-            self.state.processes.faceset_tools = subprocess.Popen(
+            process = self.state.processes.launch(
+                "faceset_tools",
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
             )
+            if process is None:
+                yield "\n\nFaceset tools process is already running. Stop it first."
+                return
 
-            for line in iter(self.state.processes.faceset_tools.stdout.readline, ""):
-                if line:
-                    yield line
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    if line:
+                        yield line
+                    if process.poll() is not None:
+                        break
 
-            exit_code = self.state.processes.faceset_tools.wait()
+            remaining, _ = process.communicate()
+            if remaining:
+                yield remaining
+
+            exit_code = process.returncode
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
+            elif exit_code in {-15, -9, 143, 137}:
+                yield f"\n\n{self.i18n.t('status.stopped')}"
             else:
                 yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
 
@@ -317,7 +353,15 @@ class FacesetToolsTab(BaseTab):
             yield f"\n\nError: {e}"
 
         finally:
-            self.state.processes.faceset_tools = None
+            if process is not None:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                self.state.processes.clear_if("faceset_tools", process)
 
     def _stop_current_process(self) -> None:
         """Stop currently running faceset tools process."""

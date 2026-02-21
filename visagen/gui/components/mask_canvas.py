@@ -8,7 +8,7 @@ with component toggles, brush tools, and refinement controls.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import cv2
 import gradio as gr
@@ -185,7 +185,7 @@ class MaskHistory:
         """
         if self._position > 0:
             self._position -= 1
-            return self._history[self._position].copy()
+            return cast(np.ndarray, self._history[self._position].copy())
         return None
 
     def redo(self) -> np.ndarray | None:
@@ -197,13 +197,13 @@ class MaskHistory:
         """
         if self._position < len(self._history) - 1:
             self._position += 1
-            return self._history[self._position].copy()
+            return cast(np.ndarray, self._history[self._position].copy())
         return None
 
     def current(self) -> np.ndarray | None:
         """Get current mask state."""
         if 0 <= self._position < len(self._history):
-            return self._history[self._position].copy()
+            return cast(np.ndarray, self._history[self._position].copy())
         return None
 
     def clear(self) -> None:
@@ -719,15 +719,16 @@ class MaskCanvas:
 
     def _create_outputs(
         self,
-        image: np.ndarray,
-        mask: np.ndarray,
+        image: np.ndarray | None,
+        mask: np.ndarray | None,
     ) -> tuple[dict, np.ndarray, np.ndarray]:
         """Create editor data, preview, and mask-only outputs."""
         # Convert to RGB for display
-        if image is not None:
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        else:
+        image_rgb: np.ndarray
+        if image is None:
             image_rgb = np.zeros((512, 512, 3), dtype=np.uint8)
+        else:
+            image_rgb = cast(np.ndarray, cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
 
         if mask is None:
             mask = np.zeros((512, 512), dtype=np.uint8)
@@ -749,14 +750,19 @@ class MaskCanvas:
 
     def _create_preview_with_mode(
         self,
-        image: np.ndarray,
-        mask: np.ndarray,
+        image: np.ndarray | None,
+        mask: np.ndarray | None,
     ) -> np.ndarray:
         """Create preview using current preview mode."""
-        if image is None or mask is None:
+        if image is None:
+            image = np.zeros((512, 512, 3), dtype=np.uint8)
+        if mask is None:
             return image
 
-        return self._preview_generator.generate(image, mask, self._state.preview_mode)
+        return cast(
+            np.ndarray,
+            self._preview_generator.generate(image, mask, self._state.preview_mode),
+        )
 
     def _create_preview_overlay(
         self,
@@ -913,7 +919,7 @@ class MaskCanvas:
     def _on_editor_change(
         self,
         editor_data: dict,
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
         """Handle editor content change."""
         if editor_data is None:
             return None, None
@@ -953,7 +959,7 @@ class MaskCanvas:
         # Threshold to binary
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
 
-        return mask.astype(np.uint8)
+        return cast(np.ndarray, mask.astype(np.uint8))
 
     def get_current_mask(self) -> np.ndarray | None:
         """Get the current mask."""

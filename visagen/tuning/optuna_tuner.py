@@ -16,11 +16,11 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import optuna
 import pytorch_lightning as pl
-import yaml
+import yaml  # type: ignore[import-untyped]
 from optuna_integration import PyTorchLightningPruningCallback
 from pytorch_lightning.callbacks import EarlyStopping
 
@@ -130,7 +130,7 @@ class OptunaTuner:
         if storage_path is not None:
             storage_path = Path(storage_path)
             storage_path.parent.mkdir(parents=True, exist_ok=True)
-            self.storage = f"sqlite:///{storage_path}"
+            self.storage: str | None = f"sqlite:///{storage_path}"
         else:
             self.storage = None
 
@@ -166,7 +166,7 @@ class OptunaTuner:
         Returns:
             Dictionary of suggested hyperparameters.
         """
-        params = {}
+        params: dict[str, Any] = {}
 
         # Learning rate (log scale)
         params["learning_rate"] = trial.suggest_float(
@@ -275,7 +275,7 @@ class OptunaTuner:
             # Handle batch size if tuned
             if "batch_size" in params:
                 batch_size = params.pop("batch_size")
-                datamodule.batch_size = batch_size
+                cast(Any, datamodule).batch_size = batch_size
 
             # Create model with suggested params
             model = DFLModule(**params)
@@ -298,7 +298,7 @@ class OptunaTuner:
                 max_epochs=max_epochs,
                 accelerator=accelerator,
                 devices=devices,
-                precision=precision,
+                precision=cast(Any, precision),
                 callbacks=[pruning_callback, early_stop],
                 enable_progress_bar=False,
                 enable_model_summary=False,
@@ -384,7 +384,7 @@ class OptunaTuner:
         if len(self.study.trials) == 0:
             raise ValueError("No trials completed. Run optimize() first.")
 
-        return self.study.best_params
+        return cast(dict[str, Any], self.study.best_params)
 
     def get_best_value(self) -> float:
         """
@@ -393,9 +393,9 @@ class OptunaTuner:
         Returns:
             Best objective value.
         """
-        return self.study.best_value
+        return cast(float, self.study.best_value)
 
-    def get_trials_dataframe(self) -> "pd.DataFrame":
+    def get_trials_dataframe(self) -> Any:
         """
         Get trials as a pandas DataFrame.
 

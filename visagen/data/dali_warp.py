@@ -11,7 +11,16 @@ The algorithm matches legacy DeepFaceLab behavior:
     4. Normalize to [-1, 1] for grid_sample
 """
 
+from typing import cast
+
 import numpy as np
+
+try:
+    import cv2
+
+    HAS_CV2 = True
+except ImportError:
+    HAS_CV2 = False
 
 
 def gen_dali_warp_grid(
@@ -45,56 +54,62 @@ def gen_dali_warp_grid(
     grids = []
 
     for _ in range(batch_size):
-        # Choose random cell size from [size//8, size//4, size//2]
-        cell_power = rng.integers(1, 4)
-        cell_size = max(size // (2**cell_power), 4)
+        # Match legacy DFL cell size sampling: [w//2, w//4, w//8]
+        cell_size = [size // (2**i) for i in range(1, 4)][rng.integers(0, 3)]
+        cell_size = max(int(cell_size), 1)
         cell_count = size // cell_size + 1
 
         # Create base grid points
-        grid_points = np.linspace(0, size - 1, cell_count, dtype=np.float32)
-        mapx = np.tile(grid_points, (cell_count, 1))
-        mapy = np.tile(grid_points.reshape(-1, 1), (1, cell_count))
+        grid_points = np.linspace(0, size, cell_count, dtype=np.float32)
+        mapx = np.broadcast_to(grid_points, (cell_count, cell_count)).copy()
+        mapy = mapx.T.copy()
 
         # Add random displacement to interior points
         # Displacement magnitude: cell_size * 0.24 (legacy value)
         displacement = cell_size * 0.24
-        interior_h = cell_count - 2
-        interior_w = cell_count - 2
-
-        if interior_h > 0 and interior_w > 0:
+        if cell_count > 2:
             noise_x = (
-                rng.standard_normal((interior_h, interior_w)).astype(np.float32)
+                rng.standard_normal((cell_count - 2, cell_count - 2)).astype(np.float32)
                 * displacement
             )
             noise_y = (
-                rng.standard_normal((interior_h, interior_w)).astype(np.float32)
+                rng.standard_normal((cell_count - 2, cell_count - 2)).astype(np.float32)
                 * displacement
             )
 
             mapx[1:-1, 1:-1] += noise_x
             mapy[1:-1, 1:-1] += noise_y
 
-        # Upscale to full resolution using scipy zoom (bilinear)
-        from scipy.ndimage import zoom
+        # Legacy resize + center-crop behavior (OpenCV preferred)
+        if HAS_CV2:
+            half_cell = cell_size // 2
+            resized_shape = (size + cell_size, size + cell_size)
+            mapx_full = cv2.resize(mapx, resized_shape, interpolation=cv2.INTER_LINEAR)
+            mapy_full = cv2.resize(mapy, resized_shape, interpolation=cv2.INTER_LINEAR)
+            mapx_full = mapx_full[
+                half_cell : half_cell + size, half_cell : half_cell + size
+            ]
+            mapy_full = mapy_full[
+                half_cell : half_cell + size, half_cell : half_cell + size
+            ]
+            mapx_full = mapx_full.astype(np.float32)
+            mapy_full = mapy_full.astype(np.float32)
+        else:
+            # Fallback for environments without OpenCV.
+            from scipy.ndimage import zoom
 
-        scale_factor = size / cell_count
-        mapx_full = zoom(mapx, scale_factor, order=1)  # order=1 is bilinear
-        mapy_full = zoom(mapy, scale_factor, order=1)
-
-        # Ensure exact size (zoom might have slight variations)
-        mapx_full = mapx_full[:size, :size]
-        mapy_full = mapy_full[:size, :size]
-
-        # Pad if needed
-        if mapx_full.shape[0] < size or mapx_full.shape[1] < size:
-            pad_h = size - mapx_full.shape[0]
-            pad_w = size - mapx_full.shape[1]
-            mapx_full = np.pad(mapx_full, ((0, pad_h), (0, pad_w)), mode="edge")
-            mapy_full = np.pad(mapy_full, ((0, pad_h), (0, pad_w)), mode="edge")
+            scale_factor = size / cell_count
+            mapx_full = zoom(mapx, scale_factor, order=1)[:size, :size].astype(
+                np.float32
+            )
+            mapy_full = zoom(mapy, scale_factor, order=1)[:size, :size].astype(
+                np.float32
+            )
 
         # Normalize to [-1, 1] for grid_sample
-        grid_x = (mapx_full / (size - 1)) * 2 - 1
-        grid_y = (mapy_full / (size - 1)) * 2 - 1
+        denom = max(size - 1, 1)
+        grid_x = (mapx_full / denom) * 2 - 1
+        grid_y = (mapy_full / denom) * 2 - 1
 
         # Stack to create grid (H, W, 2)
         grid = np.stack([grid_x, grid_y], axis=-1).astype(np.float32)
@@ -123,6 +138,8 @@ class DALIWarpGridGenerator:
 
     def __init__(self, size: int, seed: int = 42) -> None:
         self.size = size
+        self.seed = seed
+        self._epoch = 0
         self.rng = np.random.default_rng(seed)
 
     def __call__(self, sample_info) -> np.ndarray:
@@ -140,12 +157,12 @@ class DALIWarpGridGenerator:
             batch_size=1,
             rng=self.rng,
         )
-        return grid[0]  # Return single grid (H, W, 2)
+        return cast(np.ndarray, grid[0])  # Return single grid (H, W, 2)
 
     def reset(self) -> None:
         """Reset the generator (called at epoch boundaries)."""
-        # Optionally reseed for different augmentation each epoch
-        pass
+        self._epoch += 1
+        self.rng = np.random.default_rng(self.seed + self._epoch)
 
 
 def gen_dali_affine_matrix(
@@ -235,6 +252,8 @@ class DALIAffineGenerator:
         self.rotation_range = rotation_range
         self.scale_range = scale_range
         self.translation_range = translation_range
+        self.seed = seed
+        self._epoch = 0
         self.rng = np.random.default_rng(seed)
 
     def __call__(self, sample_info) -> np.ndarray:
@@ -247,11 +266,12 @@ class DALIAffineGenerator:
             translation_range=self.translation_range,
             rng=self.rng,
         )
-        return matrix[0]  # Return single matrix (2, 3)
+        return cast(np.ndarray, matrix[0])  # Return single matrix (2, 3)
 
     def reset(self) -> None:
         """Reset the generator."""
-        pass
+        self._epoch += 1
+        self.rng = np.random.default_rng(self.seed + self._epoch)
 
 
 def apply_warp_grid_numpy(
@@ -292,9 +312,12 @@ def apply_warp_grid_numpy(
             channels.append(warped_c)
         return np.stack(channels, axis=-1)
     else:
-        return map_coordinates(
-            image,
-            [grid_y, grid_x],
-            order=1,
-            mode="nearest",
+        return cast(
+            np.ndarray,
+            map_coordinates(
+                image,
+                [grid_y, grid_x],
+                order=1,
+                mode="nearest",
+            ),
         )

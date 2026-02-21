@@ -6,7 +6,7 @@ brush operations, and component-based mask building.
 """
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 import cv2
 import numpy as np
@@ -130,7 +130,7 @@ class MaskOperations:
             Eroded mask with same dtype as input.
         """
         if kernel_size <= 0:
-            return mask.copy()
+            return cast(np.ndarray, mask.copy())
 
         # Ensure odd kernel size
         kernel_size = kernel_size if kernel_size % 2 == 1 else kernel_size + 1
@@ -155,7 +155,7 @@ class MaskOperations:
             Dilated mask with same dtype as input.
         """
         if kernel_size <= 0:
-            return mask.copy()
+            return cast(np.ndarray, mask.copy())
 
         # Ensure odd kernel size
         kernel_size = kernel_size if kernel_size % 2 == 1 else kernel_size + 1
@@ -185,7 +185,7 @@ class MaskOperations:
             Blurred (and optionally thresholded) mask.
         """
         if kernel_size <= 0:
-            return mask.copy()
+            return cast(np.ndarray, mask.copy())
 
         # Ensure odd kernel size
         kernel_size = kernel_size if kernel_size % 2 == 1 else kernel_size + 1
@@ -234,7 +234,7 @@ class MaskOperations:
         result = mask.copy()
 
         if not points:
-            return result
+            return cast(np.ndarray, result)
 
         color = 255 if mode == "add" else 0
         radius = max(1, brush_size // 2)
@@ -248,7 +248,7 @@ class MaskOperations:
             pt2 = (int(points[i][0]), int(points[i][1]))
             cv2.line(result, pt1, pt2, color, brush_size)
 
-        return result
+        return cast(np.ndarray, result)
 
     @staticmethod
     def refine(mask: np.ndarray, config: MaskRefinementConfig) -> np.ndarray:
@@ -278,7 +278,7 @@ class MaskOperations:
         if config.blur_size > 0:
             result = MaskOperations.blur(result, config.blur_size, config.threshold)
 
-        return result
+        return cast(np.ndarray, result)
 
     @staticmethod
     def combine_component_masks(

@@ -6,6 +6,7 @@ Uses random displacement grids for data augmentation.
 """
 
 import random
+from typing import Any, cast
 
 import torch
 import torch.nn.functional as F
@@ -14,7 +15,7 @@ import torch.nn.functional as F
 def gen_warp_params(
     size: int,
     rng: torch.Generator | None = None,
-) -> dict[str, torch.Tensor]:
+) -> dict[str, Any]:
     """
     Generate random warp displacement maps.
 
@@ -38,7 +39,7 @@ def gen_warp_params(
         rng.manual_seed(random.randint(0, 2**31))
 
     # Choose random cell size from [size//8, size//4, size//2]
-    cell_power = torch.randint(1, 4, (1,), generator=rng).item()
+    cell_power = int(torch.randint(1, 4, (1,), generator=rng).item())
     cell_size = max(size // (2**cell_power), 4)
     cell_count = size // cell_size + 1
 
@@ -85,7 +86,7 @@ def gen_warp_params(
 
 def warp_by_params(
     image: torch.Tensor,
-    params: dict[str, torch.Tensor],
+    params: dict[str, Any],
     mode: str = "bilinear",
     padding_mode: str = "border",
 ) -> torch.Tensor:
@@ -116,7 +117,7 @@ def warp_by_params(
         image = image.unsqueeze(0)
         squeeze_output = True
 
-    grid = params["grid"]
+    grid = cast(torch.Tensor, params["grid"])
 
     # Expand grid for batch size if needed
     if grid.shape[0] != image.shape[0]:
@@ -146,7 +147,7 @@ def gen_affine_params(
     scale_range: tuple[float, float] = (-0.05, 0.05),
     translation_range: tuple[float, float] = (-0.05, 0.05),
     rng: torch.Generator | None = None,
-) -> dict[str, torch.Tensor]:
+) -> dict[str, Any]:
     """
     Generate random affine transformation parameters.
 

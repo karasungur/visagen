@@ -312,12 +312,13 @@ def probe_video(video_path: Path) -> VideoInfo:
         raise FileNotFoundError(f"Video not found: {video_path}")
 
     ffmpeg = _get_ffmpeg()
-    ffmpeg_exe = _get_ffmpeg_exe()
+    ffprobe_exe = _get_ffprobe_exe()
 
     try:
-        probe = ffmpeg.probe(
-            str(video_path), cmd=ffmpeg_exe.replace("ffmpeg", "ffprobe")
-        )
+        probe = ffmpeg.probe(str(video_path), cmd=ffprobe_exe)
+    except FileNotFoundError:
+        # Fallback to system ffprobe when bundled binary is incomplete
+        probe = ffmpeg.probe(str(video_path), cmd="ffprobe")
     except ffmpeg.Error as e:
         raise RuntimeError(
             f"Failed to probe video: {e.stderr.decode() if e.stderr else str(e)}"
@@ -465,7 +466,7 @@ class VideoReader:
         # Run process
         process = stream.run_async(
             pipe_stdout=True,
-            pipe_stderr=subprocess.PIPE,  # Capture errors for debugging
+            pipe_stderr=False,
             cmd=ffmpeg_exe,
         )
         self._process = process
@@ -688,7 +689,7 @@ class VideoWriter:
 
         self._process = stream.run_async(
             pipe_stdin=True,
-            pipe_stderr=subprocess.PIPE,  # Capture errors for debugging
+            pipe_stderr=False,
             cmd=ffmpeg_exe,
         )
 
@@ -701,6 +702,8 @@ class VideoWriter:
         """
         if self._process is None:
             self._start_process()
+        assert self._process is not None
+        assert self._process.stdin is not None
 
         # Ensure correct shape
         if frame.shape[:2] != (self.height, self.width):
@@ -716,6 +719,7 @@ class VideoWriter:
         """Finalize video encoding and add audio if needed."""
         if self._process is None:
             return
+        assert self._process.stdin is not None
 
         # Close stdin and wait for process
         self._process.stdin.close()

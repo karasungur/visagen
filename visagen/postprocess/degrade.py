@@ -5,6 +5,8 @@ the quality characteristics of the target video, improving visual
 consistency in face swap results.
 """
 
+from typing import cast
+
 import cv2
 import numpy as np
 
@@ -44,7 +46,7 @@ def apply_denoise(image: np.ndarray, power: int) -> np.ndarray:
 
         n = max(n - 100, 0)
 
-    return np.clip(result, 0, 1).astype(np.float32)
+    return cast(np.ndarray, np.clip(result, 0, 1).astype(np.float32))
 
 
 def apply_bicubic_degrade(image: np.ndarray, power: int) -> np.ndarray:
@@ -105,11 +107,11 @@ def apply_color_degrade(image: np.ndarray, power: int) -> np.ndarray:
     levels = max(16, int(256 - (240 * power / 100)))
     step = 256 // levels
     reduced = (img_uint8 // step) * step
-    reduced = reduced.astype(np.float32) / 255.0
+    reduced_f = reduced.astype(np.float32) / 255.0
 
     # Blend based on power
     alpha = power / 100.0
-    result = image * (1.0 - alpha) + reduced * alpha
+    result = image * (1.0 - alpha) + reduced_f * alpha
 
     return np.clip(result, 0, 1).astype(np.float32)
 

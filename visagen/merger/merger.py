@@ -28,6 +28,7 @@ from visagen.merger.frame_processor import (
 )
 from visagen.merger.interactive_config import (
     InteractiveMergerSession,
+    map_merge_mode_to_processor,
 )
 from visagen.merger.video_io import (
     VideoInfo,
@@ -117,14 +118,26 @@ class MergerConfig:
         """
         session = InteractiveMergerSession.from_json(path)
         iconfig = session.config
+        blend_mode, forced_color_transfer, _passthrough_original = (
+            map_merge_mode_to_processor(iconfig.mode)
+        )
+
+        color_transfer_mode: str | None
+        if iconfig.color_transfer == "none":
+            color_transfer_mode = None
+        else:
+            color_transfer_mode = iconfig.color_transfer
+
+        if forced_color_transfer is not None:
+            color_transfer_mode = forced_color_transfer
 
         # Map interactive config to frame processor config
         fp_config = FrameProcessorConfig(
-            color_transfer_mode=iconfig.color_transfer
-            if iconfig.color_transfer != "none"
-            else None,
+            color_transfer_mode=color_transfer_mode,
+            masked_hist_match=iconfig.masked_hist_match,
             hist_match_threshold=iconfig.hist_match_threshold,
-            blend_mode=iconfig.mode,
+            blend_mode=blend_mode,
+            mask_mode=iconfig.mask_mode,
             mask_erode=abs(iconfig.erode_mask) if iconfig.erode_mask > 0 else 0,
             mask_dilate=abs(iconfig.erode_mask) if iconfig.erode_mask < 0 else 0,
             mask_blur=iconfig.blur_mask,
@@ -188,6 +201,8 @@ class MergerStats:
         failed_frames: Frames that failed processing.
         faces_detected: Total faces detected.
         faces_swapped: Total faces swapped.
+        frames_with_errors: Frames processed with recoverable errors.
+        processing_errors: Total number of recoverable processing errors.
         total_time: Total processing time in seconds.
         avg_time_per_frame: Average time per frame.
         fps: Processing frames per second.
@@ -199,6 +214,8 @@ class MergerStats:
     failed_frames: int = 0
     faces_detected: int = 0
     faces_swapped: int = 0
+    frames_with_errors: int = 0
+    processing_errors: int = 0
     total_time: float = 0.0
     avg_time_per_frame: float = 0.0
     fps: float = 0.0
@@ -336,6 +353,9 @@ class FaceMerger:
                 stats.processed_frames += 1
                 stats.faces_detected += result.faces_detected
                 stats.faces_swapped += result.faces_swapped
+                if result.had_errors:
+                    stats.frames_with_errors += 1
+                    stats.processing_errors += result.error_count
                 processed_indices.add(idx)
 
                 # Progress callback
@@ -401,6 +421,9 @@ class FaceMerger:
                     stats.processed_frames += 1
                     stats.faces_detected += result.faces_detected
                     stats.faces_swapped += result.faces_swapped
+                    if result.had_errors:
+                        stats.frames_with_errors += 1
+                        stats.processing_errors += result.error_count
                     processed_indices.add(frame_idx)
 
                     # Progress callback

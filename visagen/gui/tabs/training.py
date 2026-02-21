@@ -8,7 +8,7 @@ import sys
 import time
 from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import gradio as gr
 import numpy as np
@@ -49,7 +49,7 @@ class TrainingTab(BaseTab):
 
     def _build_content(self) -> dict[str, Any]:
         """Build training tab UI."""
-        components = {}
+        components: dict[str, Any] = {}
 
         gr.Markdown(f"### {self.t('title')}")
 
@@ -182,7 +182,7 @@ class TrainingTab(BaseTab):
                     DropdownConfig(
                         key="training.precision",
                         choices=["32", "16-mixed", "bf16-mixed"],
-                        default="32",
+                        default="16-mixed",
                     ),
                     self.i18n,
                 ).build()
@@ -249,6 +249,11 @@ class TrainingTab(BaseTab):
                 ).build()
 
         gr.Markdown("### Temporal Training")
+        components["temporal_enabled"] = gr.Checkbox(
+            label="Enable temporal consistency training",
+            value=False,
+            info="Enable 3D temporal discriminator and consistency losses.",
+        )
         with gr.Row():
             with gr.Column():
                 components["temporal_power"] = SliderInput(
@@ -257,6 +262,7 @@ class TrainingTab(BaseTab):
                         minimum=0,
                         maximum=1.0,
                         default=0.1,
+                        interactive=False,
                     ),
                     self.i18n,
                 ).build()
@@ -267,6 +273,7 @@ class TrainingTab(BaseTab):
                         minimum=0,
                         maximum=5.0,
                         default=1.0,
+                        interactive=False,
                     ),
                     self.i18n,
                 ).build()
@@ -335,6 +342,11 @@ class TrainingTab(BaseTab):
                 value=self.i18n.t("status.no_training"),
                 interactive=False,
             )
+            components["tensorboard_path"] = gr.Textbox(
+                label="TensorBoard log directory",
+                value="",
+                interactive=False,
+            )
 
         components["preview_image"] = ImagePreview(
             ImagePreviewConfig(key="training.preview.image", height=400),
@@ -365,7 +377,7 @@ class TrainingTab(BaseTab):
         # Live control helper
         def send_live_param(key: str, value: Any, output_dir: str) -> None:
             """Send parameter update to running training process."""
-            if not output_dir or not self.state.processes.training:
+            if not output_dir or not self.state.processes.is_running("training"):
                 return
 
             # Debounce rapid updates
@@ -409,8 +421,6 @@ class TrainingTab(BaseTab):
             ("gaze_weight", c["gaze_weight"]),
             ("texture_weight", c["texture_weight"]),
             ("id_weight", c["id_weight"]),
-            ("temporal_power", c["temporal_power"]),
-            ("temporal_consistency_weight", c["temporal_consistency_weight"]),
         ]
 
         for key, component in live_controls:
@@ -424,6 +434,46 @@ class TrainingTab(BaseTab):
                 outputs=None,
                 show_progress=False,
             )
+
+        def send_temporal_live_param(
+            value: Any,
+            output_dir: str,
+            temporal_enabled: bool,
+            key: str,
+        ) -> None:
+            if not temporal_enabled:
+                return
+            send_live_param(key, value, output_dir)
+
+        c["temporal_power"].change(
+            fn=lambda val, out, enabled: send_temporal_live_param(
+                val, out, enabled, "temporal_power"
+            ),
+            inputs=[c["temporal_power"], c["output_dir"], c["temporal_enabled"]],
+            outputs=None,
+            show_progress=False,
+        )
+        c["temporal_consistency_weight"].change(
+            fn=lambda val, out, enabled: send_temporal_live_param(
+                val, out, enabled, "temporal_consistency_weight"
+            ),
+            inputs=[
+                c["temporal_consistency_weight"],
+                c["output_dir"],
+                c["temporal_enabled"],
+            ],
+            outputs=None,
+            show_progress=False,
+        )
+
+        c["temporal_enabled"].change(
+            fn=lambda enabled: (  # noqa: E731
+                gr.update(interactive=bool(enabled)),
+                gr.update(interactive=bool(enabled)),
+            ),
+            inputs=[c["temporal_enabled"]],
+            outputs=[c["temporal_power"], c["temporal_consistency_weight"]],
+        )
 
         # Start training
         c["train_btn"].click(
@@ -452,6 +502,7 @@ class TrainingTab(BaseTab):
                 c["uniform_yaw"],
                 c["masked_training"],
                 c["id_weight"],
+                c["temporal_enabled"],
                 c["temporal_power"],
                 c["temporal_consistency_weight"],
             ],
@@ -478,14 +529,21 @@ class TrainingTab(BaseTab):
             outputs=[c["preview_status"], c["preview_image"]],
         )
 
+        c["output_dir"].change(
+            fn=lambda out: str(Path(out) / "logs") if out else "",
+            inputs=[c["output_dir"]],
+            outputs=[c["tensorboard_path"]],
+            show_progress=False,
+        )
+
         # Preset events
         def load_preset(key: str) -> tuple:
             """Load preset and return all parameter values."""
             if not key:
-                return tuple([gr.update()] * 21)
+                return tuple([gr.update()] * 22)
             preset = self.preset_manager.load_preset(key)
             if not preset:
-                return tuple([gr.update()] * 21)
+                return tuple([gr.update()] * 22)
             return (
                 preset.batch_size,
                 preset.max_epochs,
@@ -506,15 +564,16 @@ class TrainingTab(BaseTab):
                 getattr(preset, "face_style_weight", 0.0),
                 getattr(preset, "bg_style_weight", 0.0),
                 getattr(preset, "id_weight", 0.0),
+                getattr(preset, "temporal_enabled", False),
                 getattr(preset, "temporal_power", 0.1),
                 getattr(preset, "temporal_consistency_weight", 1.0),
             )
 
         def show_save_dialog() -> dict:
-            return gr.update(visible=True)
+            return cast(dict[Any, Any], gr.update(visible=True))
 
         def hide_save_dialog() -> dict:
-            return gr.update(visible=False)
+            return cast(dict[Any, Any], gr.update(visible=False))
 
         def save_preset(
             name: str,
@@ -537,6 +596,7 @@ class TrainingTab(BaseTab):
             face_style_weight: float,
             bg_style_weight: float,
             id_weight: float,
+            temporal_enabled: bool,
             temporal_power: float,
             temporal_consistency_weight: float,
         ) -> tuple:
@@ -564,6 +624,7 @@ class TrainingTab(BaseTab):
                 face_style_weight=float(face_style_weight),
                 bg_style_weight=float(bg_style_weight),
                 id_weight=float(id_weight),
+                temporal_enabled=bool(temporal_enabled),
                 temporal_power=float(temporal_power),
                 temporal_consistency_weight=float(temporal_consistency_weight),
             )
@@ -595,6 +656,7 @@ class TrainingTab(BaseTab):
                 c["face_style_weight"],
                 c["bg_style_weight"],
                 c["id_weight"],
+                c["temporal_enabled"],
                 c["temporal_power"],
                 c["temporal_consistency_weight"],
             ],
@@ -633,6 +695,7 @@ class TrainingTab(BaseTab):
                 c["face_style_weight"],
                 c["bg_style_weight"],
                 c["id_weight"],
+                c["temporal_enabled"],
                 c["temporal_power"],
                 c["temporal_consistency_weight"],
             ],
@@ -664,6 +727,7 @@ class TrainingTab(BaseTab):
         uniform_yaw: bool,
         masked_training: bool,
         id_weight: float,
+        temporal_enabled: bool,
         temporal_power: float,
         temporal_consistency_weight: float,
     ) -> Generator[str, None, None]:
@@ -739,36 +803,47 @@ class TrainingTab(BaseTab):
         if id_weight > 0:
             cmd.extend(["--id-weight", str(id_weight)])
 
-        # temporal parameters
-        cmd.extend(["--temporal-power", str(temporal_power)])
-        cmd.extend(["--temporal-consistency-weight", str(temporal_consistency_weight)])
+        # Temporal training parameters
+        if temporal_enabled:
+            cmd.append("--temporal-enabled")
+            cmd.extend(["--temporal-power", str(temporal_power)])
+            cmd.extend(
+                ["--temporal-consistency-weight", str(temporal_consistency_weight)]
+            )
 
         yield f"Starting training...\n$ {' '.join(cmd)}\n"
 
+        process: subprocess.Popen | None = None
         try:
-            self.state.processes.training = subprocess.Popen(
+            process = self.state.processes.launch(
+                "training",
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
             )
+            if process is None:
+                yield "\n\nTraining is already running. Stop the active job first."
+                return
 
             # Stream output
-            if self.state.processes.training.stdout:
-                for line in iter(self.state.processes.training.stdout.readline, ""):
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
                     if line:
                         yield line
-                    if self.state.processes.training.poll() is not None:
+                    if process.poll() is not None:
                         break
 
-            remaining, _ = self.state.processes.training.communicate()
+            remaining, _ = process.communicate()
             if remaining:
                 yield remaining
 
-            exit_code = self.state.processes.training.returncode
+            exit_code = process.returncode
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
+            elif exit_code in {-15, -9, 143, 137}:
+                yield f"\n\n{self.i18n.t('status.stopped')}"
             else:
                 yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
 
@@ -777,7 +852,6 @@ class TrainingTab(BaseTab):
 
         finally:
             # Proper process cleanup with timeout
-            process = self.state.processes.training
             if process is not None:
                 if process.poll() is None:
                     process.terminate()
@@ -786,7 +860,7 @@ class TrainingTab(BaseTab):
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
-            self.state.processes.training = None
+                self.state.processes.clear_if("training", process)
 
     def _stop_training(self) -> str:
         """Stop training process."""

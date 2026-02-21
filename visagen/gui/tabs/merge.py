@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
 import gradio as gr
 
+from visagen.gui.command_builders import build_merge_command
 from visagen.gui.components import (
     DropdownConfig,
     DropdownInput,
@@ -82,7 +82,17 @@ class MergeTab(BaseTab):
                 components["color_transfer"] = DropdownInput(
                     DropdownConfig(
                         key="merge.color_transfer",
-                        choices=["rct", "lct", "sot", "none"],
+                        choices=[
+                            "none",
+                            "rct",
+                            "lct",
+                            "sot",
+                            "mkl",
+                            "idt",
+                            "mix",
+                            "hist-match",
+                            "neural",
+                        ],
                         default="rct",
                     ),
                     self.i18n,
@@ -205,55 +215,51 @@ class MergeTab(BaseTab):
             yield self.i18n.t("errors.path_not_found")
             return
 
-        # Build command
-        cmd = [
-            sys.executable,
-            "-m",
-            "visagen.tools.merge",
-            str(input_video),
-            str(output_video) if output_video else "./output.mp4",
-            "--checkpoint",
-            str(checkpoint),
-            "--color-transfer",
-            color_transfer if color_transfer != "none" else "none",
-            "--blend-mode",
-            blend_mode,
-            "--codec",
-            codec,
-            "--crf",
-            str(int(crf)),
-        ]
+        cmd = build_merge_command(
+            input_video,
+            output_video if output_video else "./output.mp4",
+            checkpoint,
+            color_transfer=color_transfer if color_transfer != "none" else "none",
+            blend_mode=blend_mode,
+            restore_face=restore_face,
+            restore_strength=restore_strength,
+            restore_model=restore_version,
+            codec=codec,
+            crf=int(crf),
+        )
 
-        if restore_face:
-            cmd.append("--restore-face")
-            cmd.extend(["--restore-strength", str(restore_strength)])
-            cmd.extend(["--restore-model", str(restore_version)])
+        yield f"Starting merge...\nResolved argv: {' '.join(cmd)}\n$ {' '.join(cmd)}\n"
 
-        yield f"Starting merge...\n$ {' '.join(cmd)}\n"
-
+        process: subprocess.Popen | None = None
         try:
-            self.state.processes.merge = subprocess.Popen(
+            process = self.state.processes.launch(
+                "merge",
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
             )
+            if process is None:
+                yield "\n\nMerge is already running. Stop the active job first."
+                return
 
-            if self.state.processes.merge.stdout:
-                for line in iter(self.state.processes.merge.stdout.readline, ""):
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
                     if line:
                         yield line
-                    if self.state.processes.merge.poll() is not None:
+                    if process.poll() is not None:
                         break
 
-            remaining, _ = self.state.processes.merge.communicate()
+            remaining, _ = process.communicate()
             if remaining:
                 yield remaining
 
-            exit_code = self.state.processes.merge.returncode
+            exit_code = process.returncode
             if exit_code == 0:
                 yield f"\n\n{self.i18n.t('status.completed')}"
+            elif exit_code in {-15, -9, 143, 137}:
+                yield f"\n\n{self.i18n.t('status.stopped')}"
             else:
                 yield f"\n\n{self.i18n.t('errors.process_failed', code=exit_code)}"
 
@@ -261,7 +267,15 @@ class MergeTab(BaseTab):
             yield f"\n\nError: {e}"
 
         finally:
-            self.state.processes.merge = None
+            if process is not None:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                self.state.processes.clear_if("merge", process)
 
     def _stop_merge(self) -> str:
         """Stop merge process."""
