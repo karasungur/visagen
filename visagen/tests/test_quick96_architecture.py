@@ -14,7 +14,7 @@ class TestQuick96Archi:
         assert archi.RESOLUTION == 96
 
     def test_default_dimensions(self) -> None:
-        """Test default dimension values match legacy Quick96."""
+        """Test default dimension values match Quick96 specification."""
         archi = Quick96Archi()
         assert archi.ae_dims == 128
         assert archi.e_ch == 64

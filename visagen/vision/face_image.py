@@ -1,8 +1,8 @@
 """
-DFL Image Metadata Handler.
+Visagen Image Metadata Handler.
 
-Read and write DeepFaceLab metadata embedded in JPEG APP15 chunks.
-Provides backward compatibility with legacy DFLJPG format.
+Read and write Visagen metadata embedded in JPEG APP15 chunks.
+Provides compatibility with the faceset image format.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 @dataclass
 class FaceMetadata:
     """
-    Face metadata stored in DFL images.
+    Face metadata stored in Visagen images.
 
     Attributes:
         landmarks: 68-point facial landmarks in aligned image space.
@@ -50,7 +50,7 @@ class FaceMetadata:
     embedding: np.ndarray | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to legacy DFL dictionary format."""
+        """Convert to faceset metadata dictionary format."""
         data = {
             "landmarks": self.landmarks.tolist()
             if isinstance(self.landmarks, np.ndarray)
@@ -84,7 +84,7 @@ class FaceMetadata:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> FaceMetadata:
-        """Create from legacy DFL dictionary format."""
+        """Create from faceset metadata dictionary format."""
         return cls(
             landmarks=np.array(data["landmarks"]),
             source_landmarks=np.array(data.get("source_landmarks", data["landmarks"])),
@@ -103,21 +103,21 @@ class FaceMetadata:
         )
 
 
-class DFLImage:
+class FaceImage:
     """
-    Read and write DFL metadata in JPEG APP15 chunks.
+    Read and write face metadata in JPEG APP15 chunks.
 
-    Provides compatibility with legacy DeepFaceLab image format
+    Provides compatibility with the faceset image format
     while using modern Python patterns.
 
     Example:
-        >>> # Load existing DFL image
-        >>> image, metadata = DFLImage.load(Path("aligned_face.jpg"))
+        >>> # Load existing image with metadata
+        >>> image, metadata = FaceImage.load(Path("aligned_face.jpg"))
         >>> print(metadata.face_type)
         'whole_face'
 
         >>> # Save with metadata
-        >>> DFLImage.save(Path("output.jpg"), image, metadata)
+        >>> FaceImage.save(Path("output.jpg"), image, metadata)
     """
 
     # JPEG markers
@@ -126,12 +126,12 @@ class DFLImage:
     _SOS = 0xDA  # Start of scan
     _SOF0 = 0xC0  # Baseline DCT
     _SOF2 = 0xC2  # Progressive DCT
-    _APP15 = 0xEF  # Application segment 15 (DFL data)
+    _APP15 = 0xEF  # Application segment 15 (metadata data)
 
     @staticmethod
     def load(filepath: Path) -> tuple[np.ndarray, FaceMetadata | None]:
         """
-        Load DFL image with metadata.
+        Load image with metadata.
 
         Args:
             filepath: Path to JPEG file.
@@ -152,7 +152,7 @@ class DFLImage:
             data = f.read()
 
         # Parse JPEG chunks
-        dfl_dict = DFLImage._parse_jpeg_metadata(data)
+        meta_dict = FaceImage._parse_jpeg_metadata(data)
 
         # Load image with OpenCV
         image = cv2.imread(str(filepath), cv2.IMREAD_COLOR)
@@ -161,8 +161,8 @@ class DFLImage:
 
         # Convert dict to metadata if present
         metadata = None
-        if dfl_dict and "landmarks" in dfl_dict:
-            metadata = FaceMetadata.from_dict(dfl_dict)
+        if meta_dict and "landmarks" in meta_dict:
+            metadata = FaceMetadata.from_dict(meta_dict)
 
         return image, metadata
 
@@ -174,7 +174,7 @@ class DFLImage:
         quality: int = 95,
     ) -> None:
         """
-        Save image with DFL metadata.
+        Save image with face metadata.
 
         Args:
             filepath: Output path for JPEG file.
@@ -192,35 +192,35 @@ class DFLImage:
         )
 
         # Then inject metadata
-        DFLImage._inject_metadata(filepath, metadata.to_dict())
+        FaceImage._inject_metadata(filepath, metadata.to_dict())
 
     @staticmethod
     def has_metadata(filepath: Path) -> bool:
         """
-        Check if file contains DFL metadata.
+        Check if file contains face metadata.
 
         Args:
             filepath: Path to JPEG file.
 
         Returns:
-            True if file contains DFL metadata.
+            True if file contains face metadata.
         """
         try:
             with open(filepath, "rb") as f:
                 data = f.read()
-            dfl_dict = DFLImage._parse_jpeg_metadata(data)
-            return dfl_dict is not None and len(dfl_dict) > 0
+            meta_dict = FaceImage._parse_jpeg_metadata(data)
+            return meta_dict is not None and len(meta_dict) > 0
         except Exception:
             return False
 
     @staticmethod
     def _parse_jpeg_metadata(data: bytes) -> dict[str, Any] | None:
-        """Parse JPEG data and extract DFL dictionary from APP15 chunk."""
+        """Parse JPEG data and extract metadata dictionary from APP15 chunk."""
         if len(data) < 2:
             return None
 
         # Verify JPEG SOI marker
-        if data[0] != 0xFF or data[1] != DFLImage._SOI:
+        if data[0] != 0xFF or data[1] != FaceImage._SOI:
             return None
 
         pos = 2
@@ -235,11 +235,11 @@ class DFLImage:
             pos += 2
 
             # End of image
-            if marker == DFLImage._EOI:
+            if marker == FaceImage._EOI:
                 break
 
             # Start of scan - skip to end
-            if marker == DFLImage._SOS:
+            if marker == FaceImage._SOS:
                 break
 
             # Restart markers (no payload)
@@ -247,7 +247,7 @@ class DFLImage:
                 continue
 
             # SOI marker (no payload)
-            if marker == DFLImage._SOI:
+            if marker == FaceImage._SOI:
                 continue
 
             # Read segment length
@@ -257,8 +257,8 @@ class DFLImage:
             seg_length = struct.unpack(">H", data[pos : pos + 2])[0]
             pos += 2
 
-            # APP15 - DFL data
-            if marker == DFLImage._APP15:
+            # APP15 - face metadata
+            if marker == FaceImage._APP15:
                 chunk_data = data[pos : pos + seg_length - 2]
                 try:
                     loaded = pickle.loads(chunk_data)
@@ -273,40 +273,40 @@ class DFLImage:
         return None
 
     @staticmethod
-    def _inject_metadata(filepath: Path, dfl_dict: dict[str, Any]) -> None:
-        """Inject DFL metadata into existing JPEG file."""
+    def _inject_metadata(filepath: Path, meta_dict: dict[str, Any]) -> None:
+        """Inject face metadata into existing JPEG file."""
         with open(filepath, "rb") as f:
             data = f.read()
 
         # Verify JPEG
-        if len(data) < 2 or data[0] != 0xFF or data[1] != DFLImage._SOI:
+        if len(data) < 2 or data[0] != 0xFF or data[1] != FaceImage._SOI:
             raise ValueError("Not a valid JPEG file")
 
         # Parse chunks
-        chunks = DFLImage._parse_jpeg_chunks(data)
+        chunks = FaceImage._parse_jpeg_chunks(data)
 
         # Remove existing APP15 if present
-        chunks = [c for c in chunks if c["marker"] != DFLImage._APP15]
+        chunks = [c for c in chunks if c["marker"] != FaceImage._APP15]
 
         # Find insertion point (after APP chunks, before SOF)
         insert_idx = 1  # After SOI
         for i, chunk in enumerate(chunks):
             if chunk["marker"] & 0xF0 == 0xE0:  # APP0-APP15
                 insert_idx = i + 1
-            elif chunk["marker"] in (DFLImage._SOF0, DFLImage._SOF2):
+            elif chunk["marker"] in (FaceImage._SOF0, FaceImage._SOF2):
                 break
 
         # Create APP15 chunk
-        app15_data = pickle.dumps(dfl_dict)
+        app15_data = pickle.dumps(meta_dict)
         app15_chunk = {
-            "marker": DFLImage._APP15,
+            "marker": FaceImage._APP15,
             "data": app15_data,
             "ex_data": None,
         }
         chunks.insert(insert_idx, app15_chunk)
 
         # Rebuild JPEG
-        output = DFLImage._build_jpeg(chunks)
+        output = FaceImage._build_jpeg(chunks)
 
         with open(filepath, "wb") as f:
             f.write(output)
@@ -329,7 +329,7 @@ class DFLImage:
             chunk: dict[str, Any] = {"marker": marker, "data": None, "ex_data": None}
 
             # Markers without payload
-            if marker in (DFLImage._SOI, DFLImage._EOI) or 0xD0 <= marker <= 0xD7:
+            if marker in (FaceImage._SOI, FaceImage._EOI) or 0xD0 <= marker <= 0xD7:
                 chunks.append(chunk)
                 continue
 
@@ -344,10 +344,10 @@ class DFLImage:
             pos += seg_length - 2
 
             # SOS has extra data until EOI
-            if marker == DFLImage._SOS:
+            if marker == FaceImage._SOS:
                 end = pos
                 while end < length - 1:
-                    if data[end] == 0xFF and data[end + 1] == DFLImage._EOI:
+                    if data[end] == 0xFF and data[end + 1] == FaceImage._EOI:
                         break
                     end += 1
                 chunk["ex_data"] = data[pos:end]
@@ -377,7 +377,7 @@ class DFLImage:
     @staticmethod
     def get_xseg_mask(metadata: FaceMetadata) -> np.ndarray | None:
         """
-        Decode XSeg mask from metadata.
+        Decode segmentation mask from metadata.
 
         Args:
             metadata: Face metadata containing compressed mask.
@@ -409,7 +409,7 @@ class DFLImage:
         max_size: int = 50000,
     ) -> None:
         """
-        Encode and set XSeg mask in metadata.
+        Encode and set segmentation mask in metadata.
 
         Args:
             metadata: Face metadata to update.

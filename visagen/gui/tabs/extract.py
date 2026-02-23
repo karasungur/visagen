@@ -31,7 +31,7 @@ from visagen.gui.components.displays import (
 from visagen.gui.components.faceset_browser import FacesetBrowser, FacesetBrowserConfig
 from visagen.gui.tabs.base import BaseTab
 from visagen.tools.extract_v2 import ExtractionProgress, FaceExtractor
-from visagen.vision.dflimg import DFLImage
+from visagen.vision.face_image import FaceImage
 from visagen.vision.face_type import FaceType
 
 
@@ -387,7 +387,7 @@ class ExtractTab(BaseTab):
 
                         # Save
                         out_name = f"{img_path.stem}_{face.face_index}.jpg"
-                        DFLImage.save(output_p / out_name, face.image, face.metadata)
+                        FaceImage.save(output_p / out_name, face.image, face.metadata)
 
                     log_buffer += f"Processed {img_path.name}: {len(faces)} face(s)\n"
                     yield (

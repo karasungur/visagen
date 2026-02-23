@@ -309,7 +309,8 @@ class TestPretrainModule:
         x = torch.randn(2, 3, 64, 64)
 
         with torch.no_grad():
-            out = module(x)
+            result = module(x)
+        out = result[0] if isinstance(result, tuple) else result
 
         assert out.shape == (2, 3, 64, 64)
 
@@ -361,8 +362,8 @@ class TestPretrainedLoading:
 
     def test_load_for_finetune(self, temp_dir):
         """Test loading pretrained checkpoint for fine-tuning."""
-        from visagen.training.dfl_module import DFLModule
         from visagen.training.pretrain_module import PretrainModule
+        from visagen.training.training_module import TrainingModule
 
         # Create and save a pretrained module
         pretrain_module = PretrainModule(image_size=64)
@@ -389,7 +390,7 @@ class TestPretrainedLoading:
             learning_rate=5e-5,  # Override
         )
 
-        assert isinstance(model, DFLModule)
+        assert isinstance(model, TrainingModule)
         assert model.learning_rate == 5e-5
 
     def test_extract_weights(self, temp_dir):

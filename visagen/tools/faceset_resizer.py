@@ -22,11 +22,11 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from visagen.vision.dflimg import DFLImage, FaceMetadata
+from visagen.vision.face_image import FaceImage, FaceMetadata
 
 logger = logging.getLogger(__name__)
 
-# Face type definitions matching DFL conventions
+# Face type definitions
 FACE_TYPES = Literal["half_face", "mid_face", "full_face", "whole_face", "head"]
 
 # Face type resolution multipliers (relative to half_face)
@@ -100,27 +100,27 @@ def resize_single_face(
         target_size: Target image size (width = height)
         target_face_type: Target face type (None = keep same)
         interpolation: OpenCV interpolation method
-        preserve_metadata: Whether to preserve DFL metadata
+        preserve_metadata: Whether to preserve face metadata
         jpeg_quality: JPEG quality for output
 
     Returns:
         True if successful, False otherwise
     """
     try:
-        # Try to load with DFL metadata
+        # Try to load with face metadata
         source_face_type = None
         metadata = None
 
         if preserve_metadata and input_path.suffix.lower() in [".jpg", ".jpeg"]:
             try:
-                _, dfl_metadata = DFLImage.load(input_path)
-                if dfl_metadata is not None:
-                    source_face_type = dfl_metadata.face_type
-                    metadata = dfl_metadata
+                _, face_meta = FaceImage.load(input_path)
+                if face_meta is not None:
+                    source_face_type = face_meta.face_type
+                    metadata = face_meta
             except Exception as e:
                 logger.debug(f"Failed to load metadata from {input_path}: {e}")
 
-        # Read image with cv2 (faster than DFLImage.load for non-metadata cases)
+        # Read image with cv2 (faster than FaceImage.load for non-metadata cases)
         image = cv2.imread(str(input_path))
         if image is None:
             logger.warning(f"Failed to read image: {input_path}")
@@ -168,7 +168,7 @@ def resize_single_face(
 
         # Save image with or without metadata
         if metadata is not None and output_path.suffix.lower() in [".jpg", ".jpeg"]:
-            DFLImage.save(output_path, resized, metadata, quality=jpeg_quality)
+            FaceImage.save(output_path, resized, metadata, quality=jpeg_quality)
         elif output_path.suffix.lower() in [".jpg", ".jpeg"]:
             cv2.imwrite(
                 str(output_path), resized, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality]
@@ -197,7 +197,7 @@ def resize_faceset(
     """Resize all faces in a faceset with metadata preservation.
 
     Batch processes all face images in a directory, resizing them to
-    the target size while preserving DFL metadata.
+    the target size while preserving face metadata.
 
     Args:
         input_dir: Directory containing face images
@@ -205,7 +205,7 @@ def resize_faceset(
         target_size: Target image size (width = height)
         target_face_type: Target face type (None = keep same)
         interpolation: Interpolation method
-        preserve_metadata: Preserve DFL metadata
+        preserve_metadata: Preserve face metadata
         num_workers: Number of parallel workers
         jpeg_quality: JPEG quality for output
 
@@ -352,7 +352,7 @@ def main() -> None:
     parser.add_argument(
         "--no-metadata",
         action="store_true",
-        help="Don't preserve DFL metadata",
+        help="Don't preserve face metadata",
     )
     parser.add_argument(
         "--workers",

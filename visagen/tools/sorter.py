@@ -82,7 +82,7 @@ Examples:
   visagen-sort ./aligned_faces --undo-last-trash
 
 Available methods:
-  blur              Sort by image sharpness (CPBD, legacy-compatible)
+  blur              Sort by image sharpness (CPBD)
   blur-fast         Sort by image sharpness (fast Laplacian)
   motion-blur       Sort by motion blur
   face-yaw          Sort by face yaw angle (left-right)

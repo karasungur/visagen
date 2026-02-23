@@ -70,7 +70,7 @@ def sample_video(temp_dir):
 
 @pytest.fixture
 def mock_model():
-    """Create a mock DFLModule."""
+    """Create a mock TrainingModule."""
     model = MagicMock()
     model.eval = Mock()
     model.to = Mock(return_value=model)
@@ -317,7 +317,7 @@ class TestFrameProcessor:
             assert landmarks_68.dtype == np.float32
 
     def test_normalize_landmarks_rejects_5_point(self, mock_model):
-        """5-point landmarks are unsupported in DFL alignment path."""
+        """5-point landmarks are unsupported in face alignment path."""
         from visagen.merger.frame_processor import FrameProcessor
 
         with patch(

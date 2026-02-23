@@ -364,14 +364,14 @@ class TestCombinedLoss:
         assert x.grad is not None
 
 
-class TestDFLModuleLossIntegration:
-    """Integration tests for DFLModule with losses."""
+class TestTrainingModuleLossIntegration:
+    """Integration tests for TrainingModule with losses."""
 
     def test_training_step_with_losses(self):
-        """DFLModule training step should compute all losses."""
-        from visagen.training.dfl_module import DFLModule
+        """TrainingModule training step should compute all losses."""
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(
+        module = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64, 128, 256],
             encoder_depths=[1, 1, 1, 1],
@@ -394,9 +394,9 @@ class TestDFLModuleLossIntegration:
 
     def test_compute_loss_returns_dict(self):
         """compute_loss should return loss dictionary."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(
+        module = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64, 128, 256],
             encoder_depths=[1, 1, 1, 1],
@@ -404,7 +404,8 @@ class TestDFLModuleLossIntegration:
         )
 
         x = torch.rand(2, 3, 64, 64)
-        pred = module(x)
+        result = module(x)
+        pred = result[0] if isinstance(result, tuple) else result
 
         total, losses = module.compute_loss(pred, x)
 
@@ -414,9 +415,9 @@ class TestDFLModuleLossIntegration:
 
     def test_identical_input_low_reconstruction_loss(self):
         """Identical pred and target should have low loss."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(
+        module = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64, 128, 256],
             encoder_depths=[1, 1, 1, 1],

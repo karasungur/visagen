@@ -840,7 +840,7 @@ TRANSLATIONS = {
         },
         "resize": {
             "title": "Yüz Seti Yeniden Boyutlandırma",
-            "description": "DFL meta veri koruması ile yüz görüntülerini yeniden boyutlandırın.",
+            "description": "Yüz meta veri koruması ile yüz görüntülerini yeniden boyutlandırın.",
             "input": {
                 "label": "Girdi Dizini",
                 "placeholder": "./workspace/data_src/aligned",

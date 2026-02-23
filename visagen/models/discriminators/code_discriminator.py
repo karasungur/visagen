@@ -1,7 +1,7 @@
 """
 Code Discriminator for true_face_power training.
 
-Port of DeepFaceLab's code discriminator from Model_SAEHD to PyTorch.
+Code discriminator for SAEHD model latent space.
 Used to enforce source identity preservation in latent space.
 
 The code discriminator distinguishes between:

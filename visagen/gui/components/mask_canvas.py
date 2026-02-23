@@ -770,7 +770,7 @@ class MaskCanvas:
         mask: np.ndarray,
         alpha: float = 0.5,
     ) -> np.ndarray:
-        """Create preview with mask overlay (legacy method)."""
+        """Create preview with mask overlay."""
         if image is None or mask is None:
             return image
 

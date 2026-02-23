@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from visagen.vision.dflimg import FaceMetadata
+    from visagen.vision.face_image import FaceMetadata
 
 
 @dataclass
@@ -85,15 +85,15 @@ def _compute_sort_result(sorter: "SortMethod", filepath: Path) -> SortResult:
     """
     import cv2
 
-    from visagen.vision.dflimg import DFLImage
+    from visagen.vision.face_image import FaceImage
 
     try:
         # Load image and metadata
         image: np.ndarray | None
-        if sorter.requires_dfl_metadata:
-            image, metadata = DFLImage.load(filepath)
+        if sorter.requires_face_metadata:
+            image, metadata = FaceImage.load(filepath)
             if metadata is None:
-                return SortResult(filepath, 0.0, {"error": "No DFL metadata"})
+                return SortResult(filepath, 0.0, {"error": "No face metadata"})
         else:
             image = cv2.imread(str(filepath))
             metadata = None
@@ -151,13 +151,13 @@ class SortMethod(ABC):
 
     Optional overrides:
     - reverse_sort: Whether higher scores are better (default: True)
-    - requires_dfl_metadata: Whether DFL metadata is required
+    - requires_face_metadata: Whether face metadata is required
     - sort: Custom sorting logic (for methods needing all images)
     """
 
     name: str = "base"
     description: str = "Base sorting method"
-    requires_dfl_metadata: bool = False
+    requires_face_metadata: bool = False
     execution_profile: str = "cpu_bound"  # cpu_bound | io_bound | gpu_bound
 
     @abstractmethod
@@ -171,7 +171,7 @@ class SortMethod(ABC):
 
         Args:
             image: BGR image as numpy array.
-            metadata: Optional DFL face metadata.
+            metadata: Optional face metadata.
 
         Returns:
             Score value (higher = better by default).

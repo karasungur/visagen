@@ -264,7 +264,7 @@ class OptunaTuner:
         Returns:
             Objective function for Optuna optimization.
         """
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
         def objective(trial: optuna.Trial) -> float:
             # Suggest hyperparameters
@@ -278,7 +278,7 @@ class OptunaTuner:
                 cast(Any, datamodule).batch_size = batch_size
 
             # Create model with suggested params
-            model = DFLModule(**params)
+            model = TrainingModule(**params)
 
             # Pruning callback
             pruning_callback = PyTorchLightningPruningCallback(

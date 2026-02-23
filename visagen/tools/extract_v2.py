@@ -21,7 +21,7 @@ from tqdm import tqdm
 
 from visagen.vision.aligner import FaceAligner
 from visagen.vision.detector import FaceDetector
-from visagen.vision.dflimg import DFLImage, FaceMetadata
+from visagen.vision.face_image import FaceImage, FaceMetadata
 from visagen.vision.face_type import FaceType
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ class ExtractedFace:
 
     Attributes:
         image: Aligned face image (BGR, uint8).
-        metadata: DFL-compatible face metadata.
+        metadata: Face metadata.
         confidence: Detection confidence score.
         face_index: Index of face in source (for multi-face).
     """
@@ -382,7 +382,7 @@ class FaceExtractor:
                         output_name = f"{source_name}_{face.face_index}.jpg"
                         output_path = output_dir / output_name
 
-                        DFLImage.save(
+                        FaceImage.save(
                             output_path,
                             face.image,
                             face.metadata,
@@ -476,7 +476,7 @@ class FaceExtractor:
 
                     # Save to disk
                     output_name = f"{source_name}_{face.face_index}.jpg"
-                    DFLImage.save(
+                    FaceImage.save(
                         output_dir / output_name,
                         face.image,
                         face.metadata,
@@ -550,7 +550,7 @@ class FaceExtractor:
                     output_name = f"{image_path.stem}_{face.face_index}.jpg"
                     output_path = output_dir / output_name
 
-                    DFLImage.save(
+                    FaceImage.save(
                         output_path,
                         face.image,
                         face.metadata,
@@ -687,7 +687,7 @@ def main() -> int:
 
             for face in faces:
                 out_name = f"{input_path.stem}_{face.face_index}.jpg"
-                DFLImage.save(
+                FaceImage.save(
                     output_path / out_name,
                     face.image,
                     face.metadata,

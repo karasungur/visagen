@@ -332,7 +332,7 @@ def color_transfer_sot(
             # Optimal transport in 1D: match sorted values
             # Handle different number of points by interpolation if needed
             # But standard SOT assumes matching counts or uses resampling?
-            # Legacy implementation:
+            # Implementation:
             # a = projtarget[idTarget]-projsource[idSource]
             # This assumes same size.
 
@@ -567,7 +567,7 @@ def color_transfer_mix(
     2. Applies Sliced Optimal Transport to the A and B (color) channels
     3. Combines the results for natural-looking color matching
 
-    This is the "mix-m" mode from DeepFaceLab, providing the best of both:
+    This is the "mix-m" mode, providing the best of both:
     - LCT for stable luminance matching
     - SOT for accurate color distribution matching
 

@@ -1,7 +1,7 @@
 """
-AdaBelief optimizer with legacy DFL features.
+AdaBelief optimizer with extended features.
 
-Implements AdaBelief algorithm with specific features used in DeepFaceLab (legacy):
+Implements AdaBelief algorithm with extended features:
 - lr_dropout: Randomly drops updates for parameters (stochastic depth-like behavior)
 - lr_cos: Cyclical cosine learning rate scheduling
 - clipnorm: Global gradient clipping within the optimizer
@@ -17,13 +17,13 @@ from torch.optim import Optimizer
 
 class AdaBelief(Optimizer):
     """
-    AdaBelief Optimizer with legacy DFL features.
+    AdaBelief Optimizer with extended features.
 
     AdaBelief adapts the step size according to the "belief" in the gradient direction.
     It views the exponential moving average (EMA) of the noisy gradient as the prediction
     of the gradient at the next time step.
 
-    Legacy Features:
+    Extended Features:
     - lr_dropout: Probability of keeping the update (0.0 to 1.0). If < 1.0, updates
       are randomly skipped for parameters.
     - lr_cos_period: Period for cosine annealing of learning rate in iterations.
@@ -35,8 +35,8 @@ class AdaBelief(Optimizer):
         lr: Learning rate. Default: 1e-3.
         betas: Coefficients for computing running averages of gradient and
             its square. Default: (0.9, 0.999).
-        eps: Term added to the denominator to improve numerical stability.
-            Default: 1e-16.
+        eps: Term added to the denominator for numerical stability.
+            Default: 1e-16 (per AdaBelief paper recommendation).
         weight_decay: Weight decay (L2 penalty). Default: 0.0.
         lr_dropout: Learning rate dropout probability (keep rate). Default: 1.0 (no dropout).
         lr_cos_period: Period for cosine LR scheduling. Default: 0 (disabled).
@@ -106,7 +106,7 @@ class AdaBelief(Optimizer):
                 loss = closure()
 
         # 1. Global Gradient Clipping (clipnorm)
-        # In DFL legacy, this is done before updates.
+        # Applied before parameter updates.
         for group in self.param_groups:
             clipnorm = group["clipnorm"]
             if clipnorm > 0.0:
@@ -155,20 +155,11 @@ class AdaBelief(Optimizer):
                 if weight_decay != 0:
                     grad = grad.add(p, alpha=weight_decay)
 
-                # Update biases
-                # bias1 = 1 - beta1 ** step
-                # bias2 = 1 - beta2 ** step
-                # AdaBelief usually doesn't use bias correction in the paper implementation heavily like Adam?
-                # Wait, the official implementation does use bias correction.
-                # Let's check DFL legacy implementation.
-                # m_t = beta1 * ms + (1-beta1) * g
-                # v_t = beta2 * vs + (1-beta2) * (g - m_t)^2
-                # v_diff = - lr * m_t / (sqrt(v_t) + eps)
-                # new_v = v + v_diff
-                #
-                # DFL Legacy DOES NOT use bias correction (1-beta^t).
-                # It just does: m_t = beta1*m + (1-beta1)*g
-                # So we follow DFL Legacy, not PyTorch Adam.
+                # This implementation does NOT use bias correction (1-beta^t).
+                # Instead it directly computes:
+                #   m_t = beta1 * m_{t-1} + (1-beta1) * g
+                #   v_t = beta2 * v_{t-1} + (1-beta2) * (g - m_t)^2
+                #   update = -lr * m_t / (sqrt(v_t) + eps)
 
                 # Decay the first and second moment running average coefficient
                 exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
@@ -182,33 +173,21 @@ class AdaBelief(Optimizer):
 
                 denom = exp_avg_sq.sqrt().add_(eps)
 
-                # Calculate update step
-                # step_size = lr
-
-                # Cosine LR Schedule (Legacy DFL style)
+                # Cosine LR Schedule
                 step_lr = current_lr
                 if lr_cos_period > 0:
-                    # lr *= (cos( iters * (2pi / period) ) + 1) / 2
-                    # Note: Legacy uses `self.iterations` which increments per step.
-                    # Here `step` is 1-based (incremented above).
-                    # Legacy starts at 0. So use step-1.
+                    # lr *= (cos(iters * (2pi / period)) + 1) / 2
+                    # step is 1-based, cosine schedule starts at 0
                     cos_val = math.cos((step - 1) * (2 * math.pi / lr_cos_period))
                     step_lr *= (cos_val + 1.0) / 2.0
 
                 # Compute update
-                # update = - step_lr * exp_avg / denom
-                # p.add_(update)
-                # But we need to support lr_dropout.
-
                 update = exp_avg / denom
 
-                # Apply LR Dropout (Legacy DFL style)
+                # Apply LR Dropout
                 if lr_dropout < 1.0:
-                    # Random binomial mask
-                    # legacy: v_diff *= lr_rnd
-                    # mask = random_binomial(shape, p=lr_dropout)
+                    # Random binomial mask: v_diff *= lr_rnd
                     mask = torch.bernoulli(torch.full_like(p, lr_dropout))
-                    # If mask is 0, update is 0. If 1, update is kept.
                     update.mul_(mask)
 
                 # Apply update

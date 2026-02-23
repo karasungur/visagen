@@ -42,7 +42,7 @@ def _normalize_binary_mask(mask: np.ndarray) -> np.ndarray:
 
 
 def _load_mask(image_path: Path) -> np.ndarray | None:
-    """Load mask from sidecar PNG first, then DFL metadata for JPEG."""
+    """Load mask from sidecar PNG first, then face metadata for JPEG."""
     sidecar = image_path.parent / f"{image_path.stem}_mask.png"
     if sidecar.exists():
         sidecar_mask = cv2.imread(str(sidecar), cv2.IMREAD_GRAYSCALE)
@@ -53,13 +53,13 @@ def _load_mask(image_path: Path) -> np.ndarray | None:
         return None
 
     try:
-        from visagen.vision.dflimg import DFLImage
+        from visagen.vision.face_image import FaceImage
 
-        _image, metadata = DFLImage.load(image_path)
+        _image, metadata = FaceImage.load(image_path)
         if metadata is None:
             return None
 
-        mask = DFLImage.get_xseg_mask(metadata)
+        mask = FaceImage.get_xseg_mask(metadata)
         if mask is None:
             return None
 
@@ -85,7 +85,7 @@ def _export_annotations(args: argparse.Namespace) -> int:
 
     if not masks_by_name:
         raise RuntimeError(
-            "No masks found (expected *_mask.png sidecars or DFL embedded xseg masks)"
+            "No masks found (expected *_mask.png sidecars or embedded xseg masks)"
         )
 
     if args.format == "labelme":

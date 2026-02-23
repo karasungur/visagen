@@ -214,7 +214,7 @@ class InteractiveMerger:
                 self._last_process_status = f"failed_to_read:{frame_path.name}"
                 return None
 
-            # Explicit passthrough mode (legacy 'original')
+            # Explicit passthrough mode ('original')
             if self.session.config.mode == "original":
                 output_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 self._last_process_status = "ok"
@@ -324,7 +324,7 @@ class InteractiveMerger:
         proc_config.restore_face = config.restore_face
         proc_config.restore_strength = config.restore_strength
 
-        # Super resolution (legacy 4x upscale)
+        # Super resolution (4x upscale)
         proc_config.super_resolution_power = config.super_resolution_power
 
         # Motion blur (for temporal consistency)

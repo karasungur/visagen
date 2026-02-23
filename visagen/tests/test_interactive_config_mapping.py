@@ -25,11 +25,11 @@ def test_map_merge_mode_to_processor_supported_modes() -> None:
     )
 
 
-def test_map_merge_mode_to_processor_legacy_alias() -> None:
+def test_map_merge_mode_to_processor_alias() -> None:
     assert map_merge_mode_to_processor("original") == ("laplacian", None, True)
 
 
-def test_interactive_config_normalizes_legacy_mask_mode() -> None:
+def test_interactive_config_normalizes_mask_mode() -> None:
     config = InteractiveMergerConfig(mask_mode="learned_prd")
     assert config.mask_mode == "segmented"
 

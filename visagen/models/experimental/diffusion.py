@@ -388,7 +388,7 @@ class DiffusionAutoEncoder(nn.Module):
     - Cross-attention fusion allows controlled detail injection
     - Progressive decoder with AdaIN texture modulation
 
-    Compatible with existing DFLModule training pipeline.
+    Compatible with existing TrainingModule training pipeline.
 
     Args:
         image_size: Input image size (default: 256).

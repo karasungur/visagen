@@ -92,7 +92,7 @@ def sample_landmarks():
 @pytest.fixture
 def mock_metadata(sample_landmarks):
     """Create mock FaceMetadata."""
-    from visagen.vision.dflimg import FaceMetadata
+    from visagen.vision.face_image import FaceMetadata
 
     return FaceMetadata(
         landmarks=sample_landmarks,
@@ -210,7 +210,7 @@ class TestBlurSorter:
 
         assert sorter.name == "blur"
         assert "sharpness" in sorter.description.lower()
-        assert sorter.requires_dfl_metadata is True
+        assert sorter.requires_face_metadata is True
 
 
 class TestMotionBlurSorter:
@@ -348,7 +348,7 @@ class TestBrightnessSorter:
         from visagen.sorting.color import BrightnessSorter
 
         sorter = BrightnessSorter()
-        assert sorter.requires_dfl_metadata is False
+        assert sorter.requires_face_metadata is False
 
 
 class TestBlackPixelSorter:
@@ -502,7 +502,7 @@ class TestSourceRectSorter:
     def test_larger_rect_higher_score(self, sample_image, mock_metadata):
         """Larger source rect should have higher score."""
         from visagen.sorting.metadata import SourceRectSorter
-        from visagen.vision.dflimg import FaceMetadata
+        from visagen.vision.face_image import FaceMetadata
 
         small_meta = FaceMetadata(
             landmarks=mock_metadata.landmarks,

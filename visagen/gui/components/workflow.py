@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class WorkflowStep(Enum):
-    """DeepFaceLab workflow steps."""
+    """Visagen workflow steps."""
 
     EXTRACT = "extract"
     SORT = "sort"
@@ -73,7 +73,7 @@ class WorkflowIndicator(BaseComponent):
     """
     Visual workflow step indicator.
 
-    Shows the current step in the DeepFaceLab workflow:
+    Shows the current step in the Visagen workflow:
     Extract → Sort → Train → Merge → Export
 
     Provides visual feedback on:

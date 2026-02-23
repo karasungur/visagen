@@ -117,10 +117,10 @@ class ModelState:
         try:
             import torch
 
-            from visagen.training.dfl_module import DFLModule
+            from visagen.training.training_module import TrainingModule
 
             # Load model
-            self.model = DFLModule.load_from_checkpoint(
+            self.model = TrainingModule.load_from_checkpoint(
                 checkpoint_path,
                 map_location="cpu",
             )

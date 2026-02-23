@@ -1,7 +1,7 @@
 """
 Face Dataset for Training.
 
-Load DFL-aligned face images with metadata for training.
+Load aligned face images with metadata for training.
 """
 
 import io
@@ -25,11 +25,11 @@ FaceDatasetItem = dict[str, Any]
 PACKED_FACESET_FILENAME = "faceset.pak"
 
 
-class _LegacyPackedUnpickler(pickle.Unpickler):
+class _PackedUnpickler(pickle.Unpickler):
     """
-    Unpickler with compatibility fallbacks for legacy enum references.
+    Unpickler with compatibility fallbacks for enum references.
 
-    Legacy `faceset.pak` may store enum values with import paths that do not
+    Packed `faceset.pak` files may store enum values with import paths that do not
     exist in the modern runtime. These are downcast to plain ints.
     """
 
@@ -47,8 +47,8 @@ class _LegacyPackedUnpickler(pickle.Unpickler):
         return super().find_class(module, name)
 
 
-def _unpickle_legacy_configs(data: bytes) -> Any:
-    return _LegacyPackedUnpickler(io.BytesIO(data)).load()
+def _unpickle_packed_configs(data: bytes) -> Any:
+    return _PackedUnpickler(io.BytesIO(data)).load()
 
 
 def _to_bytes(value: Any) -> bytes | None:
@@ -104,7 +104,7 @@ def _normalize_face_type(value: Any) -> str:
 
 class PackedFacesetReader:
     """
-    Reader for legacy DeepFaceLab `faceset.pak` archives.
+    Reader for `faceset.pak` archives.
 
     Parses metadata and image offsets and returns `FaceSample` entries that read
     image bytes lazily from the packed archive.
@@ -130,7 +130,7 @@ class PackedFacesetReader:
 
                 configs_size = struct.unpack("Q", f.read(8))[0]
                 configs_raw = f.read(configs_size)
-                configs = _unpickle_legacy_configs(configs_raw)
+                configs = _unpickle_packed_configs(configs_raw)
                 if not isinstance(configs, list):
                     raise ValueError("faceset.pak metadata payload is not a list")
 
@@ -219,10 +219,10 @@ class PackedFacesetReader:
 
 class FaceDataset(Dataset):
     """
-    Dataset for DFL-aligned face images.
+    Dataset for aligned face images.
 
     Loads face images from a directory containing JPEG files with
-    embedded DFL metadata. Supports lazy loading and augmentation.
+    embedded face metadata. Supports lazy loading and augmentation.
 
     Args:
         root_dir: Directory containing aligned face JPEGs.
@@ -234,7 +234,7 @@ class FaceDataset(Dataset):
         uniform_yaw: Enable uniform yaw sampling for balanced pose distribution.
             Default: False.
         yaw_bins: Number of yaw bins for uniform sampling. Default: 10.
-        allow_packed_faceset: Enable legacy `faceset.pak` support. Default: True.
+        allow_packed_faceset: Enable `faceset.pak` support. Default: True.
 
     Example:
         >>> dataset = FaceDataset(Path("aligned_faces/"))
@@ -276,7 +276,7 @@ class FaceDataset(Dataset):
             if self.packed_faceset_path.exists() and not self.allow_packed_faceset:
                 raise ValueError(
                     "No images found and faceset.pak loading is disabled. "
-                    "Set allow_packed_faceset=True to enable legacy packed input."
+                    "Set allow_packed_faceset=True to enable packed input."
                 )
             raise ValueError(f"No images found in {self.root_dir}")
 
@@ -303,7 +303,7 @@ class FaceDataset(Dataset):
         if len(self.samples) == 0:
             raise ValueError(
                 f"No valid face samples found in {self.root_dir}. "
-                "Check DFL metadata and faceset.pak integrity."
+                "Check faceset.pak integrity."
             )
 
         # Build yaw bins for uniform sampling
@@ -442,33 +442,33 @@ class FaceDataset(Dataset):
             if rel in seen_relpaths:
                 continue
 
-            dfl_sample = FaceSample.from_dfl_image(path)
+            face_sample = FaceSample.from_face_image(path)
 
-            if dfl_sample is None:
-                # Skip images without DFL metadata
+            if face_sample is None:
+                # Skip images without face metadata
                 continue
 
             # Apply face type filter
             if self.face_type_filter is not None:
                 try:
-                    sample_type = FaceType.from_string(dfl_sample.face_type)
+                    sample_type = FaceType.from_string(face_sample.face_type)
                     if sample_type != self.face_type_filter:
                         continue
                 except ValueError:
                     continue
 
             seen_relpaths.add(rel)
-            self.samples.append(dfl_sample)
+            self.samples.append(face_sample)
 
         if len(self.samples) == 0:
             raise ValueError(
-                f"No valid DFL images found in {self.root_dir}. "
-                "Make sure images have embedded DFL metadata."
+                f"No valid face images found in {self.root_dir}. "
+                "Make sure images have embedded face metadata."
             )
 
     def _load_packed_faceset(self, strict: bool = False) -> list[FaceSample]:
         """
-        Load FaceSample entries from legacy `faceset.pak`.
+        Load FaceSample entries from `faceset.pak`.
 
         The packed format stores metadata configs followed by an offset table and
         raw image blobs. We use metadata for face attributes and decode image data
@@ -622,7 +622,7 @@ class FaceDataset(Dataset):
 
 class SimpleFaceDataset(Dataset):
     """
-    Simple dataset for loading face images without DFL metadata.
+    Simple dataset for loading face images without embedded metadata.
 
     Just loads images from a directory and resizes them.
     Useful for testing or when metadata is not needed.

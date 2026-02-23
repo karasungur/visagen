@@ -6,11 +6,11 @@ from visagen.training.callbacks import (
     PreviewCallback,
     TargetStepCallback,
 )
-from visagen.training.dfl_module import DFLModule
 from visagen.training.pretrain_module import PretrainModule
+from visagen.training.training_module import TrainingModule
 
 __all__ = [
-    "DFLModule",
+    "TrainingModule",
     "PretrainModule",
     "PreviewCallback",
     "AutoBackupCallback",

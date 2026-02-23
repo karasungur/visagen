@@ -36,7 +36,7 @@ from visagen.training.callbacks import (
     PreviewCallback,
     TargetStepCallback,
 )
-from visagen.training.dfl_module import DFLModule
+from visagen.training.training_module import TrainingModule
 from visagen.utils.config import (
     load_config_with_validation,
     print_config_summary,
@@ -172,13 +172,13 @@ Examples:
         dest="allow_packed_faceset",
         action="store_true",
         default=True,
-        help="Enable legacy faceset.pak loading (default: enabled)",
+        help="Enable faceset.pak loading (default: enabled)",
     )
     parser.add_argument(
         "--no-packed-faceset",
         dest="allow_packed_faceset",
         action="store_false",
-        help="Disable legacy faceset.pak loading",
+        help="Disable faceset.pak loading",
     )
 
     # Model arguments
@@ -679,7 +679,7 @@ def main() -> int:
     if args.masked_training:
         dali_incompatible_reasons.append("masked blur training")
     if args.dali_warp_mode == "strict":
-        dali_incompatible_reasons.append("strict DFL warp mode")
+        dali_incompatible_reasons.append("strict warp mode")
     if effective_data_backend != "pytorch" and dali_incompatible_reasons:
         print(
             "Warning: DALI backend currently does not provide "
@@ -796,7 +796,7 @@ def main() -> int:
         )
         print("  Mode: Fine-tuning from pretrained weights (epoch resets to 0)")
     else:
-        model = DFLModule(
+        model = TrainingModule(
             image_size=args.image_size,
             encoder_dims=encoder_dims,
             encoder_depths=encoder_depths,

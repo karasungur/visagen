@@ -1,7 +1,7 @@
 """
 AMP (Amplified Morphable Portrait) Architecture for Visagen.
 
-Port of DeepFaceLab's AMP architecture to PyTorch.
+AMP architecture for Visagen.
 AMP uses morph-based face swapping with controllable morphing factor.
 
 Key Features:

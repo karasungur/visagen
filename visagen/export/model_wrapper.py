@@ -20,7 +20,7 @@ import torch.nn as nn
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from visagen.training import DFLModule
+    from visagen.training import TrainingModule
 
 
 class ExportableModel(nn.Module):
@@ -30,7 +30,7 @@ class ExportableModel(nn.Module):
     This wrapper provides a clean single-input, single-output interface
     that is compatible with ONNX and TensorRT export requirements.
 
-    The original DFLModule has:
+    The TrainingModule has:
     - Encoder that returns (features_list, latent)
     - Decoder that takes (latent, skip_features)
 
@@ -111,10 +111,10 @@ class ExportableModel(nn.Module):
 
         logger.info(f"Loading checkpoint from {checkpoint_path}")
 
-        from visagen.training import DFLModule
+        from visagen.training import TrainingModule
 
         # Load Lightning module
-        module = DFLModule.load_from_checkpoint(
+        module = TrainingModule.load_from_checkpoint(
             str(checkpoint_path),
             map_location=map_location,
             strict=strict,
@@ -133,12 +133,12 @@ class ExportableModel(nn.Module):
         return model
 
     @classmethod
-    def from_module(cls, module: "DFLModule") -> "ExportableModel":
+    def from_module(cls, module: "TrainingModule") -> "ExportableModel":
         """
-        Create from existing DFLModule instance.
+        Create from existing TrainingModule instance.
 
         Args:
-            module: DFLModule instance.
+            module: TrainingModule instance.
 
         Returns:
             ExportableModel instance.

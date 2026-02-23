@@ -148,7 +148,7 @@ class TestFaceSample:
 
 
 class TestPackedFacesetSupport:
-    """Tests for legacy `faceset.pak` compatibility in FaceDataset."""
+    """Tests for `faceset.pak` compatibility in FaceDataset."""
 
     @staticmethod
     def _write_faceset_archive(tmp_path: Path, configs: list[dict], image_bytes: bytes):
@@ -407,13 +407,13 @@ class TestWarpFunctions:
         assert "matrix" in params
         assert params["matrix"].shape == (2, 3)
 
-    def test_gen_legacy_warp_params_returns_legacy_keys(self):
+    def test_gen_warp_params_returns_keys(self):
         params = gen_legacy_warp_params(256, rng=np.random.default_rng(42))
         assert {"mapx", "mapy", "rmat", "flip", "w"} <= set(params.keys())
         assert params["mapx"].shape == (256, 256)
         assert params["mapy"].shape == (256, 256)
 
-    def test_warp_legacy_by_params_preserves_shape(self):
+    def test_warp_by_params_preserves_shape(self):
         image = torch.rand(1, 3, 256, 256)
         params = gen_legacy_warp_params(256, rng=np.random.default_rng(7))
         warped = warp_legacy_by_params(image, params)

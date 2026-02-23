@@ -1,7 +1,7 @@
 """
 Visagen Tuning - Hyperparameter Optimization.
 
-Provides Optuna-based hyperparameter optimization for DFLModule training.
+Provides Optuna-based hyperparameter optimization for TrainingModule training.
 
 Example:
     >>> from visagen.tuning import OptunaTuner, TuningConfig

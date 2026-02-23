@@ -18,7 +18,7 @@ from visagen.sorting.base import SortMethod, SortOutput, SortResult
 
 if TYPE_CHECKING:
     from visagen.sorting.processor import ParallelSortProcessor
-    from visagen.vision.dflimg import FaceMetadata
+    from visagen.vision.face_image import FaceMetadata
 
 
 def _load_ssim_image(
@@ -156,7 +156,7 @@ class SSIMSimilaritySorter(SortMethod):
 
     name = "ssim"
     description = "Sort by SSIM similarity (groups similar images)"
-    requires_dfl_metadata = False
+    requires_face_metadata = False
     execution_profile = "cpu_bound"
 
     def __init__(self, exact_limit: int = 0, target_size: int = 96) -> None:
@@ -218,7 +218,7 @@ class SSIMDissimilaritySorter(SortMethod):
 
     name = "ssim-dissim"
     description = "Sort by SSIM dissimilarity (outliers first)"
-    requires_dfl_metadata = False
+    requires_face_metadata = False
     execution_profile = "cpu_bound"
 
     def __init__(self, exact_limit: int = 0, target_size: int = 96) -> None:

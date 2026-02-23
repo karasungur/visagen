@@ -247,12 +247,12 @@ class SimpleMergerBenchmark:
             device = "cpu"
 
         # Load model
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
         if self.config.checkpoint_path is None:
             raise ValueError("checkpoint_path required")
 
-        model = DFLModule.load_from_checkpoint(
+        model = TrainingModule.load_from_checkpoint(
             self.config.checkpoint_path,
             map_location="cpu",
         )

@@ -1,10 +1,10 @@
 """
-DFL-style Warp Grid Generator for NVIDIA DALI.
+Warp Grid Generator for NVIDIA DALI.
 
 Provides GPU-compatible random displacement grids for face warping augmentation.
 Used with DALI's external_source operator for custom augmentation.
 
-The algorithm matches legacy DeepFaceLab behavior:
+The warping algorithm:
     1. Create a coarse grid with random cell sizes
     2. Add random displacement to interior points
     3. Upscale to full resolution via bilinear interpolation
@@ -29,9 +29,9 @@ def gen_dali_warp_grid(
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
     """
-    Generate DFL-style warp grids for DALI external_source.
+    Generate warp grids for DALI external_source.
 
-    Creates random displacement grids matching legacy DeepFaceLab behavior.
+    Creates random displacement grids for face warping.
     Returns numpy arrays suitable for DALI consumption.
 
     Args:
@@ -54,7 +54,7 @@ def gen_dali_warp_grid(
     grids = []
 
     for _ in range(batch_size):
-        # Match legacy DFL cell size sampling: [w//2, w//4, w//8]
+        # Cell size sampling: [w//2, w//4, w//8]
         cell_size = [size // (2**i) for i in range(1, 4)][rng.integers(0, 3)]
         cell_size = max(int(cell_size), 1)
         cell_count = size // cell_size + 1
@@ -65,7 +65,7 @@ def gen_dali_warp_grid(
         mapy = mapx.T.copy()
 
         # Add random displacement to interior points
-        # Displacement magnitude: cell_size * 0.24 (legacy value)
+        # Displacement magnitude: cell_size * 0.24
         displacement = cell_size * 0.24
         if cell_count > 2:
             noise_x = (
@@ -80,7 +80,7 @@ def gen_dali_warp_grid(
             mapx[1:-1, 1:-1] += noise_x
             mapy[1:-1, 1:-1] += noise_y
 
-        # Legacy resize + center-crop behavior (OpenCV preferred)
+        # Resize + center-crop behavior (OpenCV preferred)
         if HAS_CV2:
             half_cell = cell_size // 2
             resized_shape = (size + cell_size, size + cell_size)
@@ -123,7 +123,7 @@ class DALIWarpGridGenerator:
     DALI external source callback for generating warp grids.
 
     Provides an iterator interface for DALI's external_source operator.
-    Generates DFL-style random displacement grids on each call.
+    Generates random displacement grids on each call.
 
     Args:
         size: Image size for warp grids.

@@ -1,4 +1,4 @@
-"""Parity tests for legacy util command wrappers."""
+"""Parity tests for util command wrappers."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from visagen.tools.util_legacy import (
+from visagen.tools.util_compat import (
     export_faceset_mask,
     main,
     recover_original_aligned_filename,
     restore_faceset_metadata_folder,
     save_faceset_metadata_folder,
 )
-from visagen.vision.dflimg import DFLImage, FaceMetadata
+from visagen.vision.face_image import FaceImage, FaceMetadata
 
 
 def _create_metadata(source_filename: str) -> FaceMetadata:
@@ -29,7 +29,7 @@ def _create_metadata(source_filename: str) -> FaceMetadata:
     )
 
 
-def _create_dfl_image(
+def _create_face_image(
     path: Path, source_filename: str, with_mask: bool = False
 ) -> None:
     image = np.zeros((32, 32, 3), dtype=np.uint8)
@@ -39,16 +39,16 @@ def _create_dfl_image(
     if with_mask:
         mask = np.zeros((32, 32, 1), dtype=np.float32)
         mask[8:24, 8:24, 0] = 1.0
-        DFLImage.set_xseg_mask(metadata, mask)
+        FaceImage.set_xseg_mask(metadata, mask)
 
-    DFLImage.save(path, image, metadata)
+    FaceImage.save(path, image, metadata)
 
 
 def test_save_restore_faceset_metadata_roundtrip(tmp_path: Path) -> None:
     faceset_dir = tmp_path / "faces"
     faceset_dir.mkdir()
     face_path = faceset_dir / "face.jpg"
-    _create_dfl_image(face_path, source_filename="source.mp4")
+    _create_face_image(face_path, source_filename="source.mp4")
 
     saved = save_faceset_metadata_folder(faceset_dir)
     assert saved == 1
@@ -62,7 +62,7 @@ def test_save_restore_faceset_metadata_roundtrip(tmp_path: Path) -> None:
     assert restored == 1
     assert not (faceset_dir / "meta.dat").exists()
 
-    image, metadata = DFLImage.load(face_path)
+    image, metadata = FaceImage.load(face_path)
     assert image.shape[:2] == (32, 32)
     assert metadata is not None
     assert metadata.source_filename == "source.mp4"
@@ -72,8 +72,8 @@ def test_recover_original_aligned_filename(tmp_path: Path) -> None:
     faceset_dir = tmp_path / "faces"
     faceset_dir.mkdir()
 
-    _create_dfl_image(faceset_dir / "a.jpg", source_filename="clip.mp4")
-    _create_dfl_image(faceset_dir / "b.jpg", source_filename="clip.mp4")
+    _create_face_image(faceset_dir / "a.jpg", source_filename="clip.mp4")
+    _create_face_image(faceset_dir / "b.jpg", source_filename="clip.mp4")
 
     renamed = recover_original_aligned_filename(faceset_dir)
     assert renamed == 2
@@ -85,7 +85,7 @@ def test_export_faceset_mask_writes_sidecar_png(tmp_path: Path) -> None:
     faceset_dir = tmp_path / "faces"
     faceset_dir.mkdir()
 
-    _create_dfl_image(
+    _create_face_image(
         faceset_dir / "masked.jpg", source_filename="masked.mp4", with_mask=True
     )
 
@@ -97,7 +97,7 @@ def test_export_faceset_mask_writes_sidecar_png(tmp_path: Path) -> None:
 def test_cli_main_runs_selected_flag(monkeypatch, tmp_path: Path) -> None:
     faceset_dir = tmp_path / "faces"
     faceset_dir.mkdir()
-    _create_dfl_image(faceset_dir / "face.jpg", source_filename="source.mp4")
+    _create_face_image(faceset_dir / "face.jpg", source_filename="source.mp4")
 
     monkeypatch.setattr(
         sys,

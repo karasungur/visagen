@@ -1,4 +1,4 @@
-"""Legacy util command parity wrappers for Visagen."""
+"""Util command wrappers for Visagen."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from visagen.vision.dflimg import DFLImage, FaceMetadata
+from visagen.vision.face_image import FaceImage, FaceMetadata
 
 SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 
@@ -24,7 +24,7 @@ def _iter_images(input_dir: Path) -> list[Path]:
 
 
 def add_landmarks_debug_images(input_path: Path) -> int:
-    """Create *_debug.jpg files with landmark dots for DFL images."""
+    """Create *_debug.jpg files with landmark dots for face images."""
     created = 0
     for filepath in _iter_images(input_path):
         if filepath.stem.endswith("_debug"):
@@ -35,7 +35,7 @@ def add_landmarks_debug_images(input_path: Path) -> int:
             continue
 
         try:
-            _img, metadata = DFLImage.load(filepath)
+            _img, metadata = FaceImage.load(filepath)
         except Exception:
             metadata = None
 
@@ -58,11 +58,11 @@ def add_landmarks_debug_images(input_path: Path) -> int:
 
 
 def recover_original_aligned_filename(input_path: Path) -> int:
-    """Rename aligned files based on DFL source_filename metadata."""
+    """Rename aligned files based on source_filename metadata."""
     entries: list[tuple[Path, str]] = []
     for filepath in _iter_images(input_path):
         try:
-            _img, metadata = DFLImage.load(filepath)
+            _img, metadata = FaceImage.load(filepath)
         except Exception:
             metadata = None
 
@@ -100,7 +100,7 @@ def recover_original_aligned_filename(input_path: Path) -> int:
 
 
 def save_faceset_metadata_folder(input_path: Path) -> int:
-    """Save DFL metadata for editable roundtrip as meta.dat."""
+    """Save face metadata for editable roundtrip as meta.dat."""
     metadata_path = input_path / "meta.dat"
 
     payload: dict[str, tuple[tuple[int, int, int], dict]] = {}
@@ -108,7 +108,7 @@ def save_faceset_metadata_folder(input_path: Path) -> int:
         if filepath.suffix.lower() not in {".jpg", ".jpeg"}:
             continue
         try:
-            image, metadata = DFLImage.load(filepath)
+            image, metadata = FaceImage.load(filepath)
         except Exception:
             continue
 
@@ -122,7 +122,7 @@ def save_faceset_metadata_folder(input_path: Path) -> int:
 
 
 def restore_faceset_metadata_folder(input_path: Path) -> int:
-    """Restore DFL metadata from meta.dat, resizing edited images back if needed."""
+    """Restore face metadata from meta.dat, resizing edited images back if needed."""
     metadata_path = input_path / "meta.dat"
     if not metadata_path.exists():
         raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
@@ -150,7 +150,7 @@ def restore_faceset_metadata_folder(input_path: Path) -> int:
             )
 
         metadata = FaceMetadata.from_dict(meta_dict)
-        DFLImage.save(filepath, image, metadata, quality=100)
+        FaceImage.save(filepath, image, metadata, quality=100)
         restored += 1
 
     metadata_path.unlink(missing_ok=True)
@@ -158,7 +158,7 @@ def restore_faceset_metadata_folder(input_path: Path) -> int:
 
 
 def export_faceset_mask(input_dir: Path) -> int:
-    """Export embedded xseg mask from DFL images to *_mask.png files."""
+    """Export embedded xseg mask from face images to *_mask.png files."""
     exported = 0
 
     for filepath in _iter_images(input_dir):
@@ -168,14 +168,14 @@ def export_faceset_mask(input_dir: Path) -> int:
             continue
 
         try:
-            _image, metadata = DFLImage.load(filepath)
+            _image, metadata = FaceImage.load(filepath)
         except Exception:
             continue
 
         if metadata is None:
             continue
 
-        mask = DFLImage.get_xseg_mask(metadata)
+        mask = FaceImage.get_xseg_mask(metadata)
         if mask is None:
             continue
 
@@ -213,7 +213,7 @@ def unpack_faceset(input_dir: Path) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Legacy util parity commands",
+        description="Util commands",
     )
     parser.add_argument(
         "--input-dir", type=Path, required=True, help="Faceset directory"
@@ -226,7 +226,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--recover-original-aligned-filename",
         action="store_true",
-        help="Recover filenames from DFL source_filename metadata",
+        help="Recover filenames from source_filename metadata",
     )
     parser.add_argument(
         "--save-faceset-metadata",

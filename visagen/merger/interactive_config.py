@@ -19,8 +19,8 @@ MERGE_MODES = {
     "seamless-hist-match": "Seamless clone with histogram matching",
 }
 
-# Legacy mode aliases mapped to supported modes
-LEGACY_MERGE_MODE_ALIASES = {
+# Mode aliases mapped to supported modes
+MERGE_MODE_ALIASES = {
     "raw-rgb": "overlay",
     "raw-predict": "overlay",
 }
@@ -33,7 +33,7 @@ MASK_MODES = {
     "segmented": "SegFormer face segmentation (default)",
 }
 
-LEGACY_MASK_MODE_ALIASES = {
+MASK_MODE_ALIASES = {
     "learned_prd": "segmented",
     "learned_dst": "segmented",
     "learned_prd_x_dst": "segmented",
@@ -84,7 +84,7 @@ def map_merge_mode_to_processor(mode: str) -> tuple[str, str | None, bool]:
         - passthrough_original indicates original frame bypass.
     """
     normalized = mode.lower()
-    normalized = LEGACY_MERGE_MODE_ALIASES.get(normalized, normalized)
+    normalized = MERGE_MODE_ALIASES.get(normalized, normalized)
     mapped = _MODE_TO_PROCESSOR.get(normalized, ("laplacian", None))
     if len(mapped) == 2:
         blend_mode, forced_color_transfer = mapped
@@ -139,14 +139,14 @@ class InteractiveMergerConfig:
     restore_face: bool = False
     restore_strength: float = 0.5  # 0.0..1.0
 
-    # Super resolution (legacy compatibility)
+    # Super resolution
     # 0 = disabled, 1-100 = 4x upscale blend power
     super_resolution_power: int = 0  # 0..100
 
     # Motion blur (for temporal consistency)
     motion_blur_power: int = 0  # 0..100
 
-    # Image degradation effects (legacy compatibility)
+    # Image degradation effects
     image_denoise_power: int = 0  # 0..500
     bicubic_degrade_power: int = 0  # 0..100
     color_degrade_power: int = 0  # 0..100
@@ -157,9 +157,9 @@ class InteractiveMergerConfig:
 
     def _validate(self) -> None:
         """Validate all configuration values are within bounds."""
-        # Normalize legacy aliases before validation
-        self.mode = LEGACY_MERGE_MODE_ALIASES.get(self.mode, self.mode)
-        self.mask_mode = LEGACY_MASK_MODE_ALIASES.get(self.mask_mode, self.mask_mode)
+        # Normalize aliases before validation
+        self.mode = MERGE_MODE_ALIASES.get(self.mode, self.mode)
+        self.mask_mode = MASK_MODE_ALIASES.get(self.mask_mode, self.mask_mode)
 
         # Mode validation
         if self.mode not in MERGE_MODES:

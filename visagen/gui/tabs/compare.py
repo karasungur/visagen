@@ -181,9 +181,9 @@ class CompareTab(BaseTab):
         try:
             import torch
 
-            from visagen.training.dfl_module import DFLModule
+            from visagen.training.training_module import TrainingModule
 
-            model = DFLModule.load_from_checkpoint(
+            model = TrainingModule.load_from_checkpoint(
                 checkpoint_path,
                 map_location="cpu",
             )
