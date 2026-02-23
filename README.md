@@ -45,7 +45,7 @@
 
 ## 📖 Overview
 
-**Visagen** is a next-generation face swapping framework built from the ground up with modern deep learning practices. Inspired by DeepFaceLab, Visagen reimagines the entire pipeline using **PyTorch Lightning**, offering cleaner code, better performance, and easier extensibility.
+**Visagen** is a modern, high-performance face swapping framework built on **PyTorch Lightning**, delivering a clean architecture, production-grade tooling, and easy extensibility.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -54,7 +54,7 @@
 │  Extract   ──►   Train   ──►   Swap   ──►   Postprocess       │
 │     │              │            │              │              │
 │     ▼              ▼            ▼              ▼              │
-│ InsightFace    DFLModule      CBAM       Color Transfer       │
+│ InsightFace    TrainingModule      CBAM       Color Transfer       │
 │ SegFormer     Lightning    Attention      Blending            │
 └───────────────────────────────────────────────────────────────┘
 ```
@@ -72,16 +72,16 @@
 
 ## 🤔 Why Visagen?
 
-| Feature | DeepFaceLab | Visagen |
-|---------|-------------|---------|
-| **Framework** | TensorFlow 1.x | PyTorch 2.0 + Lightning |
+| Feature | Traditional Approaches | Visagen |
+|---------|----------------------|---------|
+| **Framework** | TensorFlow 1.x / outdated stacks | PyTorch 2.0 + Lightning |
 | **Python** | 3.7 | 3.10+ with type hints |
 | **Training** | Manual scripts | CLI + Gradio UI |
 | **Code Quality** | No tests | 861 unit tests |
 | **GPU Pipeline** | CPU-bound I/O | NVIDIA DALI |
 | **Export** | Limited | ONNX + TensorRT |
-| **Segmentation** | XSeg (train yourself) | SegFormer (pretrained) |
-| **Face Detection** | S3FD/RetinaFace | InsightFace SCRFD |
+| **Segmentation** | Manual segmentation | SegFormer (pretrained) |
+| **Face Detection** | Older detection models | InsightFace SCRFD |
 
 ---
 
@@ -362,7 +362,7 @@ visagen/
 │   ├── decoder.py         # Swish decoder
 │   └── attention.py       # CBAM attention
 ├── 📂 training/           # Training logic
-│   ├── dfl_module.py      # PyTorch Lightning module
+│   ├── training_module.py      # PyTorch Lightning module
 │   ├── pretrain_module.py # Pretraining module
 │   ├── losses.py          # Loss functions (DSSIM, Style, etc.)
 │   └── 📂 optimizers/      # AdaBelief, AdamW
@@ -422,7 +422,7 @@ visagen/
 │   ├── detector.py        # InsightFace SCRFD detection
 │   ├── aligner.py         # Face alignment (Umeyama)
 │   ├── segmenter.py       # SegFormer segmentation
-│   ├── dflimg.py          # DFL image metadata
+│   ├── face_image.py          # DFL image metadata
 │   └── mask_export.py     # LabelMe/COCO export
 └── 📂 tests/              # Unit tests (861)
 ```
@@ -613,7 +613,6 @@ If you use Visagen in your research, please cite:
 
 ## 🙏 Acknowledgments
 
-- [DeepFaceLab](https://github.com/iperov/DeepFaceLab) - Original inspiration
 - [PyTorch Lightning](https://lightning.ai/) - Training framework
 - [InsightFace](https://github.com/deepinsight/insightface) - Face detection
 - [Optuna](https://optuna.org/) - Hyperparameter optimization
