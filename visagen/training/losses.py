@@ -1190,6 +1190,53 @@ class TotalVariationLoss(nn.Module):
         return self.weight * (diff_h.pow(2).mean() + diff_w.pow(2).mean())
 
 
+class FeatureMatchingLoss(nn.Module):
+    """Feature matching loss between real and fake discriminator features.
+
+    Computes L1 distance between intermediate discriminator feature maps
+    for real and generated images. Stabilizes GAN training by providing
+    an additional gradient signal to the generator.
+
+    Args:
+        weight: Loss weight multiplier. Default: 10.0.
+
+    Example:
+        >>> fm_loss = FeatureMatchingLoss(weight=10.0)
+        >>> real_feats = [torch.randn(2, 64, 32, 32), torch.randn(2, 128, 16, 16)]
+        >>> fake_feats = [torch.randn(2, 64, 32, 32), torch.randn(2, 128, 16, 16)]
+        >>> loss = fm_loss(real_feats, fake_feats)
+    """
+
+    def __init__(self, weight: float = 10.0) -> None:
+        super().__init__()
+        self.weight = weight
+
+    def forward(
+        self,
+        real_features: list[torch.Tensor],
+        fake_features: list[torch.Tensor],
+    ) -> torch.Tensor:
+        """Compute feature matching loss.
+
+        Args:
+            real_features: Intermediate feature maps from discriminator on real images.
+            fake_features: Intermediate feature maps from discriminator on fake images.
+
+        Returns:
+            Weighted feature matching loss (scalar).
+        """
+        n_features = len(real_features)
+        if n_features == 0:
+            return torch.tensor(
+                0.0, device=real_features[0].device if real_features else "cpu"
+            )
+
+        loss: torch.Tensor = torch.tensor(0.0, device=fake_features[0].device)
+        for r, f in zip(real_features, fake_features, strict=True):
+            loss = loss + F.l1_loss(r.detach(), f)
+        return self.weight * loss / n_features
+
+
 # =============================================================================
 # Temporal Losses for Video Consistency
 # =============================================================================
