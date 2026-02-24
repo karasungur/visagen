@@ -136,14 +136,15 @@ Examples:
         help="Gradient clipping norm for AdaBelief (default: 0.0)",
     )
     parser.add_argument(
-        "--warmup-steps",
+        "--warmup-epochs",
         type=int,
         default=0,
-        help="LR warmup steps (0 = disabled, default: 0)",
+        help="LR warmup epochs (0 = disabled, default: 0)",
     )
     parser.add_argument(
         "--scheduler",
         type=str,
+        dest="scheduler_type",
         default="cosine",
         choices=["cosine", "plateau", "constant"],
         help="LR scheduler type (default: cosine)",
@@ -588,8 +589,8 @@ def main() -> int:
         "lr_dropout": 1.0,
         "lr_cos_period": 0,
         "clipnorm": 0.0,
-        "warmup_steps": 0,
-        "scheduler": "cosine",
+        "warmup_epochs": 0,
+        "scheduler_type": "cosine",
         "image_size": 256,
         "num_workers": 4,
         "val_split": 0.1,
@@ -853,8 +854,8 @@ def main() -> int:
             lr_dropout=args.lr_dropout,
             lr_cos_period=args.lr_cos_period,
             clipnorm=args.clipnorm,
-            warmup_steps=args.warmup_steps,
-            scheduler_type=args.scheduler,
+            warmup_epochs=args.warmup_epochs,
+            scheduler_type=args.scheduler_type,
             # Experimental model parameters
             model_type=args.model_type,
             diffusion_texture_weight=args.texture_weight,
