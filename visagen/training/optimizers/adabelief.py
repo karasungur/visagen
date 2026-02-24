@@ -5,6 +5,19 @@ Implements AdaBelief algorithm with extended features:
 - lr_dropout: Randomly drops updates for parameters (stochastic depth-like behavior)
 - lr_cos: Cyclical cosine learning rate scheduling
 - clipnorm: Global gradient clipping within the optimizer
+
+Design Decisions:
+    eps (1e-16): Follows the AdaBelief paper (Zhuang et al., 2020) which
+    recommends a very small epsilon for the belief-based denominator. Some
+    reference implementations use dtype resolution (~1e-6 for float32),
+    but 1e-16 provides better convergence in mixed-precision training as
+    the denominator is computed in float32 regardless of model precision.
+
+    lr_dropout (dynamic mask): Uses a per-step random binary mask to
+    stochastically skip parameter updates. This differs from static
+    lr_dropout masks (where a fixed subset of parameters is chosen once
+    per epoch) — the dynamic approach provides stronger regularization
+    by varying which parameters receive updates at each step.
 """
 
 import math
