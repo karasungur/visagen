@@ -85,7 +85,8 @@ class ExportableModel(nn.Module):
         if isinstance(output, tuple):
             output = output[0]  # export only image, not mask
 
-        return output
+        result: torch.Tensor = output
+        return result
 
     @classmethod
     def from_checkpoint(
