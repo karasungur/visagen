@@ -1,41 +1,44 @@
 # GAN Training Configuration
-# Extends default.yaml with GAN-specific settings
+# Flat format — loadable by visagen-train --config
 
-# Inherit from default
-defaults:
-  - default
+# =========================================================================
+# Training
+# =========================================================================
+batch_size: 8
+max_epochs: 500
+learning_rate: 0.0001
+image_size: 256
 
-# Override with GAN settings
-trainer:
-  max_steps: 300000  # GAN training usually needs fewer steps
+# =========================================================================
+# Optimizer
+# =========================================================================
+optimizer_type: "adamw"
+weight_decay: 0.01
 
-# GAN-specific optimizer settings
-optimizer:
-  # Generator optimizer
-  generator:
-    lr: 0.0001
-    betas: [0.5, 0.999]
+# =========================================================================
+# Scheduler
+# =========================================================================
+scheduler_type: "cosine"
+warmup_steps: 1000
 
-  # Discriminator optimizer
-  discriminator:
-    lr: 0.0001
-    betas: [0.5, 0.999]
+# =========================================================================
+# Loss weights (reduced when GAN is active)
+# =========================================================================
+dssim_weight: 5.0
+l1_weight: 5.0
+lpips_weight: 1.0
 
-# Loss weights with GAN
-loss:
-  # Base losses (reduced when GAN is active)
-  l1_weight: 5.0
-  dssim_weight: 5.0
-  lpips_weight: 1.0
+# =========================================================================
+# GAN
+# =========================================================================
+gan_power: 1.0
+gan_mode: "vanilla"            # Options: vanilla, lsgan, hinge
+gan_patch_size: 70
+gan_base_ch: 16
+feature_matching_weight: 10.0
+d_betas: "0.5,0.999"
 
-  # GAN loss enabled
-  gan_weight: 1.0
-
-  # Feature matching loss
-  feature_matching_weight: 10.0
-
-# Discriminator settings
-discriminator:
-  type: "patch"  # Options: patch, multiscale
-  channels: [64, 128, 256, 512]
-  update_every: 1  # Update discriminator every N steps
+# =========================================================================
+# Hardware
+# =========================================================================
+precision: "16-mixed"
