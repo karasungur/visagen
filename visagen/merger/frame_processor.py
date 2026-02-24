@@ -584,6 +584,8 @@ class FrameProcessor:
             with torch.no_grad():
                 output = self.model(img_tensor)
 
+            if isinstance(output, tuple):
+                output = output[0]  # image tensor, discard mask
             output = output.squeeze(0).cpu().numpy()
 
         elif self.backend in ("onnx", "tensorrt"):

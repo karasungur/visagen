@@ -12,7 +12,7 @@ The wrapper handles:
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import torch
 import torch.nn as nn
@@ -63,6 +63,8 @@ class ExportableModel(nn.Module):
         """
         Forward pass for export.
 
+        Returns image tensor only (mask discarded for export).
+
         Args:
             x: Input tensor of shape (B, 3, H, W).
 
@@ -80,7 +82,10 @@ class ExportableModel(nn.Module):
         # Decode
         output = self.decoder(latent, skip_features)
 
-        return cast(torch.Tensor, output)
+        if isinstance(output, tuple):
+            output = output[0]  # export only image, not mask
+
+        return output
 
     @classmethod
     def from_checkpoint(

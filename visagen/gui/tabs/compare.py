@@ -269,6 +269,10 @@ class CompareTab(BaseTab):
         with torch.no_grad():
             output = model(img_tensor)
 
+        # Unpack tuple if decoder returns (image, mask)
+        if isinstance(output, tuple):
+            output = output[0]
+
         # Postprocess
         output = output.squeeze(0).cpu().numpy()
         output = output.transpose(1, 2, 0)
