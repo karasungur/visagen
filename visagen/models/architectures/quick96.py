@@ -7,7 +7,7 @@ Lightweight 96x96 resolution model optimized for:
 - Low memory usage
 
 This is a wrapper around DFArchi with fixed 96x96 resolution
-and optimized default dimensions from DeepFaceLab's Quick96 model.
+and optimized default dimensions from the Quick96 model.
 
 Example:
     >>> archi = Quick96Archi()
@@ -32,7 +32,7 @@ class Quick96Archi:
     Fixed 96x96 resolution with optimized dimensions for speed.
     Uses DF architecture with 'ud' options (upscale + double).
 
-    The Quick96 model from DeepFaceLab uses:
+    The Quick96 model uses:
     - resolution: 96 (fixed)
     - ae_dims: 128 (smaller than standard 256)
     - e_dims: 64

@@ -1,7 +1,7 @@
 """
 Metadata-based sorting methods.
 
-Provides sorting by DFL metadata fields like original filename,
+Provides sorting by face metadata fields like original filename,
 source rect size, and face count filtering.
 """
 
@@ -16,20 +16,20 @@ from visagen.sorting.base import SortMethod, SortOutput, SortResult
 
 if TYPE_CHECKING:
     from visagen.sorting.processor import ParallelSortProcessor
-    from visagen.vision.dflimg import FaceMetadata
+    from visagen.vision.face_image import FaceMetadata
 
 
 class OrigNameSorter(SortMethod):
     """
     Sort by original source filename.
 
-    Uses the source_filename field from DFL metadata to
+    Uses the source_filename field from face metadata to
     restore original ordering from video frames.
     """
 
     name = "origname"
     description = "Sort by original filename"
-    requires_dfl_metadata = True
+    requires_face_metadata = True
     execution_profile = "io_bound"
 
     def compute_score(
@@ -46,7 +46,7 @@ class OrigNameSorter(SortMethod):
         processor: "ParallelSortProcessor | None" = None,
     ) -> SortOutput:
         """Sort by original source filename from metadata."""
-        from visagen.vision.dflimg import DFLImage
+        from visagen.vision.face_image import FaceImage
 
         start_time = time.time()
 
@@ -55,10 +55,10 @@ class OrigNameSorter(SortMethod):
 
         for filepath in image_paths:
             try:
-                _, metadata = DFLImage.load(filepath)
+                _, metadata = FaceImage.load(filepath)
                 if metadata is None:
                     trash.append(
-                        SortResult(filepath, 0.0, {"error": "No DFL metadata"})
+                        SortResult(filepath, 0.0, {"error": "No face metadata"})
                     )
                     continue
 
@@ -82,13 +82,13 @@ class SourceRectSorter(SortMethod):
     """
     Sort by face size in source image.
 
-    Uses source_rect area from DFL metadata.
+    Uses source_rect area from face metadata.
     Larger faces (closer to camera) rank first.
     """
 
     name = "face-source-rect-size"
     description = "Sort by face rect size in source image"
-    requires_dfl_metadata = True
+    requires_face_metadata = True
     execution_profile = "io_bound"
 
     def compute_score(
@@ -119,7 +119,7 @@ class OneFaceSorter(SortMethod):
 
     name = "oneface"
     description = "Filter to keep only one face per source image"
-    requires_dfl_metadata = False
+    requires_face_metadata = False
     execution_profile = "io_bound"
 
     def compute_score(

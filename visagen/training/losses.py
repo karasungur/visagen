@@ -473,7 +473,7 @@ class EyesMouthLoss(nn.Module):
     landmark positions to improve detail preservation.
 
     Args:
-        weight_multiplier: Multiplier for eye/mouth regions. Default: 30.0.
+        weight_multiplier: Multiplier for eye/mouth regions. Default: 300.0.
         base_loss: Base loss function. Default: L1.
     """
 
@@ -1190,6 +1190,53 @@ class TotalVariationLoss(nn.Module):
         return self.weight * (diff_h.pow(2).mean() + diff_w.pow(2).mean())
 
 
+class FeatureMatchingLoss(nn.Module):
+    """Feature matching loss between real and fake discriminator features.
+
+    Computes L1 distance between intermediate discriminator feature maps
+    for real and generated images. Stabilizes GAN training by providing
+    an additional gradient signal to the generator.
+
+    Args:
+        weight: Loss weight multiplier. Default: 10.0.
+
+    Example:
+        >>> fm_loss = FeatureMatchingLoss(weight=10.0)
+        >>> real_feats = [torch.randn(2, 64, 32, 32), torch.randn(2, 128, 16, 16)]
+        >>> fake_feats = [torch.randn(2, 64, 32, 32), torch.randn(2, 128, 16, 16)]
+        >>> loss = fm_loss(real_feats, fake_feats)
+    """
+
+    def __init__(self, weight: float = 10.0) -> None:
+        super().__init__()
+        self.weight = weight
+
+    def forward(
+        self,
+        real_features: list[torch.Tensor],
+        fake_features: list[torch.Tensor],
+    ) -> torch.Tensor:
+        """Compute feature matching loss.
+
+        Args:
+            real_features: Intermediate feature maps from discriminator on real images.
+            fake_features: Intermediate feature maps from discriminator on fake images.
+
+        Returns:
+            Weighted feature matching loss (scalar).
+        """
+        n_features = len(real_features)
+        if n_features == 0:
+            return torch.tensor(
+                0.0, device=real_features[0].device if real_features else "cpu"
+            )
+
+        loss: torch.Tensor = torch.tensor(0.0, device=fake_features[0].device)
+        for r, f in zip(real_features, fake_features, strict=True):
+            loss = loss + F.l1_loss(r.detach(), f)
+        return self.weight * loss / n_features
+
+
 # =============================================================================
 # Temporal Losses for Video Consistency
 # =============================================================================
@@ -1396,7 +1443,7 @@ class TemporalDiscriminatorLoss(nn.Module):
 
 
 # =============================================================================
-# Style Losses for Face/Background (DeepFaceLab Legacy)
+# Style Losses for Face/Background
 # =============================================================================
 
 
@@ -1414,7 +1461,7 @@ def gram_matrix(x: torch.Tensor) -> torch.Tensor:
         Gram matrix (B, C, C) normalized by spatial dimensions.
     """
     b, c, h, w = x.shape
-    features = x.view(b, c, -1)
+    features = x.reshape(b, c, h * w).contiguous()
     gram = torch.bmm(features, features.transpose(1, 2))
     return gram / (c * h * w)
 
@@ -1430,7 +1477,7 @@ def face_style_loss(
     """
     Face region style loss using Gram matrices.
 
-    Port of DeepFaceLab's face_style_power from Model_SAEHD.
+    Face region style computation for SAEHD model.
     Computes style similarity between predicted swapped face
     and target destination face using Gram matrices.
 
@@ -1473,6 +1520,9 @@ def face_style_loss(
     return weight * F.mse_loss(gram_pred, gram_target)
 
 
+_BG_DSSIM_CACHE: dict[int, DSSIMLoss] = {}
+
+
 def bg_style_loss(
     pred: torch.Tensor,
     target: torch.Tensor,
@@ -1483,7 +1533,7 @@ def bg_style_loss(
     """
     Background region style loss using DSSIM + L2.
 
-    Port of DeepFaceLab's bg_style_power from Model_SAEHD.
+    Background region style computation for SAEHD model.
     Computes style similarity for background (non-face) regions
     using a combination of DSSIM and L2 loss.
 
@@ -1510,13 +1560,15 @@ def bg_style_loss(
     target_bg = target.detach() * anti_mask
 
     # DSSIM component
-    # Filter size ~22 for 256 resolution (legacy formula)
+    # Filter size ~22 for 256 resolution
     filter_size = max(3, int(resolution / 11.6)) | 1  # Ensure odd
-    dssim_fn = DSSIMLoss(filter_size=filter_size)
+    if filter_size not in _BG_DSSIM_CACHE:
+        _BG_DSSIM_CACHE[filter_size] = DSSIMLoss(filter_size=filter_size)
+    dssim_fn = _BG_DSSIM_CACHE[filter_size]
     dssim = dssim_fn(pred_bg, target_bg)
 
     # L2 component
     l2 = F.mse_loss(pred_bg, target_bg)
 
-    # Combined loss with legacy weight multiplier
+    # Combined loss with weight multiplier
     return cast(torch.Tensor, weight * 10.0 * (dssim + l2))

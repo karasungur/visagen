@@ -1,7 +1,7 @@
 """
 Embedding-based sorting methods.
 
-Uses identity embeddings (InsightFace/AntelopeV2) stored in DFL metadata
+Uses identity embeddings (InsightFace/AntelopeV2) stored in face metadata
 to sort by identity similarity and dissimilarity.
 """
 
@@ -18,17 +18,17 @@ from visagen.sorting.base import SortMethod, SortOutput, SortResult
 
 if TYPE_CHECKING:
     from visagen.sorting.processor import ParallelSortProcessor
-    from visagen.vision.dflimg import FaceMetadata
+    from visagen.vision.face_image import FaceMetadata
 
 
 def _load_embedding(
     filepath: Path,
 ) -> tuple[Path, np.ndarray | None, str | None]:
     """Load embedding for a single file."""
-    from visagen.vision.dflimg import DFLImage
+    from visagen.vision.face_image import FaceImage
 
     try:
-        _image, metadata = DFLImage.load(filepath)
+        _image, metadata = FaceImage.load(filepath)
     except Exception as e:
         return filepath, None, f"error:{e}"
 
@@ -120,7 +120,7 @@ class IDSimilaritySorter(SortMethod):
 
     name = "id-sim"
     description = "Sort by identity similarity (embedding-based)"
-    requires_dfl_metadata = True
+    requires_face_metadata = True
     execution_profile = "cpu_bound"
 
     def __init__(self, exact_limit: int = 3000) -> None:
@@ -178,7 +178,7 @@ class IDDissimilaritySorter(SortMethod):
 
     name = "id-dissim"
     description = "Sort by identity dissimilarity (embedding outliers first)"
-    requires_dfl_metadata = True
+    requires_face_metadata = True
     execution_profile = "cpu_bound"
 
     def __init__(self, exact_limit: int = 3000) -> None:

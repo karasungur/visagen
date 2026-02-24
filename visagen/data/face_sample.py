@@ -21,16 +21,16 @@ class FaceSample:
     for memory efficiency.
 
     Attributes:
-        filepath: Path to the DFL JPEG file.
+        filepath: Path to the aligned JPEG file.
         face_type: Face type string (e.g., "whole_face", "head").
         shape: Image dimensions (H, W, C).
         landmarks: 68-point facial landmarks in aligned image space.
-        xseg_mask: Compressed XSeg mask bytes. Default: None.
+        xseg_mask: Compressed segmentation mask bytes. Default: None.
         seg_ie_polys: Interactive segmentation polygon metadata. Default: None.
         eyebrows_expand_mod: Eyebrow expansion modifier. Default: 1.0.
         source_filename: Original source file name. Default: None.
         image_to_face_mat: Affine transform matrix (2, 3). Default: None.
-        packed_faceset_path: Optional path to legacy faceset.pak.
+        packed_faceset_path: Optional path to faceset.pak.
         packed_offset: Optional byte offset in packed faceset file.
         packed_size: Optional byte size in packed faceset file.
 
@@ -113,7 +113,7 @@ class FaceSample:
 
     def get_xseg_mask(self) -> np.ndarray | None:
         """
-        Decompress and return XSeg mask.
+        Decompress and return segmentation mask.
 
         Returns:
             Mask as float32 array in range [0, 1], shape (H, W, 1),
@@ -156,20 +156,20 @@ class FaceSample:
         return self._pitch_yaw_roll
 
     @classmethod
-    def from_dfl_image(cls, filepath: Path) -> Optional["FaceSample"]:
+    def from_face_image(cls, filepath: Path) -> Optional["FaceSample"]:
         """
-        Create FaceSample from DFL image file.
+        Create FaceSample from image file.
 
         Args:
-            filepath: Path to DFL JPEG file with embedded metadata.
+            filepath: Path to JPEG file with embedded metadata.
 
         Returns:
-            FaceSample instance, or None if file has no DFL metadata.
+            FaceSample instance, or None if file has no face metadata.
         """
-        from visagen.vision.dflimg import DFLImage
+        from visagen.vision.face_image import FaceImage
 
         try:
-            image, metadata = DFLImage.load(filepath)
+            image, metadata = FaceImage.load(filepath)
         except Exception:
             return None
 

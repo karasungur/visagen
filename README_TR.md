@@ -45,7 +45,7 @@
 
 ## 📖 Genel Bakış
 
-**Visagen**, modern derin öğrenme pratikleri ile sıfırdan inşa edilmiş yeni nesil bir yüz değiştirme framework'üdür. DeepFaceLab'dan ilham alınarak, Visagen tüm pipeline'ı **PyTorch Lightning** kullanarak yeniden tasarlar ve daha temiz kod, daha iyi performans ve kolay genişletilebilirlik sunar.
+**Visagen**, **PyTorch Lightning** üzerine inşa edilmiş modern ve yüksek performanslı bir yüz değiştirme framework'üdür. Temiz mimari, üretime hazır araçlar ve kolay genişletilebilirlik sunar.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -54,7 +54,7 @@
 │  Çıkart    ──►   Eğit    ──►  Değiştir  ──►   Son İşlem       │
 │     │              │            │              │              │
 │     ▼              ▼            ▼              ▼              │
-│ InsightFace    DFLModule      CBAM       Renk Transferi       │
+│ InsightFace    TrainingModule      CBAM       Renk Transferi       │
 │ SegFormer     Lightning    Attention      Harmanlama          │
 └───────────────────────────────────────────────────────────────┘
 ```
@@ -72,16 +72,16 @@
 
 ## 🤔 Neden Visagen?
 
-| Özellik | DeepFaceLab | Visagen |
-|---------|-------------|---------|
-| **Framework** | TensorFlow 1.x | PyTorch 2.0 + Lightning |
+| Özellik | Geleneksel Yaklaşımlar | Visagen |
+|---------|----------------------|---------|
+| **Framework** | TensorFlow 1.x / eski yığınlar | PyTorch 2.0 + Lightning |
 | **Python** | 3.7 | 3.10+ tip ipuçları ile |
 | **Eğitim** | Manuel scriptler | CLI + Gradio UI |
 | **Kod Kalitesi** | Test yok | 861 birim test |
 | **GPU Pipeline** | CPU-bağımlı I/O | NVIDIA DALI |
 | **Dışa Aktarım** | Sınırlı | ONNX + TensorRT |
-| **Segmentasyon** | XSeg (kendin eğit) | SegFormer (önceden eğitilmiş) |
-| **Yüz Algılama** | S3FD/RetinaFace | InsightFace SCRFD |
+| **Segmentasyon** | Manuel segmentasyon | SegFormer (önceden eğitilmiş) |
+| **Yüz Algılama** | Eski algılama modelleri | InsightFace SCRFD |
 
 ---
 
@@ -362,7 +362,7 @@ visagen/
 │   ├── decoder.py         # Swish decoder
 │   └── attention.py       # CBAM attention
 ├── 📂 training/           # Eğitim mantığı
-│   ├── dfl_module.py      # PyTorch Lightning modülü
+│   ├── training_module.py      # PyTorch Lightning modülü
 │   ├── pretrain_module.py # Ön-eğitim modülü
 │   ├── losses.py          # Kayıp fonksiyonları (DSSIM, Stil, vb.)
 │   └── 📂 optimizers/      # AdaBelief, AdamW
@@ -422,7 +422,7 @@ visagen/
 │   ├── detector.py        # InsightFace SCRFD algılama
 │   ├── aligner.py         # Yüz hizalama (Umeyama)
 │   ├── segmenter.py       # SegFormer segmentasyon
-│   ├── dflimg.py          # DFL görsel metadata
+│   ├── face_image.py          # DFL görsel metadata
 │   └── mask_export.py     # LabelMe/COCO dışa aktarım
 └── 📂 tests/              # Birim testleri (861)
 ```
@@ -613,7 +613,6 @@ Araştırmanızda Visagen kullanıyorsanız, lütfen alıntı yapın:
 
 ## 🙏 Teşekkürler
 
-- [DeepFaceLab](https://github.com/iperov/DeepFaceLab) - Orijinal ilham kaynağı
 - [PyTorch Lightning](https://lightning.ai/) - Eğitim framework'ü
 - [InsightFace](https://github.com/deepinsight/insightface) - Yüz algılama
 - [Optuna](https://optuna.org/) - Hiperparametre optimizasyonu

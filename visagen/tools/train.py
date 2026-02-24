@@ -36,7 +36,7 @@ from visagen.training.callbacks import (
     PreviewCallback,
     TargetStepCallback,
 )
-from visagen.training.dfl_module import DFLModule
+from visagen.training.training_module import TrainingModule
 from visagen.utils.config import (
     load_config_with_validation,
     print_config_summary,
@@ -136,6 +136,20 @@ Examples:
         help="Gradient clipping norm for AdaBelief (default: 0.0)",
     )
     parser.add_argument(
+        "--warmup-epochs",
+        type=int,
+        default=0,
+        help="LR warmup epochs (0 = disabled, default: 0)",
+    )
+    parser.add_argument(
+        "--scheduler",
+        type=str,
+        dest="scheduler_type",
+        default="cosine",
+        choices=["cosine", "plateau", "constant"],
+        help="LR scheduler type (default: cosine)",
+    )
+    parser.add_argument(
         "--image-size",
         type=int,
         default=256,
@@ -172,13 +186,13 @@ Examples:
         dest="allow_packed_faceset",
         action="store_true",
         default=True,
-        help="Enable legacy faceset.pak loading (default: enabled)",
+        help="Enable faceset.pak loading (default: enabled)",
     )
     parser.add_argument(
         "--no-packed-faceset",
         dest="allow_packed_faceset",
         action="store_false",
-        help="Disable legacy faceset.pak loading",
+        help="Disable faceset.pak loading",
     )
 
     # Model arguments
@@ -247,6 +261,18 @@ Examples:
         type=float,
         default=0.0,
         help="GAN loss power (default: 0.0, enables adversarial training when > 0)",
+    )
+    parser.add_argument(
+        "--feature-matching-weight",
+        type=float,
+        default=0.0,
+        help="Feature matching loss weight for GAN training (default: 0.0)",
+    )
+    parser.add_argument(
+        "--d-betas",
+        type=str,
+        default="0.5,0.999",
+        help="Discriminator optimizer betas as comma-separated values (default: 0.5,0.999)",
     )
     parser.add_argument(
         "--id-weight",
@@ -563,6 +589,8 @@ def main() -> int:
         "lr_dropout": 1.0,
         "lr_cos_period": 0,
         "clipnorm": 0.0,
+        "warmup_epochs": 0,
+        "scheduler_type": "cosine",
         "image_size": 256,
         "num_workers": 4,
         "val_split": 0.1,
@@ -578,6 +606,8 @@ def main() -> int:
         "bg_style_weight": 0.0,
         "true_face_power": 0.0,
         "gan_power": 0.0,
+        "feature_matching_weight": 0.0,
+        "d_betas": "0.5,0.999",
         "id_weight": 0.0,
         "temporal_enabled": False,
         "temporal_power": 0.1,
@@ -679,7 +709,7 @@ def main() -> int:
     if args.masked_training:
         dali_incompatible_reasons.append("masked blur training")
     if args.dali_warp_mode == "strict":
-        dali_incompatible_reasons.append("strict DFL warp mode")
+        dali_incompatible_reasons.append("strict warp mode")
     if effective_data_backend != "pytorch" and dali_incompatible_reasons:
         print(
             "Warning: DALI backend currently does not provide "
@@ -796,7 +826,7 @@ def main() -> int:
         )
         print("  Mode: Fine-tuning from pretrained weights (epoch resets to 0)")
     else:
-        model = DFLModule(
+        model = TrainingModule(
             image_size=args.image_size,
             encoder_dims=encoder_dims,
             encoder_depths=encoder_depths,
@@ -811,6 +841,8 @@ def main() -> int:
             bg_style_weight=args.bg_style_weight,
             true_face_power=args.true_face_power,
             gan_power=args.gan_power,
+            feature_matching_weight=args.feature_matching_weight,
+            d_betas=tuple(float(x) for x in args.d_betas.split(",")),  # type: ignore[arg-type]
             id_weight=args.id_weight,
             # Temporal parameters
             temporal_enabled=args.temporal_enabled,
@@ -822,6 +854,8 @@ def main() -> int:
             lr_dropout=args.lr_dropout,
             lr_cos_period=args.lr_cos_period,
             clipnorm=args.clipnorm,
+            warmup_epochs=args.warmup_epochs,
+            scheduler_type=args.scheduler_type,
             # Experimental model parameters
             model_type=args.model_type,
             diffusion_texture_weight=args.texture_weight,

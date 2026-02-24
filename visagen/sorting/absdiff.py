@@ -2,7 +2,7 @@
 Absolute difference sorting methods.
 
 Provides GPU-accelerated sorting by pixel-wise absolute difference.
-This is a modern PyTorch reimplementation of DeepFaceLab's sort_by_absdiff.
+PyTorch implementation of absolute difference based face sorting.
 """
 
 import logging
@@ -19,7 +19,7 @@ from visagen.sorting.base import SortMethod, SortOutput, SortResult
 
 if TYPE_CHECKING:
     from visagen.sorting.processor import ParallelSortProcessor
-    from visagen.vision.dflimg import FaceMetadata
+    from visagen.vision.face_image import FaceMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class AbsDiffSorter(SortMethod):
 
     name = "absdiff"
     description = "Sort by absolute pixel difference (GPU-accelerated)"
-    requires_dfl_metadata = False
+    requires_face_metadata = False
     execution_profile = "gpu_bound"
 
     def __init__(

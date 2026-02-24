@@ -1,7 +1,7 @@
 """
 DF (Direct Face) Architecture for Visagen.
 
-Port of DeepFaceLab's DF architecture to PyTorch.
+DF architecture for Visagen.
 This is the standard autoencoder architecture used in SAEHD model.
 
 Architecture Options:
@@ -121,7 +121,7 @@ class DFArchi(nn.Module):
     """
     DF (Direct Face) Architecture.
 
-    This is the standard SAEHD architecture from DeepFaceLab.
+    This is the standard SAEHD architecture.
     It consists of:
     - Shared Encoder
     - Inter (bottleneck) - one per identity (src/dst)

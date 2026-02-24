@@ -15,7 +15,7 @@ from visagen.vision.aligner import FaceAligner
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from visagen.vision.dflimg import FaceMetadata
+    from visagen.vision.face_image import FaceMetadata
 
 
 class YawSorter(SortMethod):
@@ -30,7 +30,7 @@ class YawSorter(SortMethod):
 
     name = "face-yaw"
     description = "Sort by face yaw angle (left-right rotation)"
-    requires_dfl_metadata = True
+    requires_face_metadata = True
     execution_profile = "io_bound"
 
     def __init__(self) -> None:
@@ -68,7 +68,7 @@ class PitchSorter(SortMethod):
 
     name = "face-pitch"
     description = "Sort by face pitch angle (up-down tilt)"
-    requires_dfl_metadata = True
+    requires_face_metadata = True
     execution_profile = "io_bound"
 
     def __init__(self) -> None:
@@ -104,7 +104,7 @@ class RollSorter(SortMethod):
 
     name = "face-roll"
     description = "Sort by face roll angle (head tilt)"
-    requires_dfl_metadata = True
+    requires_face_metadata = True
     execution_profile = "io_bound"
 
     def __init__(self) -> None:

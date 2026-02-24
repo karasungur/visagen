@@ -11,7 +11,7 @@ from typing import Any
 
 import torch
 
-from visagen.training.dfl_module import DFLModule
+from visagen.training.training_module import TrainingModule
 
 logger = logging.getLogger(__name__)
 PretrainBatch = (
@@ -20,11 +20,11 @@ PretrainBatch = (
 )
 
 
-class PretrainModule(DFLModule):
+class PretrainModule(TrainingModule):
     """
     Pretrain Lightning Module for self-supervised face reconstruction.
 
-    Extends DFLModule with pretrain-specific behavior:
+    Extends TrainingModule with pretrain-specific behavior:
     - Self-reconstruction training (encode-decode same face)
     - GAN disabled by default (gan_power=0)
     - LPIPS/ID loss disabled for faster training
@@ -32,7 +32,7 @@ class PretrainModule(DFLModule):
 
     This module trains on large face datasets to learn general face
     reconstruction. The pretrained weights can then be loaded into
-    DFLModule for fine-tuning on specific face pairs.
+    TrainingModule for fine-tuning on specific face pairs.
 
     Args:
         image_size: Input/output image size. Default: 256.
@@ -137,7 +137,8 @@ class PretrainModule(DFLModule):
             )
 
         # Forward pass: encode and decode
-        pred = self(src)
+        result = self(src)
+        pred = result[0] if isinstance(result, tuple) else result
 
         # Compute reconstruction losses
         total_loss, loss_dict = self.compute_loss(pred, target)
@@ -174,7 +175,8 @@ class PretrainModule(DFLModule):
             raise TypeError(
                 f"Unsupported pretrain batch format: {type(first)}, {type(second)}"
             )
-        pred = self(src)
+        result = self(src)
+        pred = result[0] if isinstance(result, tuple) else result
 
         total_loss, loss_dict = self.compute_loss(pred, target)
 
@@ -227,12 +229,12 @@ class PretrainModule(DFLModule):
         checkpoint_path: str | Path,
         strict: bool = False,
         **override_kwargs,
-    ) -> "DFLModule":
+    ) -> "TrainingModule":
         """
         Load pretrained weights for fine-tuning.
 
         Loads encoder/decoder weights from pretrain checkpoint and
-        creates a DFLModule ready for fine-tuning. Optimizer state
+        creates a TrainingModule ready for fine-tuning. Optimizer state
         is discarded, and training starts fresh from epoch 0.
 
         Args:
@@ -241,7 +243,7 @@ class PretrainModule(DFLModule):
             **override_kwargs: Override hyperparameters for fine-tune.
 
         Returns:
-            DFLModule with pretrained weights loaded.
+            TrainingModule with pretrained weights loaded.
 
         Example:
             >>> # Load pretrained model for fine-tuning
@@ -285,8 +287,8 @@ class PretrainModule(DFLModule):
         if "gan_power" not in override_kwargs:
             hparams["gan_power"] = 0.0
 
-        # Create new DFLModule with loaded hyperparameters
-        model = DFLModule(**hparams)
+        # Create new TrainingModule with loaded hyperparameters
+        model = TrainingModule(**hparams)
 
         # Load state dict (weights only)
         state_dict = checkpoint.get("state_dict", checkpoint)

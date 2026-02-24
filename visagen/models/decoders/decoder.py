@@ -111,6 +111,7 @@ class Decoder(nn.Module):
         skip_dims: Channel dimensions of skip connections. Default: [256, 128, 64, 64].
         out_channels: Number of output channels. Default: 3.
         use_attention: Whether to use CBAM attention. Default: True.
+        mask_output: Whether to produce a mask output head. Default: False.
 
     Example:
         >>> decoder = Decoder()
@@ -128,6 +129,7 @@ class Decoder(nn.Module):
         skip_dims: list[int] | None = None,
         out_channels: int = 3,
         use_attention: bool = True,
+        mask_output: bool = False,
     ) -> None:
         super().__init__()
 
@@ -166,11 +168,19 @@ class Decoder(nn.Module):
             nn.Tanh(),  # Output in [-1, 1] range
         )
 
+        # Optional mask output head
+        self.mask_output = mask_output
+        if mask_output:
+            self.mask_conv = nn.Sequential(
+                nn.Conv2d(dims[-1], 1, kernel_size=1),
+                nn.Sigmoid(),
+            )
+
     def forward(
         self,
         x: torch.Tensor,
         skip_features: list[torch.Tensor | None] | None = None,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """
         Decode latent features to image.
 
@@ -180,7 +190,8 @@ class Decoder(nn.Module):
                           i.e., from deepest to shallowest).
 
         Returns:
-            Reconstructed image tensor of shape (B, out_channels, H, W).
+            If mask_output is False: reconstructed image tensor (B, out_channels, H, W).
+            If mask_output is True: tuple of (image, mask) tensors.
         """
         if skip_features is None:
             skip_features = [None] * self.num_stages
@@ -190,8 +201,15 @@ class Decoder(nn.Module):
             skip = skip_features[i] if i < len(skip_features) else None
             x = block(x, skip)
 
-        # Final upsampling and output
-        x = self.final_upsample(x)
-        x = self.final_conv(x)
+        # Final upsampling
+        x_pre = self.final_upsample(x)
 
-        return x
+        # Image output
+        image: torch.Tensor = self.final_conv(x_pre)
+
+        # Mask output (if enabled)
+        if self.mask_output and hasattr(self, "mask_conv"):
+            mask: torch.Tensor = self.mask_conv(x_pre)
+            return image, mask
+
+        return image

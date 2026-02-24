@@ -726,19 +726,19 @@ class MaskEditorTab(BaseTab):
         face_path = self._face_files[self._current_face_idx]
 
         try:
-            from visagen.vision.dflimg import DFLImage
+            from visagen.vision.face_image import FaceImage
 
-            image, metadata = DFLImage.load(face_path)
+            image, metadata = FaceImage.load(face_path)
             if metadata is None:
-                return "No DFL metadata in image"
+                return "No face metadata in image"
 
             # Convert mask to float and set
             mask_float = mask.astype(np.float32) / 255.0
             if len(mask_float.shape) == 2:
                 mask_float = mask_float[..., np.newaxis]
 
-            DFLImage.set_xseg_mask(metadata, mask_float)
-            DFLImage.save(face_path, image, metadata)
+            FaceImage.set_xseg_mask(metadata, mask_float)
+            FaceImage.save(face_path, image, metadata)
 
             return f"Mask saved to: {face_path.name}"
 
@@ -1101,7 +1101,7 @@ class MaskEditorTab(BaseTab):
         return cast(np.ndarray, np.where(mask > 127, 255, 0).astype(np.uint8))
 
     def _load_mask_for_export(self, image_path: Path) -> np.ndarray | None:
-        """Load mask from sidecar file or embedded DFL metadata."""
+        """Load mask from sidecar file or embedded face metadata."""
         sidecar = image_path.parent / f"{image_path.stem}_mask.png"
         if sidecar.exists():
             sidecar_mask = cv2.imread(str(sidecar), cv2.IMREAD_GRAYSCALE)
@@ -1112,17 +1112,17 @@ class MaskEditorTab(BaseTab):
             return None
 
         try:
-            from visagen.vision.dflimg import DFLImage
+            from visagen.vision.face_image import FaceImage
 
-            _image, metadata = DFLImage.load(image_path)
+            _image, metadata = FaceImage.load(image_path)
             if metadata is None:
                 return None
-            mask = DFLImage.get_xseg_mask(metadata)
+            mask = FaceImage.get_xseg_mask(metadata)
             if mask is None:
                 return None
             return self._normalize_binary_mask(mask)
         except Exception as e:
-            logger.debug("Failed to load DFL mask from %s: %s", image_path, e)
+            logger.debug("Failed to load face mask from %s: %s", image_path, e)
             return None
 
     def _save_imported_mask(
@@ -1132,7 +1132,7 @@ class MaskEditorTab(BaseTab):
         output_dir: Path,
         mask: np.ndarray,
     ) -> None:
-        """Persist imported mask as sidecar PNG and embed in DFL metadata when possible."""
+        """Persist imported mask as sidecar PNG and embed in face metadata when possible."""
         output_dir.mkdir(parents=True, exist_ok=True)
         normalized_mask = self._normalize_binary_mask(mask)
         stem = Path(image_name).stem
@@ -1147,13 +1147,15 @@ class MaskEditorTab(BaseTab):
             return
 
         try:
-            from visagen.vision.dflimg import DFLImage
+            from visagen.vision.face_image import FaceImage
 
-            image, metadata = DFLImage.load(candidate_image)
+            image, metadata = FaceImage.load(candidate_image)
             if metadata is None:
                 return
-            DFLImage.set_xseg_mask(metadata, normalized_mask.astype(np.float32) / 255.0)
-            DFLImage.save(candidate_image, image, metadata)
+            FaceImage.set_xseg_mask(
+                metadata, normalized_mask.astype(np.float32) / 255.0
+            )
+            FaceImage.save(candidate_image, image, metadata)
         except Exception as e:
             logger.debug(
                 "Failed to embed imported mask into %s metadata: %s",
@@ -1443,19 +1445,19 @@ class MaskEditorTab(BaseTab):
         image_bgr: np.ndarray,
         mask: np.ndarray,
     ) -> None:
-        """Save batch output with DFL mask when possible, fallback to sidecar mask."""
+        """Save batch output with face mask when possible, fallback to sidecar mask."""
         output_image = output_dir / source_path.name
         try:
-            from visagen.vision.dflimg import DFLImage
+            from visagen.vision.face_image import FaceImage
 
             if source_path.suffix.lower() in {".jpg", ".jpeg"}:
-                src_image, metadata = DFLImage.load(source_path)
+                src_image, metadata = FaceImage.load(source_path)
                 if metadata is not None:
                     mask_float = mask.astype(np.float32) / 255.0
                     if mask_float.ndim == 2:
                         mask_float = mask_float[..., np.newaxis]
-                    DFLImage.set_xseg_mask(metadata, mask_float)
-                    DFLImage.save(output_image, src_image, metadata)
+                    FaceImage.set_xseg_mask(metadata, mask_float)
+                    FaceImage.save(output_image, src_image, metadata)
                     return
         except Exception as e:
             logger.debug("Falling back to sidecar mask for %s: %s", source_path, e)

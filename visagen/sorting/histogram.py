@@ -16,7 +16,7 @@ from visagen.sorting.blur import get_face_hull_mask
 
 if TYPE_CHECKING:
     from visagen.sorting.processor import ParallelSortProcessor
-    from visagen.vision.dflimg import FaceMetadata
+    from visagen.vision.face_image import FaceMetadata
 
 
 def compute_histogram(image: np.ndarray, bins: int = 256) -> np.ndarray:
@@ -164,7 +164,7 @@ class HistogramSimilaritySorter(SortMethod):
 
     name = "hist"
     description = "Sort by histogram similarity (groups similar images)"
-    requires_dfl_metadata = False
+    requires_face_metadata = False
     execution_profile = "cpu_bound"
 
     def __init__(self, exact_limit: int = 0) -> None:
@@ -298,7 +298,7 @@ class HistogramDissimilaritySorter(SortMethod):
 
     name = "hist-dissim"
     description = "Sort by histogram dissimilarity (unique images first)"
-    requires_dfl_metadata = True  # Uses face mask
+    requires_face_metadata = True  # Uses face mask
     execution_profile = "cpu_bound"
 
     def __init__(self, exact_limit: int = 0) -> None:
@@ -352,11 +352,11 @@ class HistogramDissimilaritySorter(SortMethod):
                     continue
                 image_data.append((item.filepath, item.histogram))
         else:
-            from visagen.vision.dflimg import DFLImage
+            from visagen.vision.face_image import FaceImage
 
             for filepath in image_paths:
                 try:
-                    image, metadata = DFLImage.load(filepath)
+                    image, metadata = FaceImage.load(filepath)
                     if image is None:
                         trash.append(
                             SortResult(filepath, 0.0, {"error": "Failed to load"})

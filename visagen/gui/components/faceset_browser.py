@@ -301,7 +301,7 @@ class FacesetBrowser:
             return None
 
         if show_masks:
-            sample = FaceSample.from_dfl_image(filepath)
+            sample = FaceSample.from_face_image(filepath)
             if sample and sample.xseg_mask:
                 mask = sample.get_xseg_mask()
                 if mask is not None:
@@ -450,7 +450,7 @@ class FacesetBrowser:
             image = self._resize_for_preview(image)
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-            sample = FaceSample.from_dfl_image(filepath)
+            sample = FaceSample.from_face_image(filepath)
             metadata: dict[str, Any] = {
                 "filename": filepath.name,
                 "face_type": sample.face_type if sample else "unknown",

@@ -1,5 +1,5 @@
 # SAEHD (DF + LIAE) Model Configuration
-# Based on legacy DeepFaceLab SAEHD architecture
+# SAEHD model architecture configuration
 
 # Model architecture
 model_type: "saehd"  # Options: saehd, amp, quick96

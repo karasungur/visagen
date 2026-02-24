@@ -86,7 +86,7 @@ class FaceType(IntEnum):
         return self.padding, self.remove_align
 
 
-# Mapping for legacy compatibility
+# Mapping for compatibility
 FACE_TYPE_TO_PADDING = {
     FaceType.HALF: (0.0, False),
     FaceType.MID_FULL: (0.0675, False),

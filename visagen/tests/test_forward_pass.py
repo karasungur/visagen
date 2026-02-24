@@ -11,7 +11,7 @@ from visagen.data.noise_dataset import RandomNoiseDataset
 from visagen.models.decoders.decoder import Decoder, DecoderBlock
 from visagen.models.encoders.convnext import ConvNeXtBlock, ConvNeXtEncoder
 from visagen.models.layers.attention import CBAM, ChannelAttention, SpatialAttention
-from visagen.training.dfl_module import DFLModule
+from visagen.training.training_module import TrainingModule
 
 
 class TestCBAM:
@@ -134,7 +134,7 @@ class TestDecoder:
         assert out.shape[1] == 3
 
 
-class TestDFLModule:
+class TestTrainingModule:
     """Tests for main Lightning module."""
 
     def test_forward_pass(self) -> None:
@@ -142,11 +142,12 @@ class TestDFLModule:
         batch, channels, height, width = 2, 3, 256, 256
         x = torch.randn(batch, channels, height, width)
 
-        module = DFLModule(image_size=height)
+        module = TrainingModule(image_size=height)
         module.eval()
 
         with torch.no_grad():
-            out = module(x)
+            result = module(x)
+        out = result[0] if isinstance(result, tuple) else result
 
         assert out.shape == x.shape
 
@@ -166,7 +167,7 @@ class TestDFLModule:
         }
         batch = (src_dict, dst_dict)
 
-        module = DFLModule(image_size=image_size)
+        module = TrainingModule(image_size=image_size)
         loss = module.training_step(batch, 0)
 
         assert isinstance(loss, torch.Tensor)
@@ -213,8 +214,8 @@ def run_quick_test() -> None:
     print(f"Device: {device}")
 
     # Create model
-    print("\nCreating DFLModule...")
-    module = DFLModule(image_size=256)
+    print("\nCreating TrainingModule...")
+    module = TrainingModule(image_size=256)
     module = module.to(device)
     module.eval()
 

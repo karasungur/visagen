@@ -2,7 +2,7 @@
 Face Augmentation Pipeline.
 
 Modern PyTorch-based augmentations for face training.
-Matches legacy DeepFaceLab augmentation behavior.
+Face augmentation pipeline for training.
 """
 
 import math
@@ -161,7 +161,7 @@ class FaceAugmentationPipeline(nn.Module):
         _, _, h, w = image.shape
 
         if self.warp_mode == "strict":
-            legacy_params = gen_legacy_warp_params(
+            warp_params = gen_legacy_warp_params(
                 size=self.target_size,
                 flip=self.random_flip_prob > 0,
                 flip_prob=self.random_flip_prob,
@@ -173,7 +173,7 @@ class FaceAugmentationPipeline(nn.Module):
             )
             image = warp_legacy_by_params(
                 image,
-                legacy_params,
+                warp_params,
                 can_warp=self.random_warp,
                 can_transform=True,
                 can_flip=True,
@@ -183,7 +183,7 @@ class FaceAugmentationPipeline(nn.Module):
             if mask is not None:
                 mask = warp_legacy_by_params(
                     mask,
-                    legacy_params,
+                    warp_params,
                     can_warp=self.random_warp,
                     can_transform=True,
                     can_flip=True,
@@ -552,7 +552,7 @@ def blur_out_mask(
     to prevent the model from focusing on background details and force it to
     learn face-specific features.
 
-    Port of DeepFaceLab's blur_out_mask from Model_SAEHD.
+    Blur out mask for SAEHD model training.
 
     Args:
         image: Image tensor (B, C, H, W) in [0, 1] range.
@@ -588,7 +588,7 @@ def blur_out_mask(
     if resolution is None:
         resolution = image.shape[-1]
 
-    # Calculate sigma based on resolution (legacy formula)
+    # Calculate sigma based on resolution
     sigma = resolution / 128.0
     # Kernel size must be odd and at least 3
     kernel_size = max(3, int(sigma * 6) | 1)

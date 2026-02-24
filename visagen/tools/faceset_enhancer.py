@@ -5,12 +5,9 @@ Useful for improving low-quality face extractions before training.
 
 Features:
     - Parallel batch processing
-    - DFL metadata preservation
+    - Face metadata preservation
     - Multiple restoration backends (GFPGAN)
     - Progress tracking
-
-References:
-    - Legacy DFL: mainscripts/FacesetEnhancer.py
 """
 
 from __future__ import annotations
@@ -27,7 +24,7 @@ import numpy as np
 from tqdm import tqdm
 
 from visagen.postprocess.restore import FaceRestorer, RestoreConfig, is_gfpgan_available
-from visagen.vision.dflimg import DFLImage
+from visagen.vision.face_image import FaceImage
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +55,7 @@ def enhance_single_face(
         output_path: Path to save enhanced image
         restorer: FaceRestorer instance
         strength: Restoration strength
-        preserve_metadata: Whether to preserve DFL metadata
+        preserve_metadata: Whether to preserve face metadata
 
     Returns:
         True if successful, False otherwise
@@ -70,12 +67,12 @@ def enhance_single_face(
             logger.warning(f"Failed to read image: {input_path}")
             return False
 
-        # Load DFL metadata if present
+        # Load face metadata if present
         metadata = None
         if preserve_metadata and input_path.suffix.lower() in [".jpg", ".jpeg"]:
             try:
-                _, dfl_metadata = DFLImage.load(input_path)
-                metadata = dfl_metadata
+                _, face_meta = FaceImage.load(input_path)
+                metadata = face_meta
             except Exception as e:
                 logger.debug(f"Failed to load metadata from {input_path}: {e}")
 
@@ -87,7 +84,7 @@ def enhance_single_face(
 
         # Save with metadata if applicable
         if metadata is not None and output_path.suffix.lower() in [".jpg", ".jpeg"]:
-            DFLImage.save(output_path, enhanced, metadata, quality=95)
+            FaceImage.save(output_path, enhanced, metadata, quality=95)
         else:
             # Save without metadata
             if output_path.suffix.lower() in [".jpg", ".jpeg"]:
@@ -124,7 +121,7 @@ def enhance_faceset(
         backend: Restoration backend ('gfpgan')
         strength: Restoration strength (0.0-1.0)
         model_version: GFPGAN model version (1.2, 1.3, 1.4)
-        preserve_metadata: Preserve DFL metadata in output images
+        preserve_metadata: Preserve face metadata in output images
         num_workers: Number of parallel workers (1 recommended for GFPGAN)
         device: Device for inference ('cuda', 'cpu', None for auto)
 
@@ -247,7 +244,7 @@ def main() -> None:
     parser.add_argument(
         "--no-metadata",
         action="store_true",
-        help="Don't preserve DFL metadata",
+        help="Don't preserve face metadata",
     )
     parser.add_argument(
         "--device",

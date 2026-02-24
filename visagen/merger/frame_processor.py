@@ -157,7 +157,7 @@ class FrameProcessor:
     - "tensorrt": TensorRT for maximum GPU performance
 
     Args:
-        model: Trained model (DFLModule, checkpoint path, ONNX path, or TensorRT engine).
+        model: Trained model (TrainingModule, checkpoint path, ONNX path, or TensorRT engine).
         config: Processing configuration.
         device: Torch device for PyTorch inference.
         backend: Inference backend ("pytorch", "onnx", "tensorrt"). Default: "pytorch".
@@ -231,15 +231,16 @@ class FrameProcessor:
     ) -> "torch.nn.Module":
         """Load PyTorch model from checkpoint or return if already loaded."""
         if isinstance(model, (str, Path)):
-            from visagen.training.dfl_module import DFLModule
+            from visagen.training.training_module import TrainingModule
 
             model_path = Path(model)
             if not model_path.exists():
                 raise FileNotFoundError(f"Model checkpoint not found: {model_path}")
 
-            loaded_model = DFLModule.load_from_checkpoint(
+            loaded_model = TrainingModule.load_from_checkpoint(
                 str(model_path),
                 map_location=self.device,
+                strict=False,
             )
             loaded_model = loaded_model.to(self.device)
             return loaded_model
@@ -534,7 +535,7 @@ class FrameProcessor:
 
     def _normalize_landmarks(self, landmarks: np.ndarray) -> np.ndarray:
         """
-        Normalize detector landmarks to DFL-compatible 68-point format.
+        Normalize detector landmarks to 68-point format.
 
         Args:
             landmarks: Detector landmarks (typically 68, 106, or 5 points).
@@ -556,7 +557,7 @@ class FrameProcessor:
 
         if lm.shape[0] == 5:
             raise ValueError(
-                "5-point landmarks are not supported by DFL alignment pipeline"
+                "5-point landmarks are not supported by face alignment pipeline"
             )
 
         raise ValueError(f"Unsupported landmark count: {lm.shape[0]}")
@@ -584,6 +585,8 @@ class FrameProcessor:
             with torch.no_grad():
                 output = self.model(img_tensor)
 
+            if isinstance(output, tuple):
+                output = output[0]  # image tensor, discard mask
             output = output.squeeze(0).cpu().numpy()
 
         elif self.backend in ("onnx", "tensorrt"):

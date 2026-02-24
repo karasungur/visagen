@@ -2,7 +2,7 @@
 PatchGAN Discriminator for Visagen GAN training.
 
 Implements UNet-based PatchGAN discriminator with optional Spectral Normalization.
-Port of legacy DeepFaceLab UNetPatchDiscriminator to PyTorch.
+UNet-based PatchGAN discriminator for Visagen.
 
 Reference:
     "A U-Net Based Discriminator for Generative Adversarial Networks"

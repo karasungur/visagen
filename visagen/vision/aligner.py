@@ -2,7 +2,7 @@
 Face Alignment using 3D Landmarks and Umeyama Transform.
 
 Provides face alignment using AntelopeV2 106-point landmarks
-and Umeyama similarity transform, compatible with legacy DFL format.
+and Umeyama similarity transform for Visagen face extraction.
 """
 
 import logging
@@ -579,7 +579,7 @@ class FaceAligner:
 
     def convert_106_to_68(self, landmarks_106: np.ndarray) -> np.ndarray:
         """
-        Convert 106-point landmarks (InsightFace) to 68-point format (DFL).
+        Convert 106-point landmarks (InsightFace) to 68-point format.
 
         Args:
             landmarks_106: 106-point landmarks array.

@@ -3,8 +3,8 @@
 import pytest
 import torch
 
-from visagen.training.dfl_module import DFLModule
 from visagen.training.losses import DiscriminatorLoss, GANLoss, TotalVariationLoss
+from visagen.training.training_module import TrainingModule
 
 
 class TestGANLoss:
@@ -168,13 +168,13 @@ class TestTotalVariationLoss:
         assert x.grad is not None
 
 
-class TestDFLModuleGAN:
-    """Tests for DFLModule with GAN training."""
+class TestTrainingModuleGAN:
+    """Tests for TrainingModule with GAN training."""
 
     @pytest.fixture
     def module_ae(self):
         """Module without GAN (autoencoder only)."""
-        return DFLModule(
+        return TrainingModule(
             image_size=64,
             encoder_dims=[16, 32, 64, 128],
             encoder_depths=[1, 1, 1, 1],
@@ -185,7 +185,7 @@ class TestDFLModuleGAN:
     @pytest.fixture
     def module_gan(self):
         """Module with GAN training."""
-        return DFLModule(
+        return TrainingModule(
             image_size=64,
             encoder_dims=[16, 32, 64, 128],
             encoder_depths=[1, 1, 1, 1],
@@ -223,14 +223,16 @@ class TestDFLModuleGAN:
     def test_forward_pass_ae(self, module_ae):
         """Forward pass should work in AE mode."""
         x = torch.randn(2, 3, 64, 64)
-        out = module_ae(x)
+        result = module_ae(x)
+        out = result[0] if isinstance(result, tuple) else result
 
         assert out.shape == x.shape
 
     def test_forward_pass_gan(self, module_gan):
         """Forward pass should work in GAN mode."""
         x = torch.randn(2, 3, 64, 64)
-        out = module_gan(x)
+        result = module_gan(x)
+        out = result[0] if isinstance(result, tuple) else result
 
         assert out.shape == x.shape
 
@@ -283,7 +285,7 @@ class TestGANModes:
     @pytest.mark.parametrize("mode", ["vanilla", "lsgan", "hinge"])
     def test_gan_modes(self, mode):
         """All GAN modes should work."""
-        module = DFLModule(
+        module = TrainingModule(
             image_size=64,
             encoder_dims=[16, 32, 64, 128],
             encoder_depths=[1, 1, 1, 1],
@@ -299,5 +301,6 @@ class TestGANModes:
 
         # Test forward pass
         x = torch.randn(2, 3, 64, 64)
-        out = module(x)
+        result = module(x)
+        out = result[0] if isinstance(result, tuple) else result
         assert out.shape == x.shape

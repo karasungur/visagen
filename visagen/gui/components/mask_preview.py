@@ -2,7 +2,7 @@
 Mask Preview Mode Generator.
 
 Provides multiple visualization modes for mask preview,
-compatible with legacy XSegEditor preview functionality.
+compatible with mask editor preview functionality.
 """
 
 from enum import Enum

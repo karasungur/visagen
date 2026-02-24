@@ -10,7 +10,7 @@ This module provides modern computer vision capabilities:
 """
 
 from visagen.vision.aligner import FaceAligner
-from visagen.vision.dflimg import DFLImage, FaceMetadata
+from visagen.vision.face_image import FaceImage, FaceMetadata
 from visagen.vision.face_type import FaceType
 from visagen.vision.mask_export import (
     export_coco,
@@ -53,7 +53,7 @@ __all__ = [
     "FaceDetector",
     "FaceAligner",
     "FaceSegmenter",
-    "DFLImage",
+    "FaceImage",
     "FaceMetadata",
     # Mask export
     "mask_to_polygons",

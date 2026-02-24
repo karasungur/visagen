@@ -6,7 +6,6 @@ allowing dynamic modulation of feature statistics based on style vectors.
 References:
     - Huang & Belongie, "Arbitrary Style Transfer in Real-time with
       Adaptive Instance Normalization", ICCV 2017
-    - Legacy DFL: core/leras/layers/AdaIN.py
 """
 
 from __future__ import annotations

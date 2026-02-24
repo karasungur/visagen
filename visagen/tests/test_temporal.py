@@ -8,7 +8,7 @@ Tests cover:
 - LightweightTemporalDiscriminator
 - Temporal loss functions
 - Sequence datasets
-- DFLModule temporal integration
+- TrainingModule temporal integration
 """
 
 import tempfile
@@ -30,7 +30,7 @@ from visagen.training.losses import (
     TemporalDiscriminatorLoss,
     TemporalGANLoss,
 )
-from visagen.vision.dflimg import DFLImage, FaceMetadata
+from visagen.vision.face_image import FaceImage, FaceMetadata
 
 # =============================================================================
 # ResidualBlock3D Tests
@@ -362,7 +362,7 @@ class TestSequenceFaceDataset:
             yield tmpdir
 
     @staticmethod
-    def _create_dfl_image(path: Path, source_filename: str) -> None:
+    def _create_face_image(path: Path, source_filename: str) -> None:
         image = np.full((32, 32, 3), 128, dtype=np.uint8)
         metadata = FaceMetadata(
             landmarks=np.zeros((68, 2), dtype=np.float32),
@@ -372,7 +372,7 @@ class TestSequenceFaceDataset:
             face_type="whole_face",
             image_to_face_mat=np.eye(2, 3, dtype=np.float32),
         )
-        DFLImage.save(path, image, metadata)
+        FaceImage.save(path, image, metadata)
 
     def test_sequence_shape(self, temp_image_dir):
         """Test dataset returns correct sequence shape."""
@@ -433,15 +433,15 @@ class TestSequenceFaceDataset:
             with pytest.raises(ValueError, match="Not enough images"):
                 SequenceFaceDataset(tmpdir, sequence_length=5)
 
-    def test_source_filename_sort_mode_uses_dfl_metadata_order(self):
-        """Legacy temporal order should prioritize source_filename metadata."""
+    def test_source_filename_sort_mode_uses_face_metadata_order(self):
+        """Temporal order should prioritize source_filename metadata."""
         from visagen.data import SequenceFaceDataset
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            self._create_dfl_image(root / "1.jpg", "frame_0003.png")
-            self._create_dfl_image(root / "2.jpg", "frame_0001.png")
-            self._create_dfl_image(root / "3.jpg", "frame_0002.png")
+            self._create_face_image(root / "1.jpg", "frame_0003.png")
+            self._create_face_image(root / "2.jpg", "frame_0001.png")
+            self._create_face_image(root / "3.jpg", "frame_0002.png")
 
             dataset = SequenceFaceDataset(
                 root,
@@ -610,18 +610,18 @@ class TestRandomSequenceDataset:
 
 
 # =============================================================================
-# DFLModule Temporal Integration Tests
+# TrainingModule Temporal Integration Tests
 # =============================================================================
 
 
-class TestDFLModuleTemporalIntegration:
-    """Tests for DFLModule temporal integration."""
+class TestTrainingModuleTemporalIntegration:
+    """Tests for TrainingModule temporal integration."""
 
     def test_temporal_init(self):
-        """Test DFLModule initializes with temporal enabled."""
-        from visagen.training.dfl_module import DFLModule
+        """Test TrainingModule initializes with temporal enabled."""
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(temporal_enabled=True)
+        module = TrainingModule(temporal_enabled=True)
 
         assert module.temporal_enabled is True
         assert module.temporal_discriminator is not None
@@ -631,18 +631,18 @@ class TestDFLModuleTemporalIntegration:
 
     def test_temporal_disabled_by_default(self):
         """Test temporal is disabled by default."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule()
+        module = TrainingModule()
 
         assert module.temporal_enabled is False
         assert module.temporal_discriminator is None
 
     def test_forward_sequence(self):
         """Test forward_sequence method."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(temporal_enabled=True)
+        module = TrainingModule(temporal_enabled=True)
         seq = torch.randn(2, 3, 5, 64, 64)
         out = module.forward_sequence(seq)
 
@@ -650,9 +650,9 @@ class TestDFLModuleTemporalIntegration:
 
     def test_forward_sequence_gradient(self):
         """Test gradients flow through forward_sequence."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(temporal_enabled=True)
+        module = TrainingModule(temporal_enabled=True)
         seq = torch.randn(1, 3, 5, 64, 64, requires_grad=True)
         out = module.forward_sequence(seq)
         loss = out.mean()
@@ -662,9 +662,9 @@ class TestDFLModuleTemporalIntegration:
 
     def test_temporal_parameters_saved(self):
         """Test temporal parameters are in hparams."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(
+        module = TrainingModule(
             temporal_enabled=True,
             temporal_power=0.2,
             temporal_sequence_length=7,
@@ -678,9 +678,9 @@ class TestDFLModuleTemporalIntegration:
 
     def test_combined_temporal_and_gan(self):
         """Test temporal and GAN can be combined."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(temporal_enabled=True, gan_power=0.1)
+        module = TrainingModule(temporal_enabled=True, gan_power=0.1)
 
         assert module.temporal_enabled is True
         assert module.gan_power > 0
@@ -689,9 +689,9 @@ class TestDFLModuleTemporalIntegration:
 
     def test_configure_optimizers_temporal_only(self):
         """Test optimizer configuration with temporal only."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(temporal_enabled=True)
+        module = TrainingModule(temporal_enabled=True)
 
         # Mock trainer
         class MockTrainer:
@@ -706,9 +706,9 @@ class TestDFLModuleTemporalIntegration:
 
     def test_configure_optimizers_temporal_and_gan(self):
         """Test optimizer configuration with temporal + GAN."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(temporal_enabled=True, gan_power=0.1)
+        module = TrainingModule(temporal_enabled=True, gan_power=0.1)
 
         class MockTrainer:
             max_epochs = 100

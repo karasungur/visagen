@@ -1,69 +1,100 @@
 # Default Training Configuration
+# Flat format — loadable by visagen-train --config
 
-# Training parameters
-trainer:
-  max_steps: 500000
-  batch_size: 8
-  accumulate_grad_batches: 1
-  precision: "16-mixed"  # Options: 32, 16-mixed, bf16-mixed
+# =========================================================================
+# Paths (required at CLI, not in config file)
+# =========================================================================
+# src_dir: /path/to/data_src/aligned
+# dst_dir: /path/to/data_dst/aligned
+# output_dir: workspace/model
 
-# Optimizer settings
-optimizer:
-  name: "adamw"  # Options: adamw, adabelief
-  lr: 0.0001
-  weight_decay: 0.01
-  betas: [0.9, 0.999]
-  eps: 1.0e-8
+# =========================================================================
+# Training
+# =========================================================================
+batch_size: 8
+max_epochs: 500
+learning_rate: 0.0001
+image_size: 256
+num_workers: 4
+val_split: 0.1
 
-# Learning rate scheduler
-scheduler:
-  name: "cosine"  # Options: cosine, linear, constant
-  warmup_steps: 1000
-  min_lr: 1.0e-6
+# =========================================================================
+# Optimizer
+# =========================================================================
+optimizer_type: "adamw"        # Options: adamw, adabelief
+weight_decay: 0.01
+lr_dropout: 1.0                # 1.0 = no dropout (AdaBelief only)
+lr_cos_period: 0               # 0 = disabled (AdaBelief only)
+clipnorm: 0.0                  # 0.0 = disabled (AdaBelief only)
 
+# =========================================================================
+# Scheduler
+# =========================================================================
+scheduler_type: "cosine"       # Options: cosine, plateau, constant
+warmup_epochs: 5
+
+# =========================================================================
+# Model
+# =========================================================================
+model_type: "standard"         # Options: standard, diffusion, eg3d
+encoder_dims: "64,128,256,512"
+encoder_depths: "2,2,4,2"
+
+# =========================================================================
 # Loss weights
-loss:
-  # Reconstruction losses
-  l1_weight: 10.0
-  dssim_weight: 10.0
-  lpips_weight: 0.5
+# =========================================================================
+dssim_weight: 10.0
+l1_weight: 10.0
+lpips_weight: 0.5
+id_weight: 0.5
+eyes_mouth_weight: 2.0
+gaze_weight: 0.0
+mask_weight: 10.0
 
-  # Identity preservation
-  id_weight: 0.5
+# Style losses
+face_style_weight: 0.0
+bg_style_weight: 0.0
 
-  # Eyes/mouth enhancement
-  eyes_mouth_weight: 2.0
+# =========================================================================
+# GAN
+# =========================================================================
+gan_power: 0.0
+gan_mode: "vanilla"            # Options: vanilla, lsgan, hinge
+gan_patch_size: 70
+gan_base_ch: 16
+true_face_power: 0.0
+feature_matching_weight: 0.0
+d_betas: "0.5,0.999"
 
-  # Style losses
-  style_weight: 1.0
-  moment_style_weight: 1.0
+# =========================================================================
+# Temporal
+# =========================================================================
+temporal_enabled: false
+temporal_power: 0.1
+temporal_sequence_length: 5
+temporal_consistency_weight: 1.0
 
-  # GAN loss (if enabled)
-  gan_weight: 0.0
+# =========================================================================
+# Augmentation
+# =========================================================================
+masked_training: false
 
-  # Temporal consistency (if sequence training)
-  temporal_weight: 0.0
+# =========================================================================
+# Preview & Backup
+# =========================================================================
+preview_interval: 500
+backup_interval: 0
+backup_minutes: 0
+max_backups: 5
 
-# Callbacks
-callbacks:
-  # Preview generation
-  preview:
-    enabled: true
-    interval: 500
+# =========================================================================
+# Target
+# =========================================================================
+max_steps: 0
 
-  # Auto backup
-  backup:
-    enabled: true
-    interval: 25000
-    keep_last: 5
-
-  # Target step stopping
-  target_step:
-    enabled: true
-    step: 500000
-
-# Data loading
-dataloader:
-  num_workers: 4
-  pin_memory: true
-  persistent_workers: true
+# =========================================================================
+# Hardware
+# =========================================================================
+devices: 1
+accelerator: "auto"
+precision: "16-mixed"          # Options: 32, 16-mixed, bf16-mixed

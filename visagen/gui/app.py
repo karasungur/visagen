@@ -56,7 +56,7 @@ def create_app(
     state = AppState.create(settings_file)
     i18n = I18n(locale=locale)
 
-    # Tab classes in DeepFaceLab workflow order
+    # Tab classes in workflow order
     # 1. Extract → 2. Sort → 3. Train → 4. Merge → 5. Export
     tab_classes = [
         WizardTab,  # Quick Start wizard for new users

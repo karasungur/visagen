@@ -1,7 +1,7 @@
 """
 CPBD (Cumulative Probability of Blur Detection) sharpness metric.
 
-This module is based on the classic CPBD implementation used by legacy DFL.
+This module implements CPBD (Cumulative Probability of Blur Detection) metrics.
 It provides a no-reference sharpness score where higher values indicate
 sharper images.
 """

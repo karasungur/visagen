@@ -7,7 +7,7 @@ All operations (decode, resize, augment) run on GPU, eliminating CPU bottlenecks
 Features:
     - GPU-based JPEG decoding
     - GPU augmentations (flip, color jitter)
-    - DFL-style random warping via external source
+    - Grid-based random warping via external source
     - Paired source/destination loading
 
 Requires:
@@ -163,7 +163,7 @@ def _resolve_dali_inputs(
     allow_packed_faceset: bool,
 ) -> list[Path | FaceSample]:
     """
-    Resolve DALI inputs as filesystem images or legacy packed samples.
+    Resolve DALI inputs as filesystem images or packed samples.
 
     Preference order:
       1) plain image files
@@ -179,7 +179,7 @@ def _resolve_dali_inputs(
     if packed_path.exists() and not allow_packed_faceset:
         raise ValueError(
             "No images found and faceset.pak loading is disabled. "
-            "Set allow_packed_faceset=True to enable legacy packed input."
+            "Set allow_packed_faceset=True to enable packed input."
         )
 
     if allow_packed_faceset and packed_path.exists():
@@ -210,7 +210,7 @@ if DALI_AVAILABLE:
         contrast_range: tuple[float, float] = (0.9, 1.1),
         saturation_range: tuple[float, float] = (0.9, 1.1),
         hue_range: float = 0.05,
-        # Legacy-style affine warp augmentation
+        # Affine warp augmentation
         warp_rotation_range: tuple[float, float] = (-10.0, 10.0),
         warp_scale_range: tuple[float, float] = (0.95, 1.05),
         warp_translation_range: tuple[float, float] = (-0.05, 0.05),
@@ -310,7 +310,7 @@ if DALI_AVAILABLE:
         # =====================================================================
 
         if warp_mode == "affine":
-            # Legacy-compatible affine approximation available in DALI.
+            # Affine approximation available in DALI.
             src_warp_mat = fn.external_source(
                 source=DALIAffineGenerator(
                     size=image_size,
@@ -349,7 +349,7 @@ if DALI_AVAILABLE:
         else:
             raise ValueError(
                 "DALI strict warp mode is unsupported. "
-                "Use PyTorch backend for strict legacy warp parity."
+                "Use PyTorch backend for strict warp parity."
             )
 
         # Random horizontal flip
@@ -418,7 +418,7 @@ if DALI_AVAILABLE:
         contrast_range: tuple[float, float] = (0.9, 1.1),
         saturation_range: tuple[float, float] = (0.9, 1.1),
         hue_range: float = 0.05,
-        # Legacy-style affine warp augmentation
+        # Affine warp augmentation
         warp_rotation_range: tuple[float, float] = (-10.0, 10.0),
         warp_scale_range: tuple[float, float] = (0.95, 1.05),
         warp_translation_range: tuple[float, float] = (-0.05, 0.05),
@@ -429,7 +429,7 @@ if DALI_AVAILABLE:
         """
         DALI pipeline with encoded bytes fed via external source.
 
-        Used for legacy packed faceset inputs where training samples are not
+        Used for packed faceset inputs where training samples are not
         directly addressable as regular filesystem image files.
         """
         del rotation_range
@@ -510,7 +510,7 @@ if DALI_AVAILABLE:
         else:
             raise ValueError(
                 "DALI strict warp mode is unsupported. "
-                "Use PyTorch backend for strict legacy warp parity."
+                "Use PyTorch backend for strict warp parity."
             )
 
         src_flip = fn.random.coin_flip(probability=flip_prob)
@@ -692,7 +692,7 @@ def create_dali_iterator(
         shard_id: Shard ID for distributed training.
         num_shards: Total number of shards.
         warp_mode: DALI warp mode (`affine` or `strict`).
-        allow_packed_faceset: Allow loading legacy packed facesets (`faceset.pak`)
+        allow_packed_faceset: Allow loading packed facesets (`faceset.pak`)
             when flat image files are missing.
 
     Returns:
@@ -716,7 +716,7 @@ def create_dali_iterator(
     if augment and warp_mode == "strict":
         raise ValueError(
             "warp_mode='strict' is not supported by DALI; "
-            "use PyTorch fallback for strict legacy warp."
+            "use PyTorch fallback for strict warp."
         )
 
     src_dir = Path(src_dir)

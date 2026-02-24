@@ -2,7 +2,7 @@
 Polygon Data Structures for Mask Editing.
 
 Provides Include/Exclude polygon system compatible with
-legacy XSegEditor format.
+the polygon editor format.
 """
 
 from dataclasses import dataclass, field
@@ -234,7 +234,7 @@ class Polygon:
         """
         Convert to dictionary for serialization.
 
-        Compatible with legacy DFL format.
+        Compatible with the faceset polygon format.
         """
         return {
             "type": int(self.type),
@@ -246,7 +246,7 @@ class Polygon:
         """
         Create from dictionary.
 
-        Compatible with legacy DFL format.
+        Compatible with the faceset polygon format.
         """
         poly = cls(poly_type=PolyType(data["type"]))
         poly.points = np.array(data.get("pts", []), dtype=np.float32)
@@ -395,7 +395,7 @@ class PolygonSet:
         """
         Convert to dictionary for serialization.
 
-        Compatible with legacy DFL seg_ie_polys format.
+        Compatible with seg_ie_polys format.
         """
         return {"polys": [poly.to_dict() for poly in self.polygons]}
 
@@ -404,7 +404,7 @@ class PolygonSet:
         """
         Create from dictionary.
 
-        Handles both new dict format and legacy list format.
+        Handles both dict format and list format.
 
         Args:
             data: Serialized polygon data.
@@ -418,7 +418,7 @@ class PolygonSet:
             return polyset
 
         if isinstance(data, list):
-            # Legacy format: list of (type, pts) tuples
+            # List format: list of (type, pts) tuples
             for item in data:
                 if isinstance(item, (list, tuple)) and len(item) >= 2:
                     poly_type, pts = item[0], item[1]

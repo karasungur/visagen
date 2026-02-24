@@ -1,7 +1,7 @@
 """
 Grid-based Face Warping.
 
-Port of legacy DeepFaceLab warping to PyTorch.
+Warping transformations for face training data.
 Uses random displacement grids for data augmentation.
 """
 
@@ -22,7 +22,6 @@ def gen_warp_params(
     Generate random warp displacement maps.
 
     Creates grid-based displacement maps for face warping augmentation.
-    Matches legacy DeepFaceLab behavior.
 
     Args:
         size: Image size (assumes square images).
@@ -51,7 +50,7 @@ def gen_warp_params(
     mapy = grid_points.unsqueeze(1).expand(-1, cell_count).clone()
 
     # Add random displacement to interior points
-    # Displacement magnitude: cell_size * 0.24 (legacy value)
+    # Displacement magnitude: cell_size * 0.24
     displacement = cell_size * 0.24
     interior_h = cell_count - 2
     interior_w = cell_count - 2
@@ -156,9 +155,9 @@ def gen_legacy_warp_params(
     warp_rng: np.random.Generator | None = None,
 ) -> dict[str, Any]:
     """
-    Generate legacy DeepFaceLab warp parameters.
+    Generate warp parameters.
 
-    This mirrors `legacy/core/imagelib/warp.py::gen_warp_params` and returns
+    This mirrors `core/imagelib/warp.py::gen_warp_params` and returns
     remap matrices + affine matrix + flip flag for strict parity mode.
     """
     if rng is None:
@@ -236,7 +235,7 @@ def warp_legacy_by_params(
     cv2_inter: int = cv2.INTER_CUBIC,
 ) -> torch.Tensor:
     """
-    Apply legacy DeepFaceLab remap+affine+flip warp on torch tensors.
+    Apply remap+affine+flip warp on torch tensors.
 
     Args:
         image: Tensor of shape (C, H, W) or (B, C, H, W).

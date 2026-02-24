@@ -1,7 +1,7 @@
 """
-Legacy parity checks for DALI warp implementation.
+Parity checks for DALI warp implementation.
 
-These tests validate that the modern DALI warp path tracks legacy DFL behavior
+These tests validate that the DALI warp path tracks reference behavior
 closely enough for augmentation quality and consistency.
 """
 
@@ -17,12 +17,12 @@ from visagen.data.dali_warp import apply_warp_grid_numpy, gen_dali_warp_grid
 cv2 = pytest.importorskip("cv2")
 
 
-def _legacy_style_grid_batch(
+def _reference_style_grid_batch(
     size: int,
     batch_size: int,
     seed: int = 42,
 ) -> np.ndarray:
-    """Reference implementation based on legacy `core/imagelib/warp.py`."""
+    """Reference implementation based on `core/imagelib/warp.py`."""
     rnd = np.random.RandomState(seed)
     grids = []
 
@@ -76,8 +76,8 @@ def _grid_displacement_stats(grids: np.ndarray) -> tuple[float, float, float, fl
     )
 
 
-def test_warp_grid_displacement_distribution_matches_legacy() -> None:
-    """Modern displacement distribution should track legacy reference."""
+def test_warp_grid_displacement_distribution_matches_reference() -> None:
+    """Modern displacement distribution should track reference."""
     size = 256
     batch_size = 64
     seed = 42
@@ -87,20 +87,20 @@ def test_warp_grid_displacement_distribution_matches_legacy() -> None:
         batch_size=batch_size,
         rng=np.random.default_rng(seed),
     )
-    legacy = _legacy_style_grid_batch(size=size, batch_size=batch_size, seed=seed)
+    ref = _reference_style_grid_batch(size=size, batch_size=batch_size, seed=seed)
 
     ours_stats = _grid_displacement_stats(ours)
-    legacy_stats = _grid_displacement_stats(legacy)
+    ref_stats = _grid_displacement_stats(ref)
 
     # Means should stay near zero and stds should be close.
-    assert abs(ours_stats[0] - legacy_stats[0]) < 0.03
-    assert abs(ours_stats[1] - legacy_stats[1]) < 0.08
-    assert abs(ours_stats[2] - legacy_stats[2]) < 0.03
-    assert abs(ours_stats[3] - legacy_stats[3]) < 0.08
+    assert abs(ours_stats[0] - ref_stats[0]) < 0.03
+    assert abs(ours_stats[1] - ref_stats[1]) < 0.08
+    assert abs(ours_stats[2] - ref_stats[2]) < 0.03
+    assert abs(ours_stats[3] - ref_stats[3]) < 0.08
 
 
-def test_warp_effect_mse_tracks_legacy_reference() -> None:
-    """Warp severity (MSE from original) should be in legacy-equivalent range."""
+def test_warp_effect_mse_tracks_reference() -> None:
+    """Warp severity (MSE from original) should be in expected range."""
     size = 128
     seed = 7
     rng = np.random.default_rng(123)
@@ -111,14 +111,14 @@ def test_warp_effect_mse_tracks_legacy_reference() -> None:
         batch_size=1,
         rng=np.random.default_rng(seed),
     )[0]
-    legacy_grid = _legacy_style_grid_batch(size=size, batch_size=1, seed=seed)[0]
+    ref_grid = _reference_style_grid_batch(size=size, batch_size=1, seed=seed)[0]
 
     ours_warped = apply_warp_grid_numpy(image, ours_grid)
-    legacy_warped = apply_warp_grid_numpy(image, legacy_grid)
+    ref_warped = apply_warp_grid_numpy(image, ref_grid)
 
     mse_ours = float(np.mean((ours_warped - image) ** 2))
-    mse_legacy = float(np.mean((legacy_warped - image) ** 2))
-    rel = abs(mse_ours - mse_legacy) / max(mse_legacy, 1e-8)
+    mse_ref = float(np.mean((ref_warped - image) ** 2))
+    rel = abs(mse_ours - mse_ref) / max(mse_ref, 1e-8)
     assert rel < 0.35
 
     try:
@@ -127,7 +127,7 @@ def test_warp_effect_mse_tracks_legacy_reference() -> None:
         ssim_val = float(
             ssim(
                 ours_warped,
-                legacy_warped,
+                ref_warped,
                 data_range=1.0,
                 channel_axis=2,
             )

@@ -2,13 +2,13 @@
 End-to-end training integration tests.
 
 These tests verify that experimental models can be instantiated
-through DFLModule and perform forward passes correctly.
+through TrainingModule and perform forward passes correctly.
 """
 
 import pytest
 import torch
 
-from visagen.training.dfl_module import DFLModule
+from visagen.training.training_module import TrainingModule
 
 # =============================================================================
 # Model Type Integration Tests
@@ -35,7 +35,7 @@ class TestModelTypeIntegration:
 
     def test_standard_model_forward(self, input_64, batch_size):
         """Test standard model forward pass."""
-        model = DFLModule(
+        model = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64],
             encoder_depths=[1, 1],
@@ -44,13 +44,14 @@ class TestModelTypeIntegration:
         )
 
         with torch.no_grad():
-            output = model(input_64)
+            result = model(input_64)
+        output = result[0] if isinstance(result, tuple) else result
 
         assert output.shape == (batch_size, 3, 64, 64)
 
     def test_standard_model_has_encoder_decoder(self):
         """Test standard model has encoder and decoder."""
-        model = DFLModule(
+        model = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64],
             encoder_depths=[1, 1],
@@ -65,7 +66,7 @@ class TestModelTypeIntegration:
 
     def test_diffusion_model_forward(self, input_64, batch_size):
         """Test diffusion model forward pass."""
-        model = DFLModule(
+        model = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64, 128, 256],
             encoder_depths=[1, 1, 2, 1],
@@ -83,7 +84,7 @@ class TestModelTypeIntegration:
 
     def test_diffusion_model_has_unified_model(self):
         """Test diffusion model uses unified DiffusionAutoEncoder."""
-        model = DFLModule(
+        model = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64, 128, 256],
             encoder_depths=[1, 1, 2, 1],
@@ -99,7 +100,7 @@ class TestModelTypeIntegration:
 
     def test_eg3d_model_forward(self, input_32, batch_size):
         """Test EG3D model forward pass."""
-        model = DFLModule(
+        model = TrainingModule(
             image_size=32,
             encoder_dims=[32, 64, 128, 256],
             encoder_depths=[1, 1, 2, 1],
@@ -116,7 +117,7 @@ class TestModelTypeIntegration:
 
     def test_eg3d_model_structure(self):
         """Test EG3D model has encoder and generator."""
-        model = DFLModule(
+        model = TrainingModule(
             image_size=32,
             encoder_dims=[32, 64, 128, 256],
             encoder_depths=[1, 1, 2, 1],
@@ -138,11 +139,11 @@ class TestModelTypeIntegration:
 
 
 class TestTextureLossIntegration:
-    """Test texture loss integration in DFLModule."""
+    """Test texture loss integration in TrainingModule."""
 
     def test_texture_loss_property_lazy_loading(self):
         """Test texture loss is lazy loaded."""
-        model = DFLModule(
+        model = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64],
             encoder_depths=[1, 1],
@@ -161,7 +162,7 @@ class TestTextureLossIntegration:
             "torchvision", reason="torchvision required for texture loss"
         )
 
-        model = DFLModule(
+        model = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64, 128, 256],
             encoder_depths=[1, 1, 2, 1],
@@ -182,7 +183,7 @@ class TestTextureLossIntegration:
             "torchvision", reason="torchvision required for texture loss"
         )
 
-        model = DFLModule(
+        model = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64, 128, 256],
             encoder_depths=[1, 1, 2, 1],
@@ -210,7 +211,7 @@ class TestHyperparameterConfiguration:
 
     def test_model_type_in_hparams(self):
         """Test model_type is saved in hyperparameters."""
-        model = DFLModule(
+        model = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64],
             encoder_depths=[1, 1],
@@ -224,7 +225,7 @@ class TestHyperparameterConfiguration:
 
     def test_eg3d_params_in_hparams(self):
         """Test EG3D parameters are saved in hyperparameters."""
-        model = DFLModule(
+        model = TrainingModule(
             image_size=32,
             encoder_dims=[32, 64, 128, 256],
             encoder_depths=[1, 1, 2, 1],
@@ -249,7 +250,7 @@ class TestOptimizerConfiguration:
 
     def test_standard_model_optimizer_params(self):
         """Test standard model optimizer uses encoder+decoder params."""
-        model = DFLModule(
+        model = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64],
             encoder_depths=[1, 1],
@@ -268,7 +269,7 @@ class TestOptimizerConfiguration:
 
     def test_diffusion_model_optimizer_params(self):
         """Test diffusion model optimizer uses unified model params."""
-        model = DFLModule(
+        model = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64, 128, 256],
             encoder_depths=[1, 1, 2, 1],

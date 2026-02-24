@@ -44,7 +44,7 @@ class FinalSorter(SortMethod):
 
     name = "final"
     description = "Select best faces with pose variety and sharpness"
-    requires_dfl_metadata = True
+    requires_face_metadata = True
     execution_profile = "cpu_bound"
 
     def __init__(
@@ -127,7 +127,7 @@ class FinalSorter(SortMethod):
         yaw_binned: list[list[ProcessedImage]] = [[] for _ in range(self.yaw_bins)]
 
         for img in valid_images:
-            yaw = -img.yaw  # Negate to match legacy behavior
+            yaw = -img.yaw  # Negate for correct orientation
             bin_idx = self._find_bin(yaw, yaw_space)
             yaw_binned[bin_idx].append(img)
 

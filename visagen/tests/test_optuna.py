@@ -238,7 +238,7 @@ class TestOptunaTunerIntegration:
     @pytest.mark.integration
     def test_create_objective(self):
         """Test objective function creation."""
-        # This would require actual DFLModule and DataModule
+        # This would require actual TrainingModule and DataModule
         # Marked as integration test
         pass
 

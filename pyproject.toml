@@ -178,7 +178,7 @@ visagen-enhance = "visagen.tools.faceset_enhancer:main"
 visagen-resize = "visagen.tools.faceset_resizer:main"
 visagen-clean = "visagen.tools.dataset_cleaner:main"
 visagen-mask-export = "visagen.tools.mask_export:main"
-visagen-util = "visagen.tools.util_legacy:main"
+visagen-util = "visagen.tools.util_compat:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

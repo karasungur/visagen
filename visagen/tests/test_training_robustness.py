@@ -139,9 +139,9 @@ class TestGradientAccumulation:
 
     def test_accumulation_parameter_accepted(self):
         """Module should accept gradient_accumulation_steps parameter."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(
+        module = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64],
             encoder_depths=[1, 1],
@@ -151,9 +151,9 @@ class TestGradientAccumulation:
 
     def test_temporal_checkpoint_parameter(self):
         """Module should accept temporal_checkpoint parameter."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(
+        module = TrainingModule(
             image_size=64,
             encoder_dims=[32, 64],
             encoder_depths=[1, 1],

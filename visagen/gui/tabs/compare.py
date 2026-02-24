@@ -181,11 +181,12 @@ class CompareTab(BaseTab):
         try:
             import torch
 
-            from visagen.training.dfl_module import DFLModule
+            from visagen.training.training_module import TrainingModule
 
-            model = DFLModule.load_from_checkpoint(
+            model = TrainingModule.load_from_checkpoint(
                 checkpoint_path,
                 map_location="cpu",
+                strict=False,
             )
             model.eval()
 
@@ -268,6 +269,10 @@ class CompareTab(BaseTab):
         # Inference
         with torch.no_grad():
             output = model(img_tensor)
+
+        # Unpack tuple if decoder returns (image, mask)
+        if isinstance(output, tuple):
+            output = output[0]
 
         # Postprocess
         output = output.squeeze(0).cpu().numpy()

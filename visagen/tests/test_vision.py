@@ -15,7 +15,7 @@ from visagen.vision.aligner import (
     transform_points,
     umeyama,
 )
-from visagen.vision.dflimg import DFLImage, FaceMetadata
+from visagen.vision.face_image import FaceImage, FaceMetadata
 from visagen.vision.face_type import FACE_TYPE_TO_PADDING, FaceType
 
 
@@ -315,26 +315,26 @@ class TestFaceMetadata:
         assert metadata.embedding is None
 
 
-class TestDFLImage:
-    """Tests for DFLImage class."""
+class TestFaceImage:
+    """Tests for FaceImage class."""
 
     def test_has_metadata_nonexistent_file(self, tmp_path):
         """Non-existent file should return False."""
         fake_path = tmp_path / "nonexistent.jpg"
-        assert DFLImage.has_metadata(fake_path) is False
+        assert FaceImage.has_metadata(fake_path) is False
 
     def test_jpeg_markers(self):
         """JPEG markers should have correct values."""
-        assert DFLImage._SOI == 0xD8
-        assert DFLImage._EOI == 0xD9
-        assert DFLImage._APP15 == 0xEF
+        assert FaceImage._SOI == 0xD8
+        assert FaceImage._EOI == 0xD9
+        assert FaceImage._APP15 == 0xEF
 
     def test_parse_empty_data(self):
         """Empty data should return None."""
-        result = DFLImage._parse_jpeg_metadata(b"")
+        result = FaceImage._parse_jpeg_metadata(b"")
         assert result is None
 
     def test_parse_invalid_jpeg(self):
         """Invalid JPEG should return None."""
-        result = DFLImage._parse_jpeg_metadata(b"not a jpeg file")
+        result = FaceImage._parse_jpeg_metadata(b"not a jpeg file")
         assert result is None

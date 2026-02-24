@@ -1,7 +1,7 @@
 """
 LIAE (Lightweight Inter-AB-B Encoder) Architecture for Visagen.
 
-Port of DeepFaceLab's LIAE architecture to PyTorch.
+LIAE architecture for Visagen.
 LIAE differs from DF by using a shared decoder with InterAB/InterB code concatenation.
 
 Key Differences from DF:
@@ -52,7 +52,7 @@ class LIAEArchi(nn.Module):
     """
     LIAE (Lightweight Inter-AB-B Encoder) Architecture.
 
-    This is an alternative SAEHD architecture from DeepFaceLab that uses
+    This is an alternative SAEHD architecture that uses
     less memory by sharing the decoder between src and dst.
 
     Architecture:

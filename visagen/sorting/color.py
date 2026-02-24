@@ -12,7 +12,7 @@ import numpy as np
 from visagen.sorting.base import SortMethod
 
 if TYPE_CHECKING:
-    from visagen.vision.dflimg import FaceMetadata
+    from visagen.vision.face_image import FaceMetadata
 
 
 class BrightnessSorter(SortMethod):
@@ -25,7 +25,7 @@ class BrightnessSorter(SortMethod):
 
     name = "brightness"
     description = "Sort by brightness"
-    requires_dfl_metadata = False
+    requires_face_metadata = False
     execution_profile = "io_bound"
 
     def compute_score(
@@ -49,7 +49,7 @@ class HueSorter(SortMethod):
 
     name = "hue"
     description = "Sort by hue"
-    requires_dfl_metadata = False
+    requires_face_metadata = False
     execution_profile = "io_bound"
 
     def compute_score(
@@ -75,7 +75,7 @@ class BlackPixelSorter(SortMethod):
 
     name = "black"
     description = "Sort by amount of black pixels"
-    requires_dfl_metadata = False
+    requires_face_metadata = False
     execution_profile = "io_bound"
 
     @property
@@ -102,7 +102,7 @@ class SaturationSorter(SortMethod):
 
     name = "saturation"
     description = "Sort by color saturation"
-    requires_dfl_metadata = False
+    requires_face_metadata = False
 
     def compute_score(
         self,
@@ -125,7 +125,7 @@ class ContrastSorter(SortMethod):
 
     name = "contrast"
     description = "Sort by contrast"
-    requires_dfl_metadata = False
+    requires_face_metadata = False
 
     def compute_score(
         self,

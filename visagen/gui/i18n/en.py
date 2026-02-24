@@ -840,7 +840,7 @@ TRANSLATIONS = {
         },
         "resize": {
             "title": "Faceset Resizing",
-            "description": "Resize face images with DFL metadata preservation.",
+            "description": "Resize face images with face metadata preservation.",
             "input": {
                 "label": "Input Directory",
                 "placeholder": "./workspace/data_src/aligned",

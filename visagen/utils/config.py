@@ -61,9 +61,53 @@ CONFIG_SCHEMA: dict[str, dict[str, Any]] = {
     "lpips_weight": {"type": "float", "min": 0.0, "default": 0.0},
     "eyes_mouth_weight": {"type": "float", "min": 0.0, "default": 0.0},
     "gaze_weight": {"type": "float", "min": 0.0, "default": 0.0},
+    "id_weight": {"type": "float", "min": 0.0, "default": 0.0},
+    "face_style_weight": {"type": "float", "min": 0.0, "default": 0.0},
+    "bg_style_weight": {"type": "float", "min": 0.0, "default": 0.0},
+    "mask_weight": {"type": "float", "min": 0.0, "default": 10.0},
+    # ==========================================================================
+    # Optimizer
+    # ==========================================================================
+    "optimizer_type": {
+        "type": "str",
+        "choices": ["adamw", "adabelief"],
+        "default": "adamw",
+    },
+    "weight_decay": {"type": "float", "min": 0.0, "max": 1.0, "default": 0.01},
+    "lr_dropout": {"type": "float", "min": 0.0, "max": 1.0, "default": 1.0},
+    "lr_cos_period": {"type": "int", "min": 0, "default": 0},
+    "clipnorm": {"type": "float", "min": 0.0, "default": 0.0},
+    "warmup_epochs": {"type": "int", "min": 0, "default": 0},
+    "scheduler_type": {
+        "type": "str",
+        "choices": ["cosine", "plateau", "constant"],
+        "default": "cosine",
+    },
+    # ==========================================================================
+    # GAN
+    # ==========================================================================
+    "true_face_power": {"type": "float", "min": 0.0, "default": 0.0},
+    "gan_power": {"type": "float", "min": 0.0, "default": 0.0},
+    "gan_mode": {
+        "type": "str",
+        "choices": ["vanilla", "lsgan", "hinge"],
+        "default": "vanilla",
+    },
+    "gan_patch_size": {"type": "int", "min": 1, "default": 70},
+    "gan_base_ch": {"type": "int", "min": 1, "default": 16},
+    "feature_matching_weight": {"type": "float", "min": 0.0, "default": 0.0},
+    "d_betas": {"type": "str", "default": "0.5,0.999"},
+    # ==========================================================================
+    # Temporal
+    # ==========================================================================
+    "temporal_enabled": {"type": "bool", "default": False},
+    "temporal_power": {"type": "float", "min": 0.0, "default": 0.1},
+    "temporal_sequence_length": {"type": "int", "min": 2, "default": 5},
+    "temporal_consistency_weight": {"type": "float", "min": 0.0, "default": 1.0},
     # ==========================================================================
     # Augmentation
     # ==========================================================================
+    "masked_training": {"type": "bool", "default": False},
     "no_augmentation": {"type": "bool", "default": False},
     "no_warp": {"type": "bool", "default": False},
     # ==========================================================================
@@ -262,12 +306,40 @@ def print_config_summary(config: dict[str, Any]) -> None:
             "val_split",
         ],
         "Model": ["model_type", "encoder_dims", "encoder_depths"],
+        "Optimizer": [
+            "optimizer_type",
+            "weight_decay",
+            "lr_dropout",
+            "lr_cos_period",
+            "clipnorm",
+            "warmup_epochs",
+            "scheduler_type",
+        ],
         "Loss Weights": [
             "dssim_weight",
             "l1_weight",
             "lpips_weight",
             "eyes_mouth_weight",
             "gaze_weight",
+            "id_weight",
+            "face_style_weight",
+            "bg_style_weight",
+            "mask_weight",
+        ],
+        "GAN": [
+            "gan_power",
+            "gan_mode",
+            "gan_patch_size",
+            "gan_base_ch",
+            "true_face_power",
+            "feature_matching_weight",
+            "d_betas",
+        ],
+        "Temporal": [
+            "temporal_enabled",
+            "temporal_power",
+            "temporal_sequence_length",
+            "temporal_consistency_weight",
         ],
         "Preview & Backup": [
             "preview_interval",

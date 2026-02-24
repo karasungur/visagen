@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 _CPBD_FAILURE_LOGGED = False
 
 if TYPE_CHECKING:
-    from visagen.vision.dflimg import FaceMetadata
+    from visagen.vision.face_image import FaceMetadata
 
 
 def get_face_hull_mask(
@@ -92,16 +92,16 @@ class BlurSorter(SortMethod):
     """
     Sort by image sharpness (blur detection).
 
-    Uses CPBD (legacy-compatible) to estimate sharpness.
+    Uses CPBD to estimate sharpness.
     Higher scores indicate sharper (less blurry) images.
 
-    If DFL metadata is available, applies face mask to focus
+    If face metadata is available, applies face mask to focus
     sharpness estimation on the face region only.
     """
 
     name = "blur"
-    description = "Sort by image sharpness (CPBD, legacy-compatible)"
-    requires_dfl_metadata = True
+    description = "Sort by image sharpness (CPBD)"
+    requires_face_metadata = True
     execution_profile = "cpu_bound"
 
     def compute_score(
@@ -129,12 +129,12 @@ class BlurFastSorter(SortMethod):
     Fast blur sorter using Laplacian variance.
 
     This mode is optimized for throughput and does not guarantee
-    legacy CPBD parity.
+    CPBD parity.
     """
 
     name = "blur-fast"
     description = "Sort by image sharpness (fast Laplacian)"
-    requires_dfl_metadata = True
+    requires_face_metadata = True
     execution_profile = "cpu_bound"
 
     def compute_score(
@@ -165,7 +165,7 @@ class MotionBlurSorter(SortMethod):
 
     name = "motion-blur"
     description = "Sort by motion blur (Laplacian ksize=11)"
-    requires_dfl_metadata = True
+    requires_face_metadata = True
     execution_profile = "cpu_bound"
 
     def compute_score(

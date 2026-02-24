@@ -43,8 +43,8 @@ class TestDALIAvailability:
         """DALI_AVAILABLE constant should match function result."""
         assert DALI_AVAILABLE == check_dali_available()
 
-    def test_pipeline_flip_default_matches_legacy_value(self):
-        """Default DALI flip probability should align with legacy/PyTorch path."""
+    def test_pipeline_flip_default_matches_reference_value(self):
+        """Default DALI flip probability should align with PyTorch path."""
         import visagen.data.dali_pipeline as dali_pipeline
 
         source = Path(dali_pipeline.__file__).read_text()
@@ -107,7 +107,7 @@ class TestDALIInputResolution:
 
 
 class TestDALIWarpGrid:
-    """Tests for DFL-style warp grid generation."""
+    """Tests for warp grid generation."""
 
     def test_gen_dali_warp_grid_shape(self):
         """Generated grids should have correct shape."""
@@ -477,7 +477,7 @@ class TestDALIDataModuleFallback:
             )
 
     def test_dali_iterator_wrapper_returns_training_tuple_format(self):
-        """Wrapper should expose (src_dict, dst_dict) expected by DFLModule."""
+        """Wrapper should expose (src_dict, dst_dict) expected by TrainingModule."""
         from visagen.data.dali_loader import DALIIteratorWrapper
 
         class _FakeIterator:

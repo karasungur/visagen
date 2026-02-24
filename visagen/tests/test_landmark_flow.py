@@ -2,7 +2,7 @@
 Tests for Landmark Data Flow.
 
 Tests verify that landmarks are properly passed through:
-1. FaceDataset -> PairedFaceDataset -> DFLModule.training_step
+1. FaceDataset -> PairedFaceDataset -> TrainingModule.training_step
 2. EyesMouthLoss and GazeLoss receive landmarks when weights > 0
 3. TransformWrapper preserves landmarks during augmentation
 
@@ -24,7 +24,7 @@ class MockFaceDataset(torch.utils.data.Dataset):
     """
     Mock dataset that returns dict with image and landmarks.
 
-    Used for testing the data pipeline without requiring real DFL images.
+    Used for testing the data pipeline without requiring real face images.
     """
 
     def __init__(self, num_samples: int = 5, image_size: int = 256):
@@ -125,7 +125,7 @@ class TestPairedFaceDatasetLandmarks:
         assert src_sample["landmarks"].shape == (68, 2)
         assert dst_sample["landmarks"].shape == (68, 2)
 
-    def test_legacy_mode_returns_tensors_only(self, mock_paired_datasets):
+    def test_simple_mode_returns_tensors_only(self, mock_paired_datasets):
         """PairedFaceDataset with return_dict=False returns only image tensors."""
         src_dataset, dst_dataset = mock_paired_datasets
         paired = PairedFaceDataset(src_dataset, dst_dataset, return_dict=False)
@@ -194,18 +194,18 @@ class TestTransformWrapperLandmarks:
 
 
 # =============================================================================
-# DFLModule Integration Tests
+# TrainingModule Integration Tests
 # =============================================================================
 
 
-class TestDFLModuleLandmarkIntegration:
-    """Test that DFLModule properly receives and uses landmarks."""
+class TestTrainingModuleLandmarkIntegration:
+    """Test that TrainingModule properly receives and uses landmarks."""
 
     def test_training_step_accepts_dict_batch(self):
-        """DFLModule.training_step should accept dict-based batch."""
-        from visagen.training.dfl_module import DFLModule
+        """TrainingModule.training_step should accept dict-based batch."""
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(image_size=64)
+        module = TrainingModule(image_size=64)
 
         # Create mock batch with dicts
         src_dict = {
@@ -224,10 +224,10 @@ class TestDFLModuleLandmarkIntegration:
         assert torch.isfinite(loss)
 
     def test_compute_loss_with_landmarks(self):
-        """DFLModule.compute_loss should accept landmarks parameter."""
-        from visagen.training.dfl_module import DFLModule
+        """TrainingModule.compute_loss should accept landmarks parameter."""
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(image_size=64)
+        module = TrainingModule(image_size=64)
 
         pred = torch.randn(2, 3, 64, 64)
         target = torch.randn(2, 3, 64, 64)
@@ -240,9 +240,9 @@ class TestDFLModuleLandmarkIntegration:
 
     def test_eyes_mouth_loss_computed_when_enabled(self):
         """Eyes/Mouth loss should be computed when weight > 0."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(image_size=64, eyes_mouth_weight=1.0)
+        module = TrainingModule(image_size=64, eyes_mouth_weight=1.0)
 
         pred = torch.randn(2, 3, 64, 64)
         target = torch.randn(2, 3, 64, 64)
@@ -255,9 +255,9 @@ class TestDFLModuleLandmarkIntegration:
 
     def test_gaze_loss_computed_when_enabled(self):
         """Gaze loss should be computed when weight > 0."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(image_size=64, gaze_weight=1.0)
+        module = TrainingModule(image_size=64, gaze_weight=1.0)
 
         pred = torch.randn(2, 3, 64, 64)
         target = torch.randn(2, 3, 64, 64)
@@ -270,9 +270,9 @@ class TestDFLModuleLandmarkIntegration:
 
     def test_no_landmark_losses_when_disabled(self):
         """Landmark-based losses should not appear when weights are 0."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(image_size=64, eyes_mouth_weight=0.0, gaze_weight=0.0)
+        module = TrainingModule(image_size=64, eyes_mouth_weight=0.0, gaze_weight=0.0)
 
         pred = torch.randn(2, 3, 64, 64)
         target = torch.randn(2, 3, 64, 64)
@@ -285,9 +285,9 @@ class TestDFLModuleLandmarkIntegration:
 
     def test_no_landmark_losses_when_landmarks_none(self):
         """Landmark-based losses should not appear when landmarks are None."""
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(image_size=64, eyes_mouth_weight=1.0, gaze_weight=1.0)
+        module = TrainingModule(image_size=64, eyes_mouth_weight=1.0, gaze_weight=1.0)
 
         pred = torch.randn(2, 3, 64, 64)
         target = torch.randn(2, 3, 64, 64)
@@ -300,10 +300,10 @@ class TestDFLModuleLandmarkIntegration:
         assert "gaze" not in loss_dict
 
     def test_validation_step_accepts_dict_batch(self):
-        """DFLModule.validation_step should accept dict-based batch."""
-        from visagen.training.dfl_module import DFLModule
+        """TrainingModule.validation_step should accept dict-based batch."""
+        from visagen.training.training_module import TrainingModule
 
-        module = DFLModule(image_size=64)
+        module = TrainingModule(image_size=64)
 
         # Create mock batch with dicts
         src_dict = {
@@ -333,7 +333,7 @@ class TestEndToEndLandmarkFlow:
     def test_full_pipeline_with_landmarks(self, mock_paired_datasets):
         """Test complete data flow from dataset to loss computation."""
         from visagen.data.augmentations import FaceAugmentationPipeline
-        from visagen.training.dfl_module import DFLModule
+        from visagen.training.training_module import TrainingModule
 
         src_dataset, dst_dataset = mock_paired_datasets
 
@@ -358,7 +358,7 @@ class TestEndToEndLandmarkFlow:
         )
 
         # Create model with landmark losses enabled
-        module = DFLModule(image_size=64, eyes_mouth_weight=1.0, gaze_weight=1.0)
+        module = TrainingModule(image_size=64, eyes_mouth_weight=1.0, gaze_weight=1.0)
 
         # Run training step
         loss = module.training_step(batch, 0)

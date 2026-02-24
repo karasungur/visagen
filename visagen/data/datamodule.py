@@ -89,7 +89,7 @@ class PairedFaceDataset(Dataset):
         src_dataset: Source person face dataset.
         dst_dataset: Destination person face dataset.
         return_dict: If True, return full dicts with landmarks/mask.
-                     If False, return only image tensors (legacy). Default: True.
+                     If False, return only image tensors. Default: True.
 
     Example:
         >>> src_data = FaceDataset(Path("data_src/aligned"))
@@ -149,7 +149,7 @@ class PairedFaceDataset(Dataset):
         if self.return_dict:
             return src_sample, dst_sample
         else:
-            # Legacy mode: return only images
+            # Simple mode: return only images
             return src_sample["image"], dst_sample["image"]
 
 
@@ -218,7 +218,7 @@ class TransformWrapper(Dataset):
                     # Landmarks remain unchanged.
                     return src, dst
                 else:
-                    # Legacy tensor-only paired dataset
+                    # Tensor-only paired dataset
                     src, _ = self.transform(src, None)
                     dst, _ = self.transform(dst, None)
                     return src, dst
@@ -323,7 +323,7 @@ if pl is not None:
 
     class FaceDataModule(pl.LightningDataModule):
         """
-        Lightning DataModule for DFL face training.
+        Lightning DataModule for face training.
 
         Manages src/dst datasets with proper train/val splits,
         augmentation, and DataLoader configuration.
@@ -374,7 +374,7 @@ if pl is not None:
             self.uniform_yaw = uniform_yaw
             self.allow_packed_faceset = allow_packed_faceset
 
-            # Default augmentation config matching legacy DFL
+            # Default augmentation config
             self.aug_config = augmentation_config or {
                 "random_flip_prob": 0.4,
                 "random_warp": True,

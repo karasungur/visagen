@@ -2,7 +2,7 @@
 Model architectures for Visagen.
 
 This module contains various face swapping model architectures
-ported from DeepFaceLab legacy codebase to modern PyTorch.
+implemented in modern PyTorch.
 
 Available Architectures:
     - DFArchi: Direct Face architecture with separate src/dst decoders

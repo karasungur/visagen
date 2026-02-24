@@ -63,10 +63,10 @@ def _load_and_process_single(
             compute_histogram as compute_color_histogram,
         )
         from visagen.vision.aligner import FaceAligner
-        from visagen.vision.dflimg import DFLImage
+        from visagen.vision.face_image import FaceImage
 
         # Load image with metadata
-        image, metadata = DFLImage.load(filepath)
+        image, metadata = FaceImage.load(filepath)
 
         if image is None:
             return ProcessedImage(

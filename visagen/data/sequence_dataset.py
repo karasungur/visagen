@@ -28,17 +28,17 @@ def _scan_image_paths(root_dir: Path) -> list[Path]:
 
 
 def _source_filename_sort_key(path: Path) -> tuple[str, str]:
-    """Sort key using DFL metadata source filename with filename fallback."""
+    """Sort key using face metadata source filename with filename fallback."""
     fallback = path.stem
     if path.suffix.lower() not in {".jpg", ".jpeg"}:
         return fallback, path.name
 
     try:
-        from visagen.vision.dflimg import DFLImage
+        from visagen.vision.face_image import FaceImage
 
         with open(path, "rb") as f:
             data = f.read()
-        parsed = DFLImage._parse_jpeg_metadata(data)
+        parsed = FaceImage._parse_jpeg_metadata(data)
         if isinstance(parsed, dict):
             source_filename = str(parsed.get("source_filename") or fallback)
             return source_filename, path.name
@@ -71,7 +71,7 @@ class SequenceFaceDataset(Dataset):
         stride: Skip frames between sequence starts. Default: 1.
         transform: Optional augmentation transform.
         sort_mode: Temporal ordering source:
-            - "source_filename": Prefer DFL metadata source filename (legacy parity)
+            - "source_filename": Prefer source filename metadata for temporal ordering
             - "stem": Filename stem order fallback behavior
     """
 
@@ -259,7 +259,7 @@ class RandomSequenceDataset(Dataset):
         transform: Optional augmentation.
         sort_mode: Temporal ordering mode for scanned frame list.
         stride_mode: Sequence stride behavior:
-            - "fixed": contiguous frames (legacy-disabled behavior)
+            - "fixed": contiguous frames (no temporal stride)
             - "random": random temporal multiplier in [1, max_stride]
         max_stride: Maximum temporal multiplier for random stride mode.
     """

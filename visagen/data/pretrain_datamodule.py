@@ -22,10 +22,10 @@ except ImportError:
 
 from visagen.data.augmentations import FaceAugmentationPipeline  # noqa: E402
 
-# Pretrain-specific augmentation config (matches legacy DFL pretrain behavior)
+# Pretrain-specific augmentation config
 PRETRAIN_AUGMENTATION_CONFIG = {
     "random_flip_prob": 0.5,  # random_flips=True
-    "random_warp": False,  # random_warp=False (per legacy DFL)
+    "random_warp": False,
     "rotation_range": (-10, 10),
     "scale_range": (-0.05, 0.05),
     "translation_range": (-0.05, 0.05),

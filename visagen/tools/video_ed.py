@@ -7,9 +7,6 @@ Provides tools for:
     - Temporal denoising of image sequences
 
 Uses FFmpeg via subprocess for reliable video processing.
-
-References:
-    - Legacy DFL: mainscripts/VideoEd.py
 """
 
 from __future__ import annotations
