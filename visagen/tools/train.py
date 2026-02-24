@@ -136,6 +136,19 @@ Examples:
         help="Gradient clipping norm for AdaBelief (default: 0.0)",
     )
     parser.add_argument(
+        "--warmup-steps",
+        type=int,
+        default=0,
+        help="LR warmup steps (0 = disabled, default: 0)",
+    )
+    parser.add_argument(
+        "--scheduler",
+        type=str,
+        default="cosine",
+        choices=["cosine", "plateau", "constant"],
+        help="LR scheduler type (default: cosine)",
+    )
+    parser.add_argument(
         "--image-size",
         type=int,
         default=256,
@@ -247,6 +260,18 @@ Examples:
         type=float,
         default=0.0,
         help="GAN loss power (default: 0.0, enables adversarial training when > 0)",
+    )
+    parser.add_argument(
+        "--feature-matching-weight",
+        type=float,
+        default=0.0,
+        help="Feature matching loss weight for GAN training (default: 0.0)",
+    )
+    parser.add_argument(
+        "--d-betas",
+        type=str,
+        default="0.5,0.999",
+        help="Discriminator optimizer betas as comma-separated values (default: 0.5,0.999)",
     )
     parser.add_argument(
         "--id-weight",
@@ -563,6 +588,8 @@ def main() -> int:
         "lr_dropout": 1.0,
         "lr_cos_period": 0,
         "clipnorm": 0.0,
+        "warmup_steps": 0,
+        "scheduler": "cosine",
         "image_size": 256,
         "num_workers": 4,
         "val_split": 0.1,
@@ -578,6 +605,8 @@ def main() -> int:
         "bg_style_weight": 0.0,
         "true_face_power": 0.0,
         "gan_power": 0.0,
+        "feature_matching_weight": 0.0,
+        "d_betas": "0.5,0.999",
         "id_weight": 0.0,
         "temporal_enabled": False,
         "temporal_power": 0.1,
@@ -811,6 +840,8 @@ def main() -> int:
             bg_style_weight=args.bg_style_weight,
             true_face_power=args.true_face_power,
             gan_power=args.gan_power,
+            feature_matching_weight=args.feature_matching_weight,
+            d_betas=tuple(float(x) for x in args.d_betas.split(",")),  # type: ignore[arg-type]
             id_weight=args.id_weight,
             # Temporal parameters
             temporal_enabled=args.temporal_enabled,
@@ -822,6 +853,8 @@ def main() -> int:
             lr_dropout=args.lr_dropout,
             lr_cos_period=args.lr_cos_period,
             clipnorm=args.clipnorm,
+            warmup_steps=args.warmup_steps,
+            scheduler_type=args.scheduler,
             # Experimental model parameters
             model_type=args.model_type,
             diffusion_texture_weight=args.texture_weight,

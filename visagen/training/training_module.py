@@ -8,6 +8,7 @@ and temporal training with 3D Conv discriminator.
 """
 
 import logging
+import math
 from typing import Any, cast
 
 import pytorch_lightning as pl
@@ -95,6 +96,9 @@ class TrainingModule(pl.LightningModule):
         lr_dropout: float = 1.0,  # 1.0 = no dropout (for AdaBelief)
         lr_cos_period: int = 0,  # 0 = disabled (for AdaBelief)
         clipnorm: float = 0.0,  # 0.0 = disabled (for AdaBelief)
+        # Scheduler settings
+        warmup_steps: int = 0,  # 0 = disabled
+        scheduler_type: str = "cosine",  # "cosine", "plateau", "constant"
         # Loss weights
         dssim_weight: float = 10.0,
         l1_weight: float = 10.0,
@@ -118,6 +122,8 @@ class TrainingModule(pl.LightningModule):
         gan_patch_size: int = 70,
         gan_mode: str = "vanilla",
         gan_base_ch: int = 16,
+        feature_matching_weight: float = 0.0,
+        d_betas: tuple[float, float] = (0.5, 0.999),
         use_spectral_norm: bool | None = None,
         # Temporal parameters
         temporal_enabled: bool = False,
@@ -173,6 +179,8 @@ class TrainingModule(pl.LightningModule):
         self.bg_style_weight = bg_style_weight
         self.mask_weight = mask_weight
         self.masked_training = masked_training
+        self.feature_matching_weight = feature_matching_weight
+        self.d_betas = d_betas
 
         # Optional components are initialized lazily or conditionally.
         self.model: Any | None = None
@@ -182,6 +190,7 @@ class TrainingModule(pl.LightningModule):
         self.gan_loss: Any | None = None
         self.d_loss_fn: Any | None = None
         self.tv_loss: Any | None = None
+        self.feature_matching_loss: Any | None = None
         self.temporal_discriminator: Any | None = None
         self.temporal_gan_loss: Any | None = None
         self.temporal_d_loss_fn: Any | None = None
@@ -400,6 +409,14 @@ class TrainingModule(pl.LightningModule):
         self.gan_loss = GANLoss(mode=self.gan_mode)
         self.d_loss_fn = DiscriminatorLoss(mode=self.gan_mode)
         self.tv_loss = TotalVariationLoss(weight=1e-6)
+
+        # Feature matching loss (if enabled)
+        if self.feature_matching_weight > 0:
+            from visagen.training.losses import FeatureMatchingLoss
+
+            self.feature_matching_loss = FeatureMatchingLoss(
+                weight=self.feature_matching_weight
+            )
 
     def _init_temporal(
         self,
@@ -807,6 +824,7 @@ class TrainingModule(pl.LightningModule):
 
         # Adversarial loss for generator (if GAN enabled)
         g_adv_loss = torch.tensor(0.0, device=pred.device)
+        fm_loss = torch.tensor(0.0, device=pred.device)
         if self.gan_power > 0 and self.discriminator is not None:
             # Generator wants discriminator to classify fake as real
             assert self.gan_loss is not None
@@ -816,6 +834,16 @@ class TrainingModule(pl.LightningModule):
                 d_fake_center, target_is_real=True
             ) + self.gan_loss(d_fake_final, target_is_real=True)
             loss_dict["g_adv"] = g_adv_loss
+
+            # Feature matching loss (compare discriminator features on real vs fake)
+            if self.feature_matching_loss is not None:
+                with torch.no_grad():
+                    d_real_center, d_real_final = self.discriminator(src)
+                fm_loss = self.feature_matching_loss(
+                    [d_real_center, d_real_final],
+                    [d_fake_center, d_fake_final],
+                )
+                loss_dict["fm"] = fm_loss
 
         # Total variation to suppress artifacts
         tv_loss = torch.tensor(0.0, device=pred.device)
@@ -841,6 +869,7 @@ class TrainingModule(pl.LightningModule):
             total_loss
             + self.gan_power * g_adv_loss
             + tv_loss
+            + fm_loss
             + self.true_face_power * g_code_loss
         )
 
@@ -1139,8 +1168,16 @@ class TrainingModule(pl.LightningModule):
 
         return total_loss
 
-    def _get_optimizer(self, params: Any) -> torch.optim.Optimizer:
-        """Helper to create optimizer based on config."""
+    def _get_optimizer(
+        self, params: Any, betas: tuple[float, float] | None = None
+    ) -> torch.optim.Optimizer:
+        """Helper to create optimizer based on config.
+
+        Args:
+            params: Model parameters to optimize.
+            betas: Optional beta coefficients override. If None, uses (0.9, 0.999).
+        """
+        betas = betas or (0.9, 0.999)
         optimizer_type = str(self.hparams.get("optimizer_type", "adamw"))
         if optimizer_type == "adabelief":
             from visagen.training.optimizers.adabelief import AdaBelief
@@ -1149,7 +1186,7 @@ class TrainingModule(pl.LightningModule):
                 params,
                 lr=self.learning_rate,
                 weight_decay=self.weight_decay,
-                betas=(0.9, 0.999),
+                betas=betas,
                 lr_dropout=float(self.hparams.get("lr_dropout", 1.0)),
                 lr_cos_period=int(self.hparams.get("lr_cos_period", 0)),
                 clipnorm=float(self.hparams.get("clipnorm", 0.0)),
@@ -1159,8 +1196,71 @@ class TrainingModule(pl.LightningModule):
                 params,
                 lr=self.learning_rate,
                 weight_decay=self.weight_decay,
-                betas=(0.9, 0.999),
+                betas=betas,
             )
+
+    def _get_max_epochs(self) -> int:
+        """Resolve max epochs from trainer or fallback to 100."""
+        try:
+            trainer_max_epochs = self.trainer.max_epochs
+        except RuntimeError:
+            trainer_max_epochs = 100
+        return (
+            int(trainer_max_epochs)
+            if trainer_max_epochs is not None and int(trainer_max_epochs) > 0
+            else 100
+        )
+
+    def _build_scheduler(self, optimizer: torch.optim.Optimizer) -> dict[str, Any]:
+        """Build LR scheduler with optional warmup.
+
+        Supports three scheduler types:
+        - "cosine": CosineAnnealing with optional linear warmup phase
+        - "plateau": ReduceLROnPlateau monitoring val_total
+        - "constant": No scheduling (returns dummy constant scheduler)
+
+        Args:
+            optimizer: The optimizer to attach the scheduler to.
+
+        Returns:
+            Scheduler config dict compatible with PyTorch Lightning.
+        """
+        scheduler_type = str(self.hparams.get("scheduler_type", "cosine"))
+        warmup_steps = int(self.hparams.get("warmup_steps", 0))
+
+        if scheduler_type == "plateau":
+            plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="min", factor=0.5, patience=10
+            )
+            return {
+                "scheduler": plateau_scheduler,
+                "monitor": "val_total",
+                "interval": "epoch",
+            }
+
+        if scheduler_type == "constant":
+            constant_scheduler = torch.optim.lr_scheduler.LambdaLR(
+                optimizer, lr_lambda=lambda _epoch: 1.0
+            )
+            return {"scheduler": constant_scheduler, "interval": "epoch"}
+
+        # Cosine (with optional warmup)
+        max_epochs = self._get_max_epochs()
+        cosine_scheduler: torch.optim.lr_scheduler.LRScheduler
+        if warmup_steps > 0:
+
+            def lr_lambda(epoch: int) -> float:
+                if epoch < warmup_steps:
+                    return (epoch + 1) / warmup_steps
+                progress = (epoch - warmup_steps) / max(1, max_epochs - warmup_steps)
+                return float(0.5 * (1 + math.cos(math.pi * progress)))
+
+            cosine_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+        else:
+            cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=max_epochs, eta_min=1e-6
+            )
+        return {"scheduler": cosine_scheduler, "interval": "epoch"}
 
     def configure_optimizers(self) -> Any:
         """
@@ -1177,16 +1277,6 @@ class TrainingModule(pl.LightningModule):
         Returns:
             Single optimizer dict (AE mode) or tuple of optimizer/scheduler lists (GAN/temporal mode).
         """
-        try:
-            trainer_max_epochs = self.trainer.max_epochs
-        except RuntimeError:
-            trainer_max_epochs = 100
-        max_epochs = (
-            int(trainer_max_epochs)
-            if trainer_max_epochs is not None and int(trainer_max_epochs) > 0
-            else 100
-        )
-
         # Generator optimizer - model type dependent
         if self.model_type == "diffusion":
             assert self.model is not None
@@ -1202,104 +1292,90 @@ class TrainingModule(pl.LightningModule):
             g_params = list(self.encoder.parameters()) + list(self.decoder.parameters())
 
         g_optimizer = self._get_optimizer(g_params)
-        g_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            g_optimizer, T_max=max_epochs, eta_min=1e-6
-        )
+        g_scheduler = self._build_scheduler(g_optimizer)
 
         # Code discriminator optimizer (if true_face_power enabled)
-        code_optimizer = None
-        code_scheduler = None
+        code_optimizer: torch.optim.Optimizer | None = None
+        code_scheduler: dict[str, Any] | None = None
         if self.true_face_power > 0 and self.code_discriminator is not None:
-            code_optimizer = self._get_optimizer(self.code_discriminator.parameters())
-            code_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                code_optimizer, T_max=max_epochs, eta_min=1e-6
+            code_optimizer = self._get_optimizer(
+                self.code_discriminator.parameters(), betas=self.d_betas
             )
+            code_scheduler = self._build_scheduler(code_optimizer)
 
         if self.temporal_enabled and self.gan_power > 0:
             # Temporal + GAN: 3+ optimizers
             assert self.discriminator is not None
-            d_optimizer = self._get_optimizer(self.discriminator.parameters())
-            d_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                d_optimizer, T_max=max_epochs, eta_min=1e-6
+            d_optimizer = self._get_optimizer(
+                self.discriminator.parameters(), betas=self.d_betas
             )
+            d_scheduler = self._build_scheduler(d_optimizer)
 
             assert self.temporal_discriminator is not None
-            t_optimizer = self._get_optimizer(self.temporal_discriminator.parameters())
-            t_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                t_optimizer, T_max=max_epochs, eta_min=1e-6
+            t_optimizer = self._get_optimizer(
+                self.temporal_discriminator.parameters(), betas=self.d_betas
             )
+            t_scheduler = self._build_scheduler(t_optimizer)
 
             optimizers = [g_optimizer, d_optimizer, t_optimizer]
-            schedulers = [
-                {"scheduler": g_scheduler, "interval": "epoch"},
-                {"scheduler": d_scheduler, "interval": "epoch"},
-                {"scheduler": t_scheduler, "interval": "epoch"},
-            ]
+            schedulers = [g_scheduler, d_scheduler, t_scheduler]
 
             if code_optimizer is not None:
+                assert code_scheduler is not None
                 optimizers.append(code_optimizer)
-                schedulers.append({"scheduler": code_scheduler, "interval": "epoch"})
+                schedulers.append(code_scheduler)
 
             return (optimizers, schedulers)
 
         elif self.temporal_enabled:
             # Temporal only: 2+ optimizers (generator + temporal discriminator)
             assert self.temporal_discriminator is not None
-            t_optimizer = self._get_optimizer(self.temporal_discriminator.parameters())
-            t_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                t_optimizer, T_max=max_epochs, eta_min=1e-6
+            t_optimizer = self._get_optimizer(
+                self.temporal_discriminator.parameters(), betas=self.d_betas
             )
+            t_scheduler = self._build_scheduler(t_optimizer)
 
             optimizers = [g_optimizer, t_optimizer]
-            schedulers = [
-                {"scheduler": g_scheduler, "interval": "epoch"},
-                {"scheduler": t_scheduler, "interval": "epoch"},
-            ]
+            schedulers = [g_scheduler, t_scheduler]
 
             if code_optimizer is not None:
+                assert code_scheduler is not None
                 optimizers.append(code_optimizer)
-                schedulers.append({"scheduler": code_scheduler, "interval": "epoch"})
+                schedulers.append(code_scheduler)
 
             return (optimizers, schedulers)
 
         elif self.gan_power > 0:
             # GAN only: 2+ optimizers (generator + spatial discriminator)
             assert self.discriminator is not None
-            d_optimizer = self._get_optimizer(self.discriminator.parameters())
-            d_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                d_optimizer, T_max=max_epochs, eta_min=1e-6
+            d_optimizer = self._get_optimizer(
+                self.discriminator.parameters(), betas=self.d_betas
             )
+            d_scheduler = self._build_scheduler(d_optimizer)
 
             optimizers = [g_optimizer, d_optimizer]
-            schedulers = [
-                {"scheduler": g_scheduler, "interval": "epoch"},
-                {"scheduler": d_scheduler, "interval": "epoch"},
-            ]
+            schedulers = [g_scheduler, d_scheduler]
 
             if code_optimizer is not None:
+                assert code_scheduler is not None
                 optimizers.append(code_optimizer)
-                schedulers.append({"scheduler": code_scheduler, "interval": "epoch"})
+                schedulers.append(code_scheduler)
 
             return (optimizers, schedulers)
 
         elif self.true_face_power > 0 and code_optimizer is not None:
             # true_face only: 2 optimizers (generator + code_discriminator)
+            assert code_scheduler is not None
             return (
                 [g_optimizer, code_optimizer],
-                [
-                    {"scheduler": g_scheduler, "interval": "epoch"},
-                    {"scheduler": code_scheduler, "interval": "epoch"},
-                ],
+                [g_scheduler, code_scheduler],
             )
 
         else:
-            # AE only: single optimizer - use the already created g_optimizer
+            # AE only: single optimizer
             return {
                 "optimizer": g_optimizer,
-                "lr_scheduler": {
-                    "scheduler": g_scheduler,
-                    "interval": "epoch",
-                },
+                "lr_scheduler": g_scheduler,
             }
 
     def generate_preview(
