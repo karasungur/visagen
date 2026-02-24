@@ -240,6 +240,7 @@ class FrameProcessor:
             loaded_model = TrainingModule.load_from_checkpoint(
                 str(model_path),
                 map_location=self.device,
+                strict=False,
             )
             loaded_model = loaded_model.to(self.device)
             return loaded_model

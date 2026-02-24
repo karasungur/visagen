@@ -255,6 +255,7 @@ class SimpleMergerBenchmark:
         model = TrainingModule.load_from_checkpoint(
             self.config.checkpoint_path,
             map_location="cpu",
+            strict=False,
         )
         model.eval()
         if device == "cuda":
@@ -273,6 +274,8 @@ class SimpleMergerBenchmark:
         for _ in range(self.config.num_warmup):
             with torch.no_grad():
                 output = model(face_crop)
+            if isinstance(output, tuple):
+                output = output[0]  # image tensor, discard mask
             output_np = output.squeeze(0).permute(1, 2, 0).cpu().numpy()
             output_np = np.clip(output_np, 0, 1).astype(np.float32)
 
@@ -292,6 +295,8 @@ class SimpleMergerBenchmark:
                 with torch.no_grad():
                     output = model(face_crop)
 
+                if isinstance(output, tuple):
+                    output = output[0]  # image tensor, discard mask
                 output_np = output.squeeze(0).permute(1, 2, 0).cpu().numpy()
                 output_np = np.clip(output_np, 0, 1).astype(np.float32)
 

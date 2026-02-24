@@ -151,6 +151,7 @@ class InferenceBenchmark:
         model = TrainingModule.load_from_checkpoint(
             self.config.checkpoint_path,
             map_location="cpu",
+            strict=False,
         )
         model.eval()
 

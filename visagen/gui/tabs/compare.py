@@ -186,6 +186,7 @@ class CompareTab(BaseTab):
             model = TrainingModule.load_from_checkpoint(
                 checkpoint_path,
                 map_location="cpu",
+                strict=False,
             )
             model.eval()
 
