@@ -77,7 +77,7 @@ CONFIG_SCHEMA: dict[str, dict[str, Any]] = {
     "lr_dropout": {"type": "float", "min": 0.0, "max": 1.0, "default": 1.0},
     "lr_cos_period": {"type": "int", "min": 0, "default": 0},
     "clipnorm": {"type": "float", "min": 0.0, "default": 0.0},
-    "warmup_steps": {"type": "int", "min": 0, "default": 0},
+    "warmup_epochs": {"type": "int", "min": 0, "default": 0},
     "scheduler_type": {
         "type": "str",
         "choices": ["cosine", "plateau", "constant"],
@@ -312,7 +312,7 @@ def print_config_summary(config: dict[str, Any]) -> None:
             "lr_dropout",
             "lr_cos_period",
             "clipnorm",
-            "warmup_steps",
+            "warmup_epochs",
             "scheduler_type",
         ],
         "Loss Weights": [

@@ -97,7 +97,7 @@ class TrainingModule(pl.LightningModule):
         lr_cos_period: int = 0,  # 0 = disabled (for AdaBelief)
         clipnorm: float = 0.0,  # 0.0 = disabled (for AdaBelief)
         # Scheduler settings
-        warmup_steps: int = 0,  # 0 = disabled
+        warmup_epochs: int = 0,  # 0 = disabled
         scheduler_type: str = "cosine",  # "cosine", "plateau", "constant"
         # Loss weights
         dssim_weight: float = 10.0,
@@ -1214,6 +1214,9 @@ class TrainingModule(pl.LightningModule):
     def _build_scheduler(self, optimizer: torch.optim.Optimizer) -> dict[str, Any]:
         """Build LR scheduler with optional warmup.
 
+        All schedulers operate on epoch-level intervals. The warmup parameter
+        specifies the number of warmup epochs (not steps).
+
         Supports three scheduler types:
         - "cosine": CosineAnnealing with optional linear warmup phase
         - "plateau": ReduceLROnPlateau monitoring val_total
@@ -1226,7 +1229,7 @@ class TrainingModule(pl.LightningModule):
             Scheduler config dict compatible with PyTorch Lightning.
         """
         scheduler_type = str(self.hparams.get("scheduler_type", "cosine"))
-        warmup_steps = int(self.hparams.get("warmup_steps", 0))
+        warmup_epochs = int(self.hparams.get("warmup_epochs", 0))
 
         if scheduler_type == "plateau":
             plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -1247,12 +1250,12 @@ class TrainingModule(pl.LightningModule):
         # Cosine (with optional warmup)
         max_epochs = self._get_max_epochs()
         cosine_scheduler: torch.optim.lr_scheduler.LRScheduler
-        if warmup_steps > 0:
+        if warmup_epochs > 0:
 
             def lr_lambda(epoch: int) -> float:
-                if epoch < warmup_steps:
-                    return (epoch + 1) / warmup_steps
-                progress = (epoch - warmup_steps) / max(1, max_epochs - warmup_steps)
+                if epoch < warmup_epochs:
+                    return (epoch + 1) / warmup_epochs
+                progress = (epoch - warmup_epochs) / max(1, max_epochs - warmup_epochs)
                 return float(0.5 * (1 + math.cos(math.pi * progress)))
 
             cosine_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)

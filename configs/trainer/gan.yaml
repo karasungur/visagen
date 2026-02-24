@@ -19,7 +19,7 @@ weight_decay: 0.01
 # Scheduler
 # =========================================================================
 scheduler_type: "cosine"
-warmup_steps: 1000
+warmup_epochs: 5
 
 # =========================================================================
 # Loss weights (reduced when GAN is active)

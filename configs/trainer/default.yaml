@@ -31,7 +31,7 @@ clipnorm: 0.0                  # 0.0 = disabled (AdaBelief only)
 # Scheduler
 # =========================================================================
 scheduler_type: "cosine"       # Options: cosine, plateau, constant
-warmup_steps: 1000
+warmup_epochs: 5
 
 # =========================================================================
 # Model
